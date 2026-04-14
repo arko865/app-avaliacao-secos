@@ -269,17 +269,40 @@ function updateUI() {
 }
 function drawPdfFrame(doc, pageWidth, pageHeight) {
   doc.setFillColor(215,25,32);
-  doc.rect(0, 0, pageWidth, 8, 'F');
-  doc.rect(0, pageHeight - 10, pageWidth, 10, 'F');
+  doc.rect(0, 0, pageWidth, 7, 'F');
+  doc.rect(0, pageHeight - 12, pageWidth, 12, 'F');
   doc.setDrawColor(230,230,230);
-  doc.roundedRect(10, 10, pageWidth - 20, pageHeight - 24, 4, 4);
-  if (LOGO_DATA) doc.addImage(LOGO_DATA, 'PNG', pageWidth/2 - 22, 12, 44, 18);
-  doc.setFont('helvetica','bold'); doc.setFontSize(11);
-  doc.text('Arko Soluções', pageWidth/2, 36, {align:'center'});
-  doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
-  doc.text('Rua Fortaleza, 201 - Sala 13 - Shopping Adrianópolis | Bairro: Adrianópolis', pageWidth/2, 41, {align:'center'});
-  doc.text('CEP: 69057-080 - Manaus - AM | CNPJ: 18.691.812/0001-96', pageWidth/2, 45, {align:'center'});
-  doc.setDrawColor(215,25,32); doc.line(16, 49, pageWidth - 16, 49);
+  doc.roundedRect(10, 10, pageWidth - 20, pageHeight - 26, 4, 4);
+  if (LOGO_DATA) doc.addImage(LOGO_DATA, 'PNG', pageWidth/2 - 16, 12, 32, 13);
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(16);
+  doc.setTextColor(15,23,42);
+  doc.text('Relatório de Avaliação de Inventário', pageWidth/2, 33, {align:'center'});
+  doc.setDrawColor(215,25,32);
+  doc.line(16, 38, pageWidth - 16, 38);
+}
+function drawPdfFooter(doc, pageWidth, pageHeight, includeSignatures = false) {
+  const footerY = pageHeight - 18;
+  doc.setTextColor(255,255,255);
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(8.5);
+  doc.text('Arko Soluções', pageWidth / 2, pageHeight - 7.8, { align:'center' });
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(7.2);
+  doc.text('Rua Fortaleza, 201 - Sala 13 - Shopping Adrianópolis | Bairro: Adrianópolis', pageWidth / 2, pageHeight - 4.9, { align:'center' });
+  doc.text('CEP: 69057-080 - Manaus - AM | CNPJ: 18.691.812/0001-96', pageWidth / 2, pageHeight - 2.1, { align:'center' });
+  doc.setTextColor(15,23,42);
+
+  if (includeSignatures) {
+    const sigY = pageHeight - 28;
+    doc.setDrawColor(130,130,130);
+    doc.line(24, sigY, 84, sigY);
+    doc.line(pageWidth - 84, sigY, pageWidth - 24, sigY);
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(9);
+    doc.text('Assinatura Responsável Arko', 54, sigY + 5, { align:'center' });
+    doc.text('Assinatura Responsável Cliente', pageWidth - 54, sigY + 5, { align:'center' });
+  }
 }
 function exportPDF() {
   try {
@@ -288,88 +311,183 @@ function exportPDF() {
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const summary = getSummary();
-    let y = 56;
-    const bottomLimit = pageHeight - 22;
-    function ensureSpace(needed=10) { if (y + needed > bottomLimit) { doc.addPage(); drawPdfFrame(doc, pageWidth, pageHeight); y = 56; } }
-    function sectionTitle(text) { ensureSpace(10); doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.setTextColor(15,23,42); doc.text(text, 16, y); y += 7; }
-    function fieldRow(label, value, x, width) {
-      doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.text(label, x, y);
+    let y = 45;
+    const contentBottom = pageHeight - 40;
+
+    function newPage() {
+      drawPdfFooter(doc, pageWidth, pageHeight, false);
+      doc.addPage();
+      drawPdfFrame(doc, pageWidth, pageHeight);
+      y = 45;
+    }
+
+    function ensureSpace(needed=10, reserveSignature=false) {
+      const limit = reserveSignature ? pageHeight - 55 : contentBottom;
+      if (y + needed > limit) newPage();
+    }
+
+    function sectionTitle(text) {
+      ensureSpace(10);
+      doc.setTextColor(15,23,42);
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(12);
+      doc.text(text, 16, y);
+      y += 7;
+    }
+
+    function infoBox(x, top, w, title, value) {
+      const valueLines = doc.splitTextToSize(String(value || '-'), w - 10);
+      const h = Math.max(16, 10 + valueLines.length * 4.2);
+      doc.setFillColor(255,255,255);
+      doc.setDrawColor(226,232,240);
+      doc.roundedRect(x, top, w, h, 3, 3, 'FD');
+      doc.setTextColor(100,116,139);
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(8.5);
+      doc.text(title, x + 4, top + 5.5);
+      doc.setTextColor(15,23,42);
       doc.setFont('helvetica','normal');
-      const lines = doc.splitTextToSize(String(value || '-'), width - 2);
-      doc.text(lines, x + 28, y);
-      return Math.max(5, lines.length * 4.2);
+      doc.setFontSize(9.5);
+      doc.text(valueLines, x + 4, top + 10.5);
+      return h;
     }
+
     function metricBox(x, top, w, h, title, value, approved) {
-      if (approved) { doc.setFillColor(220,252,231); doc.setTextColor(20,83,45); } else { doc.setFillColor(127,29,29); doc.setTextColor(255,255,255); }
+      if (approved) {
+        doc.setFillColor(220,252,231);
+        doc.setTextColor(20,83,45);
+      } else {
+        doc.setFillColor(127,29,29);
+        doc.setTextColor(255,255,255);
+      }
       doc.roundedRect(x, top, w, h, 4, 4, 'F');
-      doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.text(title, x + w/2, top + 7, {align:'center'});
-      doc.setFontSize(19); doc.text(value, x + w/2, top + 16, {align:'center'});
-      doc.setFontSize(11); doc.text(approved ? 'Loja Aprovada' : 'Loja Reprovada', x + w/2, top + 24, {align:'center'});
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(10);
+      doc.text(title, x + w/2, top + 7, {align:'center'});
+      doc.setFontSize(22);
+      doc.text(value, x + w/2, top + 18, {align:'center'});
+      doc.setFontSize(12);
+      doc.text(approved ? 'Loja Aprovada' : 'Loja Reprovada', x + w/2, top + 27, {align:'center'});
       doc.setTextColor(15,23,42);
     }
+
     function smallMetric(x, top, w, h, title, value) {
-      doc.setFillColor(241,245,249); doc.roundedRect(x, top, w, h, 4, 4, 'F');
-      doc.setTextColor(15,23,42); doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.text(title, x + 4, top + 7);
-      doc.setFontSize(16); doc.text(value, x + 4, top + 17);
-    }
-    drawPdfFrame(doc, pageWidth, pageHeight);
-    doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.text('Relatório de Avaliação de Inventário', pageWidth/2, y, {align:'center'}); y += 10;
-    sectionTitle('Resumo da Loja');
-    const infoStartY = y;
-    const leftX = 16, rightX = 110, infoWidth = 82;
-    let leftH = 0, rightH = 0;
-    leftH += fieldRow('Loja:', state.form.nomeLoja || '-', leftX, infoWidth); y += 0;
-    leftH += fieldRow('Visita:', state.form.visita || '-', leftX, infoWidth); y += 0;
-    leftH += fieldRow('Coord. Arko:', state.form.coordArko || '-', leftX, infoWidth); y += 0;
-    leftH += fieldRow('Gerente:', state.form.gerenteLoja || '-', leftX, infoWidth); y += 0;
-    y = infoStartY;
-    doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.text('Data:', rightX, y); doc.setFont('helvetica','normal'); doc.text(state.form.data || '-', rightX+22, y); rightH += 5;
-    y += 5;
-    doc.setFont('helvetica','bold'); doc.text('Hora:', rightX, y); doc.setFont('helvetica','normal'); doc.text(state.form.horaVisita || '-', rightX+22, y); rightH += 5;
-    y += 5;
-    doc.setFont('helvetica','bold'); doc.text('Gerente acompanhou:', rightX, y); doc.setFont('helvetica','normal'); doc.text(state.form.gerenteAcompanhou ? 'Sim' : 'Não', rightX+38, y); rightH += 5;
-    y += 5;
-    doc.setFont('helvetica','bold'); doc.text('Itens críticos:', rightX, y); doc.setFont('helvetica','normal'); doc.text(String(summary.itensCriticos), rightX+28, y); rightH += 5;
-    y = infoStartY + Math.max(leftH, rightH) + 6;
-    ensureSpace(38);
-    metricBox(16, y, 58, 28, 'Nota Geral', formatPercent(summary.notaFinal), summary.notaFinal >= STATUS_THRESHOLD);
-    smallMetric(79, y, 55, 28, 'Depósito / Aéreo', formatPercent(summary.deposito.nota));
-    smallMetric(139, y, 55, 28, 'Área de Venda', formatPercent(summary.venda.nota));
-    y += 34;
-    smallMetric(16, y, 42, 22, 'Áreas avaliadas', String(summary.totalAreas));
-    smallMetric(62, y, 42, 22, 'Não conformes', String(summary.totalNaoConformes));
-    smallMetric(108, y, 42, 22, 'Depósito NC', String(summary.deposito.nc));
-    smallMetric(154, y, 40, 22, 'Venda NC', String(summary.venda.nc));
-    y += 30;
-    sectionTitle('Itens Avaliados');
-    summary.rows.forEach(row => {
-      const descLines = doc.splitTextToSize(row.description, 150);
-      const obsLines = doc.splitTextToSize(row.observacao || '-', 132);
-      const boxH = Math.max(22, 10 + descLines.length * 4 + obsLines.length * 4);
-      ensureSpace(boxH + 4);
-      doc.setFillColor(255,255,255); doc.setDrawColor(226,232,240); doc.roundedRect(16, y, 178, boxH, 3, 3, 'FD');
-      doc.setFillColor(row.itemScore >= STATUS_THRESHOLD ? 220 : 127, row.itemScore >= STATUS_THRESHOLD ? 252 : 29, row.itemScore >= STATUS_THRESHOLD ? 231 : 29);
-      doc.roundedRect(160, y + 4, 28, 14, 3, 3, 'F');
-      doc.setTextColor(row.itemScore >= STATUS_THRESHOLD ? 20 : 255, row.itemScore >= STATUS_THRESHOLD ? 83 : 255, row.itemScore >= STATUS_THRESHOLD ? 45 : 255);
-      doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.text(formatPercent(row.itemScore), 174, y + 13, {align:'center'});
+      doc.setFillColor(241,245,249);
+      doc.setDrawColor(226,232,240);
+      doc.roundedRect(x, top, w, h, 4, 4, 'FD');
+      doc.setTextColor(100,116,139);
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(8.5);
+      const titleLines = doc.splitTextToSize(title, w - 8);
+      doc.text(titleLines, x + 4, top + 6);
       doc.setTextColor(15,23,42);
-      doc.text(`Item ${row.id}`, 20, y + 7);
-      doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.text(descLines, 20, y + 13);
-      let lineY = y + 13 + descLines.length * 4 + 2;
-      doc.setFont('helvetica','bold'); doc.text('Áreas avaliadas:', 20, lineY); doc.setFont('helvetica','normal'); doc.text(String(row.areaAvaliada), 48, lineY);
-      doc.setFont('helvetica','bold'); doc.text('Não conformes:', 68, lineY); doc.setFont('helvetica','normal'); doc.text(String(row.naoConformes), 94, lineY);
-      lineY += 5;
-      doc.setFont('helvetica','bold'); doc.text('Observações:', 20, lineY); doc.setFont('helvetica','normal'); doc.text(obsLines, 44, lineY);
-      y += boxH + 4;
-    });
+      doc.setFontSize(16);
+      doc.text(String(value), x + 4, top + h - 5);
+    }
+
+    function itemCard(row) {
+      const descLines = doc.splitTextToSize(row.description, 114);
+      const obsLines = doc.splitTextToSize(row.observacao || '-', 150);
+      const boxH = Math.max(28, 24 + descLines.length * 4 + obsLines.length * 4);
+      ensureSpace(boxH + 5);
+      doc.setFillColor(255,255,255);
+      doc.setDrawColor(226,232,240);
+      doc.roundedRect(16, y, 178, boxH, 3, 3, 'FD');
+
+      doc.setFillColor(241,245,249);
+      doc.roundedRect(20, y + 4, 22, 8, 3, 3, 'F');
+      doc.setTextColor(15,23,42);
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(9);
+      doc.text(`Item ${row.id}`, 31, y + 9.3, {align:'center'});
+
+      const approved = row.itemScore >= STATUS_THRESHOLD;
+      if (approved) {
+        doc.setFillColor(220,252,231);
+        doc.setTextColor(20,83,45);
+      } else {
+        doc.setFillColor(127,29,29);
+        doc.setTextColor(255,255,255);
+      }
+      doc.roundedRect(154, y + 4, 34, 12, 3, 3, 'F');
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(11);
+      doc.text(formatPercent(row.itemScore), 171, y + 11.5, {align:'center'});
+
+      doc.setTextColor(15,23,42);
+      doc.setFont('helvetica','normal');
+      doc.setFontSize(9.5);
+      doc.text(descLines, 20, y + 18);
+
+      let lineY = y + 18 + descLines.length * 4 + 2;
+      doc.setFont('helvetica','bold');
+      doc.text('Áreas avaliadas:', 20, lineY);
+      doc.setFont('helvetica','normal');
+      doc.text(String(row.areaAvaliada), 48, lineY);
+      doc.setFont('helvetica','bold');
+      doc.text('Não conformes:', 70, lineY);
+      doc.setFont('helvetica','normal');
+      doc.text(String(row.naoConformes), 96, lineY);
+
+      lineY += 6;
+      doc.setFont('helvetica','bold');
+      doc.text('Observações:', 20, lineY);
+      doc.setFont('helvetica','normal');
+      doc.text(obsLines, 44, lineY);
+
+      y += boxH + 5;
+    }
+
+    function infoNotice(title, value) {
+      const valueLines = doc.splitTextToSize(String(value || '-'), 102);
+      const h = Math.max(18, 10 + valueLines.length * 4.2);
+      ensureSpace(h + 5, true);
+      doc.setFillColor(241,245,249);
+      doc.setDrawColor(226,232,240);
+      doc.roundedRect(16, y, 178, h, 3, 3, 'FD');
+      doc.setTextColor(15,23,42);
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(9);
+      doc.text(title, 20, y + 7);
+      doc.setFont('helvetica','normal');
+      doc.text(valueLines, 92, y + 7);
+      y += h + 5;
+    }
+
+    drawPdfFrame(doc, pageWidth, pageHeight);
+
+    sectionTitle('Resumo da Loja');
+    const leftH1 = infoBox(16, y, 86, 'Loja', state.form.nomeLoja || '-');
+    const rightH1 = infoBox(108, y, 86, 'Visita', state.form.visita || '-');
+    y += Math.max(leftH1, rightH1) + 4;
+    const leftH2 = infoBox(16, y, 86, 'Coord. Arko', state.form.coordArko || '-');
+    const rightH2 = infoBox(108, y, 86, 'Gerente da Loja', state.form.gerenteLoja || '-');
+    y += Math.max(leftH2, rightH2) + 4;
+    const leftH3 = infoBox(16, y, 41, 'Data', state.form.data || '-');
+    const midH3 = infoBox(61, y, 41, 'Hora da visita', state.form.horaVisita || '-');
+    const rightH3 = infoBox(108, y, 86, 'Gerente acompanhou', state.form.gerenteAcompanhou ? 'Sim' : 'Não');
+    y += Math.max(leftH3, midH3, rightH3) + 7;
+
+    ensureSpace(58);
+    metricBox(16, y, 70, 32, 'Nota Geral', formatPercent(summary.notaFinal), summary.notaFinal >= STATUS_THRESHOLD);
+    smallMetric(90, y, 50, 24, 'Depósito / Aéreo', formatPercent(summary.deposito.nota));
+    smallMetric(144, y, 50, 24, 'Área de Venda', formatPercent(summary.venda.nota));
+    y += 28;
+    smallMetric(90, y, 24, 18, 'Áreas avaliadas', String(summary.totalAreas));
+    smallMetric(118, y, 24, 18, 'Não conformes', String(summary.totalNaoConformes));
+    smallMetric(146, y, 24, 18, 'Depósito NC', String(summary.deposito.nc));
+    smallMetric(174, y, 20, 18, 'Venda NC', String(summary.venda.nc));
+    y += 26;
+
+    sectionTitle('Itens Avaliados');
+    summary.rows.forEach(itemCard);
+
     sectionTitle('Itens Informativos (Sem Nota)');
-    ensureSpace(22);
-    doc.setFillColor(241,245,249); doc.roundedRect(16, y, 178, 20, 3, 3, 'F');
-    doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.text('Produtos que não deverão ser contados:', 20, y + 7); doc.setFont('helvetica','normal'); doc.text(doc.splitTextToSize(state.form.produtosIdentificados || '-', 105), 92, y + 7);
-    y += 24;
-    ensureSpace(22);
-    doc.setFillColor(241,245,249); doc.roundedRect(16, y, 178, 20, 3, 3, 'F');
-    doc.setFont('helvetica','bold'); doc.text('Mercadorias podem atrasar o inventário:', 20, y + 7); doc.setFont('helvetica','normal'); doc.text(doc.splitTextToSize(state.form.impactoMercadoria || '-', 100), 98, y + 7);
+    infoNotice('Produtos que não deverão ser contados:', state.form.produtosIdentificados || '-');
+    infoNotice('Mercadorias podem atrasar o inventário:', state.form.impactoMercadoria || '-');
+
+    ensureSpace(18, true);
+    drawPdfFooter(doc, pageWidth, pageHeight, true);
     doc.save(`${sanitizeFileName(state.form.nomeLoja)}.pdf`);
   } catch (error) { console.error(error); alert('Não foi possível gerar o PDF.'); }
 }

@@ -158,9 +158,10 @@
               <button id="saveEvaluationBtn" class="btn secondary" type="button">Salvar avaliação</button>
               <button id="downloadBackupBtn" class="btn secondary" type="button">Exportar backup</button>
               <button id="manageItemsBtn" class="btn secondary" type="button">Gerenciar itens</button>
+              <button id="streetCountsBtn" class="btn secondary" type="button">Paletes / Prateleiras</button>
               <button id="resetBtn" class="btn danger" type="button">Nova avaliação</button>
             </div>
-            <div class="muted-note">O app salva automaticamente o rascunho e sincroniza itens, histórico e avaliação entre os dispositivos conectados.</div>
+            <div class="muted-note">O app salva automaticamente o rascunho e sincroniza itens, histórico, contagem por rua e avaliação entre os dispositivos conectados.</div>
           </div>
         </div>
       </div>
@@ -224,6 +225,35 @@
     </div>
   </div>
 
+
+  <div id="streetCountsModal" class="manage-modal" aria-hidden="true">
+    <div class="manage-panel" style="max-width:1180px;">
+      <div class="manage-header">
+        <div>
+          <div class="manage-title">Paletes e Prateleiras por Rua</div>
+          <div class="manage-help">Digite livremente as quantidades por rua. O app soma automaticamente os totais e preenche <strong>Áreas avaliadas</strong> dos itens vinculados.</div>
+        </div>
+        <button id="closeStreetCountsBtn" class="btn secondary" type="button">Fechar</button>
+      </div>
+      <div class="manage-body">
+        <div class="count-head">
+          <div>Rua</div>
+          <div>Paletes Full</div>
+          <div>Paletes Mix</div>
+          <div>Caixarias</div>
+          <div>Prateleiras</div>
+          <div></div>
+        </div>
+        <div id="streetCountsList" class="counts-table"></div>
+        <div id="streetCountsSummary" class="count-summary"></div>
+        <div class="manage-footer">
+          <button id="addStreetCountRowBtn" class="btn secondary" type="button">+ Adicionar rua</button>
+          <button id="saveStreetCountsBtn" class="btn" type="button">Salvar contagem automática</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast"></div>
 
 <script>
@@ -252,6 +282,13 @@ const INFORMATIVE_OPTIONS = {
   impactoMercadoria: ["Sim, não há espaço para movimentação", "Necessidade mão de obra extra", "Está de acordo com o esperado"]
 };
 const STATUS_THRESHOLD = 84.5;
+const AUTO_AREA_MAP = {
+  paletesMix:[1,2,6],
+  paletesFull:[4,7],
+  prateleiras:[8,10,11,12,13,14],
+  caixarias:[9]
+};
+const AUTO_AREA_ITEM_IDS = Array.from(new Set(Object.values(AUTO_AREA_MAP).flat()));
 const STORE_OPTIONS = ["01 Matriz", "07 Compensa", "10 Flores", "100 TG Foods", "11 G. Circular", "12 Djalma", "13 Via Norte", "18 Viver Melhor", "20 Adrianópolis", "22 Morada", "31 Torres", "32 Centro", "33 Barreira", "34 Silves", "35 Cid Deus", "36 Ponte C", "44 Ponta Negra", "48 Galpão Cd", "52 Alvorada", "53 Cid. Nova", "54 Max Teixeira", "55 Dom Pedro", "56 Coroado", "57 Parque10", "58 Nilton Lins"];
 const STORAGE_KEY = 'arko_avaliacao_rascunho_v2';
 const HISTORY_KEY = 'arko_avaliacao_historico_v2';
@@ -282,6 +319,44 @@ function makeDefaultItems() {
     naoAvaliar:false
   }));
 }
+function makeDefaultStreetCounts() {
+  return [{ id: Date.now(), rua:'Rua 1', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'' }];
+}
+function normalizeStreetCount(row, index) {
+  return {
+    id: row?.id || `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`,
+    rua: String(row?.rua || `Rua ${index + 1}`).trim() || `Rua ${index + 1}`,
+    paletesFull: String(row?.paletesFull ?? ''),
+    paletesMix: String(row?.paletesMix ?? ''),
+    caixarias: String(row?.caixarias ?? ''),
+    prateleiras: String(row?.prateleiras ?? '')
+  };
+}
+function getStreetCountTotals(rows = state.streetCounts || []) {
+  return rows.reduce((acc, row) => {
+    acc.paletesFull += toNumber(row.paletesFull);
+    acc.paletesMix += toNumber(row.paletesMix);
+    acc.caixarias += toNumber(row.caixarias);
+    acc.prateleiras += toNumber(row.prateleiras);
+    return acc;
+  }, { paletesFull:0, paletesMix:0, caixarias:0, prateleiras:0 });
+}
+function applyAutomaticAreas(targetState = state) {
+  if (!targetState || !Array.isArray(targetState.items)) return targetState;
+  const totals = getStreetCountTotals(targetState.streetCounts || []);
+  Object.entries(AUTO_AREA_MAP).forEach(([key, itemIds]) => {
+    const totalValue = String(totals[key] || '');
+    itemIds.forEach(itemId => {
+      const item = targetState.items.find(x => Number(x.id) === Number(itemId));
+      if (!item) return;
+      item.areaAvaliada = item.naoAvaliar ? '' : totalValue;
+      if (toNumber(item.naoConformes) > toNumber(item.areaAvaliada)) {
+        item.naoConformes = item.areaAvaliada;
+      }
+    });
+  });
+  return targetState;
+}
 function normalizeItem(item, index) {
   const fallbackSection = index < 7 ? 'deposito' : 'venda';
   return {
@@ -301,10 +376,14 @@ function normalizeState(candidate) {
     ? candidate.items.map((item, index) => normalizeItem(item, index))
     : defaults.items;
   items.forEach((item, index) => { item.id = index + 1; });
-  return {
+  const streetCounts = Array.isArray(candidate.streetCounts) && candidate.streetCounts.length
+    ? candidate.streetCounts.map((row, index) => normalizeStreetCount(row, index))
+    : defaults.streetCounts;
+  return applyAutomaticAreas({
     form: { ...defaults.form, ...(candidate.form || {}) },
-    items
-  };
+    items,
+    streetCounts
+  });
 }
 function buildDefaultState() {
   return {
@@ -312,12 +391,14 @@ function buildDefaultState() {
       nomeLoja:'', visita:'1° Visita', coordArko:'', setor:'', gerenteLoja:'', gerenteAcompanhou:true,
       data:new Date().toISOString().slice(0,10), horaVisita:'', produtosIdentificados:'', impactoMercadoria:''
     },
-    items: makeDefaultItems()
+    items: makeDefaultItems(),
+    streetCounts: makeDefaultStreetCounts()
   };
 }
 let state = buildDefaultState();
 let autosaveTimer = null;
 let manageDraftItems = null;
+let manageStreetCounts = null;
 
 let firestore = null;
 let firebaseReady = false;
@@ -607,6 +688,7 @@ function renderHistory() {
 function createItemCard(item) {
   const wrapper = document.createElement('div');
   wrapper.className = 'item-card' + (item.naoAvaliar ? ' not-evaluated' : '');
+  const autoArea = AUTO_AREA_ITEM_IDS.includes(Number(item.id));
   wrapper.innerHTML = `
     <div class="item-top">
       <div class="item-top-left">
@@ -616,14 +698,18 @@ function createItemCard(item) {
           <span>Não Avaliar</span>
         </label>
       </div>
-      <span class="score-text ${item.naoAvaliar ? 'na' : ''}" id="itemScore-${item.id}">${item.naoAvaliar ? 'N/A' : '0.0%'}<\/span>
+      <span class="score-text ${item.naoAvaliar ? 'na' : ''}" id="itemScore-${item.id}">${item.naoAvaliar ? 'N/A' : '0.0%'}</span>
     </div>
-    <p class="item-description">${item.description}<\/p>
+    <p class="item-description">${item.description}</p>
     <div class="grid-2">
-      <div class="field"><label>Áreas avaliadas</label><input type="number" inputmode="numeric" min="0" step="1" value="${item.areaAvaliada ?? ''}" data-id="${item.id}" data-field="areaAvaliada" ${item.naoAvaliar ? 'disabled' : ''} \/><\/div>
-      <div class="field"><label>Áreas não conformes</label><input type="number" inputmode="numeric" min="0" step="1" value="${item.naoConformes ?? ''}" data-id="${item.id}" data-field="naoConformes" ${item.naoAvaliar ? 'disabled' : ''} \/><\/div>
+      <div class="field">
+        <label>Áreas avaliadas</label>
+        <input type="number" inputmode="numeric" min="0" step="1" value="${item.areaAvaliada ?? ''}" data-id="${item.id}" data-field="areaAvaliada" ${item.naoAvaliar ? 'disabled' : ''} ${autoArea ? 'readonly' : ''} />
+        ${autoArea ? '<div class="auto-note">Preenchimento automático pela contagem por rua</div>' : ''}
+      </div>
+      <div class="field"><label>Áreas não conformes</label><input type="number" inputmode="numeric" min="0" step="1" value="${item.naoConformes ?? ''}" data-id="${item.id}" data-field="naoConformes" ${item.naoAvaliar ? 'disabled' : ''} /></div>
     </div>
-    <div class="field" style="margin-top:12px;"><label>Observações</label><textarea placeholder="Observações" data-id="${item.id}" data-field="observacao" ${item.naoAvaliar ? 'disabled' : ''}>${item.observacao || ''}<\/textarea><\/div>`;
+    <div class="field" style="margin-top:12px;"><label>Observações</label><textarea placeholder="Observações" data-id="${item.id}" data-field="observacao" ${item.naoAvaliar ? 'disabled' : ''}>${item.observacao || ''}</textarea></div>`;
   return wrapper;
 }
 
@@ -760,6 +846,7 @@ function saveManageItems() {
     manageDraftItems = makeDefaultItems();
   }
   state.items = reindexItems(clone(manageDraftItems));
+  applyAutomaticAreas(state);
   persistState();
   renderApp();
   closeManageItemsModal();
@@ -781,6 +868,99 @@ function addManagedItem(section) {
   manageDraftItems = reindexItems(manageDraftItems);
   renderManageItems();
   showToast('Novo item adicionado. Clique em "Salvar alterações" para confirmar.');
+}
+
+
+function renderStreetCounts() {
+  const list = document.getElementById('streetCountsList');
+  const summary = document.getElementById('streetCountsSummary');
+  if (!list || !summary) return;
+  const rows = Array.isArray(manageStreetCounts) ? manageStreetCounts : state.streetCounts;
+  list.innerHTML = '';
+  if (!rows.length) {
+    list.innerHTML = '<div class="manage-empty">Nenhuma rua cadastrada.</div>';
+  } else {
+    rows.forEach((row, index) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'count-row';
+      wrap.innerHTML = `
+        <div class="field"><label>Rua</label><input type="text" data-count-index="${index}" data-count-field="rua" value="${String(row.rua || '').replace(/"/g, '&quot;')}" placeholder="Ex.: Rua 1" /></div>
+        <div class="field"><label>Paletes Full</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="paletesFull" value="${row.paletesFull ?? ''}" /></div>
+        <div class="field"><label>Paletes Mix</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="paletesMix" value="${row.paletesMix ?? ''}" /></div>
+        <div class="field"><label>Caixarias</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="caixarias" value="${row.caixarias ?? ''}" /></div>
+        <div class="field"><label>Prateleiras</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="prateleiras" value="${row.prateleiras ?? ''}" /></div>
+        <button class="btn danger remove-count-row" type="button" data-remove-count-row="${index}">Excluir</button>
+      `;
+      list.appendChild(wrap);
+    });
+  }
+
+  list.querySelectorAll('[data-count-field]').forEach(el => {
+    el.addEventListener('input', e => {
+      const index = Number(e.target.dataset.countIndex);
+      const field = e.target.dataset.countField;
+      const row = manageStreetCounts?.[index];
+      if (!row) return;
+      let value = e.target.value ?? '';
+      if (field !== 'rua') {
+        value = String(value).replace(/[^\d]/g, '');
+        if (e.target.value !== value) e.target.value = value;
+      }
+      row[field] = value;
+      updateStreetCountsSummary();
+    });
+  });
+
+  list.querySelectorAll('[data-remove-count-row]').forEach(btn => btn.onclick = () => {
+    const index = Number(btn.dataset.removeCountRow);
+    manageStreetCounts.splice(index, 1);
+    if (!manageStreetCounts.length) manageStreetCounts = makeDefaultStreetCounts();
+    renderStreetCounts();
+    showToast('Rua removida. Clique em "Salvar contagem automática" para confirmar.');
+  });
+
+  updateStreetCountsSummary();
+}
+function updateStreetCountsSummary() {
+  const summary = document.getElementById('streetCountsSummary');
+  if (!summary) return;
+  const totals = getStreetCountTotals(Array.isArray(manageStreetCounts) ? manageStreetCounts : state.streetCounts);
+  summary.innerHTML = `
+    <div class="count-summary-tile"><div class="count-summary-label">Paletes Full</div><div class="count-summary-value">${totals.paletesFull}</div></div>
+    <div class="count-summary-tile"><div class="count-summary-label">Paletes Mix</div><div class="count-summary-value">${totals.paletesMix}</div></div>
+    <div class="count-summary-tile"><div class="count-summary-label">Caixarias</div><div class="count-summary-value">${totals.caixarias}</div></div>
+    <div class="count-summary-tile"><div class="count-summary-label">Prateleiras</div><div class="count-summary-value">${totals.prateleiras}</div></div>
+  `;
+}
+function openStreetCountsModal() {
+  manageStreetCounts = clone(state.streetCounts || makeDefaultStreetCounts());
+  renderStreetCounts();
+  const modal = document.getElementById('streetCountsModal');
+  modal.classList.add('open');
+  modal.setAttribute('aria-hidden', 'false');
+}
+function closeStreetCountsModal() {
+  const modal = document.getElementById('streetCountsModal');
+  modal.classList.remove('open');
+  modal.setAttribute('aria-hidden', 'true');
+  manageStreetCounts = null;
+}
+function addStreetCountRow() {
+  if (!Array.isArray(manageStreetCounts)) manageStreetCounts = clone(state.streetCounts || makeDefaultStreetCounts());
+  manageStreetCounts.push(normalizeStreetCount({ rua:`Rua ${manageStreetCounts.length + 1}` }, manageStreetCounts.length));
+  renderStreetCounts();
+}
+function saveStreetCounts() {
+  if (!Array.isArray(manageStreetCounts) || !manageStreetCounts.length) {
+    manageStreetCounts = makeDefaultStreetCounts();
+  }
+  state.streetCounts = manageStreetCounts.map((row, index) => normalizeStreetCount(row, index));
+  applyAutomaticAreas(state);
+  persistState();
+  renderApp();
+  closeStreetCountsModal();
+  scheduleAutosave();
+  showToast('Contagem por rua salva e aplicada aos itens automáticos.');
 }
 
 function populateStoreOptions() {
@@ -831,6 +1011,11 @@ function bindInputs() {
         return;
       }
       let value = e.target.value ?? '';
+      if (field === 'areaAvaliada' && AUTO_AREA_ITEM_IDS.includes(id)) {
+        e.target.value = item.areaAvaliada ?? '';
+        showToast('Este campo é preenchido automaticamente pela contagem por rua.');
+        return;
+      }
       if (field === 'areaAvaliada' || field === 'naoConformes') {
         value = String(value).replace(/[^\d]/g, '');
       }
@@ -853,11 +1038,16 @@ function bindInputs() {
   };
   document.getElementById('downloadBackupBtn').onclick = downloadBackup;
   document.getElementById('manageItemsBtn').onclick = openManageItemsModal;
+  document.getElementById('streetCountsBtn').onclick = openStreetCountsModal;
   document.getElementById('closeManageItemsBtn').onclick = closeManageItemsModal;
+  document.getElementById('closeStreetCountsBtn').onclick = closeStreetCountsModal;
   document.getElementById('addDepositoItemBtn').onclick = () => addManagedItem('deposito');
   document.getElementById('addVendaItemBtn').onclick = () => addManagedItem('venda');
+  document.getElementById('addStreetCountRowBtn').onclick = addStreetCountRow;
   document.getElementById('saveManageItemsBtn').onclick = saveManageItems;
+  document.getElementById('saveStreetCountsBtn').onclick = saveStreetCounts;
   document.getElementById('manageItemsModal').onclick = (e) => { if (e.target.id === 'manageItemsModal') closeManageItemsModal(); };
+  document.getElementById('streetCountsModal').onclick = (e) => { if (e.target.id === 'streetCountsModal') closeStreetCountsModal(); };
 }
 
 function updateUI() {
@@ -900,6 +1090,7 @@ function renderApp() {
   updateUI();
   renderHistory();
   if (document.getElementById('manageItemsModal')?.classList.contains('open')) renderManageItems();
+  if (document.getElementById('streetCountsModal')?.classList.contains('open')) renderStreetCounts();
 }
 
 function updateNetworkBadge() {

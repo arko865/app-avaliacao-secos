@@ -515,7 +515,6 @@ function renderManageItems() {
       item[field] = e.target.value;
       reindexItems();
       persistState();
-      renderApp();
       scheduleAutosave();
     });
   });
@@ -527,6 +526,7 @@ function renderManageItems() {
     reindexItems();
     persistState();
     renderApp();
+    openManageItemsModal();
     scheduleAutosave();
     showToast('Item excluído.');
   });
@@ -538,6 +538,7 @@ function renderManageItems() {
     reindexItems();
     persistState();
     renderApp();
+    openManageItemsModal();
     scheduleAutosave();
   });
   list.querySelectorAll('[data-move-down]').forEach(btn => btn.onclick = () => {
@@ -548,6 +549,7 @@ function renderManageItems() {
     reindexItems();
     persistState();
     renderApp();
+    openManageItemsModal();
     scheduleAutosave();
   });
 }
@@ -565,6 +567,7 @@ function closeManageItemsModal() {
   const modal = document.getElementById('manageItemsModal');
   modal.classList.remove('open');
   modal.setAttribute('aria-hidden', 'true');
+  renderApp();
 }
 function addManagedItem(section) {
   const nextIndex = state.items.length;
@@ -580,6 +583,7 @@ function addManagedItem(section) {
   reindexItems();
   persistState();
   renderApp();
+  openManageItemsModal();
   scheduleAutosave();
   showToast('Novo item adicionado.');
 }

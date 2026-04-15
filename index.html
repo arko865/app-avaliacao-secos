@@ -216,6 +216,7 @@
         <div class="manage-footer">
           <button id="addDepositoItemBtn" class="btn secondary" type="button">+ Adicionar em Depósito / Aéreo</button>
           <button id="addVendaItemBtn" class="btn secondary" type="button">+ Adicionar em Área de Venda</button>
+          <button id="saveManageItemsBtn" class="btn" type="button">Salvar alterações</button>
         </div>
       </div>
     </div>
@@ -302,6 +303,7 @@ function buildDefaultState() {
 }
 let state = buildDefaultState();
 let autosaveTimer = null;
+let manageDraftItems = null;
 
 function clone(obj) { return JSON.parse(JSON.stringify(obj)); }
 function clampPercent(value) { return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0; }
@@ -469,18 +471,20 @@ function renderItems() {
 }
 
 
+
 function renderManageItems() {
   const list = document.getElementById('manageItemsList');
   if (!list) return;
+  const sourceItems = Array.isArray(manageDraftItems) ? manageDraftItems : state.items;
   list.innerHTML = '';
-  if (!state.items.length) {
+  if (!sourceItems.length) {
     list.innerHTML = '<div class="manage-empty">Nenhum item cadastrado.</div>';
     return;
   }
 
   const scrollTop = list.scrollTop;
 
-  state.items.forEach((item, index) => {
+  sourceItems.forEach((item, index) => {
     const wrap = document.createElement('div');
     wrap.className = 'manage-item';
     wrap.innerHTML = `
@@ -488,7 +492,7 @@ function renderManageItems() {
         <div class="manage-item-id">Item ${index + 1}</div>
         <div class="manage-actions">
           <button class="icon-btn" type="button" data-move-up="${index}" ${index === 0 ? 'disabled' : ''}>↑ Subir</button>
-          <button class="icon-btn" type="button" data-move-down="${index}" ${index === state.items.length - 1 ? 'disabled' : ''}>↓ Descer</button>
+          <button class="icon-btn" type="button" data-move-down="${index}" ${index === sourceItems.length - 1 ? 'disabled' : ''}>↓ Descer</button>
           <button class="icon-btn danger" type="button" data-delete-item="${index}">Excluir</button>
         </div>
       </div>
@@ -512,76 +516,57 @@ function renderManageItems() {
   list.querySelectorAll('textarea[data-manage-field="description"]').forEach(el => {
     el.addEventListener('input', e => {
       const index = Number(e.target.dataset.manageIndex);
-      const item = state.items[index];
+      const item = manageDraftItems?.[index];
       if (!item) return;
       item.description = e.target.value;
-      persistState();
-      scheduleAutosave();
-    });
-    el.addEventListener('blur', () => {
-      updateUI();
-      renderHistory();
     });
   });
 
   list.querySelectorAll('select[data-manage-field="section"]').forEach(el => {
     el.addEventListener('change', e => {
       const index = Number(e.target.dataset.manageIndex);
-      const item = state.items[index];
+      const item = manageDraftItems?.[index];
       if (!item) return;
       item.section = e.target.value;
-      reindexItems();
-      persistState();
-      renderApp();
-      scheduleAutosave();
-      openManageItemsModal();
     });
   });
 
   list.querySelectorAll('[data-delete-item]').forEach(btn => btn.onclick = () => {
     const index = Number(btn.dataset.deleteItem);
     if (!confirm('Deseja excluir este item?')) return;
-    state.items.splice(index, 1);
-    if (!state.items.length) state.items = makeDefaultItems();
-    reindexItems();
-    persistState();
-    renderApp();
-    scheduleAutosave();
-    openManageItemsModal();
-    showToast('Item excluído.');
+    manageDraftItems.splice(index, 1);
+    if (!manageDraftItems.length) manageDraftItems = makeDefaultItems();
+    reindexItems(manageDraftItems);
+    renderManageItems();
+    showToast('Item excluído. Clique em "Salvar alterações" para confirmar.');
   });
 
   list.querySelectorAll('[data-move-up]').forEach(btn => btn.onclick = () => {
     const index = Number(btn.dataset.moveUp);
     if (index <= 0) return;
-    const [item] = state.items.splice(index, 1);
-    state.items.splice(index - 1, 0, item);
-    reindexItems();
-    persistState();
-    renderApp();
-    scheduleAutosave();
-    openManageItemsModal();
+    const [item] = manageDraftItems.splice(index, 1);
+    manageDraftItems.splice(index - 1, 0, item);
+    reindexItems(manageDraftItems);
+    renderManageItems();
   });
 
   list.querySelectorAll('[data-move-down]').forEach(btn => btn.onclick = () => {
     const index = Number(btn.dataset.moveDown);
-    if (index >= state.items.length - 1) return;
-    const [item] = state.items.splice(index, 1);
-    state.items.splice(index + 1, 0, item);
-    reindexItems();
-    persistState();
-    renderApp();
-    scheduleAutosave();
-    openManageItemsModal();
+    if (index >= manageDraftItems.length - 1) return;
+    const [item] = manageDraftItems.splice(index, 1);
+    manageDraftItems.splice(index + 1, 0, item);
+    reindexItems(manageDraftItems);
+    renderManageItems();
   });
 
   list.scrollTop = scrollTop;
 }
 
-function reindexItems() {
-  state.items = state.items.map((item, index) => normalizeItem({ ...item, id: index + 1 }, index));
+function reindexItems(targetItems = state.items) {
+  return targetItems.map((item, index) => normalizeItem({ ...item, id: index + 1 }, index));
 }
 function openManageItemsModal() {
+  manageDraftItems = clone(state.items);
   renderManageItems();
   const modal = document.getElementById('manageItemsModal');
   modal.classList.add('open');
@@ -591,10 +576,23 @@ function closeManageItemsModal() {
   const modal = document.getElementById('manageItemsModal');
   modal.classList.remove('open');
   modal.setAttribute('aria-hidden', 'true');
+  manageDraftItems = null;
+}
+function saveManageItems() {
+  if (!Array.isArray(manageDraftItems) || !manageDraftItems.length) {
+    manageDraftItems = makeDefaultItems();
+  }
+  state.items = reindexItems(clone(manageDraftItems));
+  persistState();
+  renderApp();
+  closeManageItemsModal();
+  scheduleAutosave();
+  showToast('Itens salvos com sucesso.');
 }
 function addManagedItem(section) {
-  const nextIndex = state.items.length;
-  state.items.push(normalizeItem({
+  if (!Array.isArray(manageDraftItems)) manageDraftItems = clone(state.items);
+  const nextIndex = manageDraftItems.length;
+  manageDraftItems.push(normalizeItem({
     id: nextIndex + 1,
     description: section === 'deposito' ? 'Novo item de Depósito / Aéreo' : 'Novo item de Área de Venda',
     section,
@@ -603,13 +601,10 @@ function addManagedItem(section) {
     observacao:'',
     naoAvaliar:false
   }, nextIndex));
-  reindexItems();
-  persistState();
-  renderApp();
-  scheduleAutosave();
-  showToast('Novo item adicionado.');
+  manageDraftItems = reindexItems(manageDraftItems);
+  renderManageItems();
+  showToast('Novo item adicionado. Clique em "Salvar alterações" para confirmar.');
 }
-
 
 function populateStoreOptions() {
   const select = document.getElementById('nomeLoja');
@@ -684,6 +679,7 @@ function bindInputs() {
   document.getElementById('closeManageItemsBtn').onclick = closeManageItemsModal;
   document.getElementById('addDepositoItemBtn').onclick = () => addManagedItem('deposito');
   document.getElementById('addVendaItemBtn').onclick = () => addManagedItem('venda');
+  document.getElementById('saveManageItemsBtn').onclick = saveManageItems;
   document.getElementById('manageItemsModal').onclick = (e) => { if (e.target.id === 'manageItemsModal') closeManageItemsModal(); };
 }
 

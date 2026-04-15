@@ -121,6 +121,14 @@
               <div id="networkPill" class="pill"><span class="pill-dot"></span><span id="networkText">Online</span></div>
               <div class="pill">Rascunho salvo automaticamente neste aparelho</div>
             </div>
+            <div class="actions top-actions">
+              <button id="exportBtn" class="btn" type="button">Exportar PDF</button>
+              <button id="saveEvaluationBtn" class="btn secondary" type="button">Salvar avaliação</button>
+              <button id="downloadBackupBtn" class="btn secondary" type="button">Exportar backup</button>
+              <button id="manageItemsBtn" class="btn secondary" type="button">Gerenciar itens</button>
+              <button id="streetCountsBtn" class="btn secondary" type="button">Paletes / Prateleiras</button>
+              <button id="resetBtn" class="btn danger" type="button">Nova avaliação</button>
+            </div>
           </div>
           <div class="card-content">
             <div class="grid-2">
@@ -154,14 +162,6 @@
               <div class="option-group" id="impactoMercadoriaOptions"></div>
             </div>
 
-            <div class="actions">
-              <button id="exportBtn" class="btn" type="button">Exportar PDF</button>
-              <button id="saveEvaluationBtn" class="btn secondary" type="button">Salvar avaliação</button>
-              <button id="downloadBackupBtn" class="btn secondary" type="button">Exportar backup</button>
-              <button id="manageItemsBtn" class="btn secondary" type="button">Gerenciar itens</button>
-              <button id="streetCountsBtn" class="btn secondary" type="button">Paletes / Prateleiras</button>
-              <button id="resetBtn" class="btn danger" type="button">Nova avaliação</button>
-            </div>
             <div id="streetModeNote" class="muted-note"></div><div class="muted-note">O app salva automaticamente o rascunho e sincroniza itens, histórico, contagem por rua e avaliação entre os dispositivos conectados.</div>
           </div>
         </div>
@@ -1268,11 +1268,14 @@ function bindInputs() {
   document.getElementById('saveEvaluationBtn').onclick = () => { saveHistorySnapshot(); persistState(); showToast('Avaliação salva no histórico.'); scheduleAutosave(); };
   document.getElementById('resetBtn').onclick = () => {
     if (!confirm('Deseja iniciar uma nova avaliação? Os dados preenchidos na avaliação atual serão apagados.')) return;
+    const activeModel = state.form.modelo || DEFAULT_MODEL_KEY;
     const preservedTemplates = clone(state.storeStreetTemplates || {});
     const preservedItemTemplates = clone(state.modelItemTemplates || {});
-    state = buildDefaultState(preservedTemplates, preservedItemTemplates, state.form.modelo || DEFAULT_MODEL_KEY);
-    loadStreetCountsForStore(state.form.nomeLoja, state.form.modelo);
-    persistState();
+    manageDraftItems = null;
+    state = buildDefaultState(preservedTemplates, preservedItemTemplates, activeModel);
+    loadStreetCountsForStore('', activeModel);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (err) { console.warn('Não foi possível limpar o rascunho local.', err); }
+    queueCloudDraftSync(true);
     renderApp();
     showToast('Nova avaliação iniciada.');
   };

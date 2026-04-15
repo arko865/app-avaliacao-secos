@@ -44,6 +44,11 @@
     .badge { display:inline-block; padding:6px 10px; border-radius:999px; background:var(--soft); font-size:12px; font-weight:700; border:1px solid var(--border); }
     .score-text { font-size:18px; font-weight:700; }
     .item-description { font-size:14px; line-height:1.45; margin:0 0 14px; }
+    .item-top-left { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    .item-nao-avaliar { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:700; color:var(--text); }
+    .item-nao-avaliar input { width:22px; height:22px; cursor:pointer; accent-color: var(--primary); }
+    .item-nao-avaliar span { line-height:1; }
+
     .option-group { display:flex; flex-wrap:wrap; gap:10px; margin-top:10px; }
     .option-button { border:1px solid #cbd5e1; background:#fff; border-radius:12px; padding:10px 14px; cursor:pointer; text-align:left; font-size:14px; line-height:1.35; }
     .option-button.active { background:var(--primary); color:#fff; border-color:var(--primary); }
@@ -213,11 +218,17 @@ function createItemCard(item) {
   const wrapper = document.createElement('div');
   wrapper.className = 'item-card' + (item.naoAvaliar ? ' not-evaluated' : '');
   wrapper.innerHTML = `
-    <div class="item-top"><span class="badge">Item ${item.id}</span><span class="score-text" id="itemScore-${item.id}">${item.naoAvaliar ? 'N/A' : '0.0%'}</span></div>
-    <p class="item-description">${item.description}</p>
-    <div class="item-eval-row">
-      <label class="item-eval-toggle"><input type="checkbox" data-id="${item.id}" data-field="naoAvaliar" ${item.naoAvaliar ? 'checked' : ''} /> ( ) Não Avaliar</label>
+    <div class="item-top">
+      <div class="item-top-left">
+        <span class="badge">Item ${item.id}</span>
+        <label class="item-nao-avaliar">
+          <input type="checkbox" data-id="${item.id}" data-field="naoAvaliar" ${item.naoAvaliar ? 'checked' : ''} />
+          <span>Não Avaliar</span>
+        </label>
+      </div>
+      <span class="score-text" id="itemScore-${item.id}">${item.naoAvaliar ? 'N/A' : '0.0%'}</span>
     </div>
+    <p class="item-description">${item.description}</p>
     <div class="grid-2">
       <div class="field"><label>Áreas avaliadas</label><input type="number" min="0" value="${item.areaAvaliada || 0}" data-id="${item.id}" data-field="areaAvaliada" ${item.naoAvaliar ? 'disabled' : ''} /></div>
       <div class="field"><label>Áreas não conformes</label><input type="number" min="0" value="${item.naoConformes || 0}" data-id="${item.id}" data-field="naoConformes" ${item.naoAvaliar ? 'disabled' : ''} /></div>

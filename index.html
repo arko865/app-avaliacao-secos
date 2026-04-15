@@ -537,6 +537,27 @@ function normalizeModelItemTemplates(templates) {
   });
   return next;
 }
+
+function clearEvaluationValuesFromItems(items, modelKey = DEFAULT_MODEL_KEY) {
+  const normalizedModel = MODEL_CONFIGS[modelKey] ? modelKey : DEFAULT_MODEL_KEY;
+  const source = Array.isArray(items) && items.length ? items : buildItemsFromModel(normalizedModel);
+  return reindexItems(source.map((item, index) => ({
+    ...normalizeItem(item, index, normalizedModel),
+    areaAvaliada:'',
+    naoConformes:'',
+    observacao:'',
+    naoAvaliar:false
+  })), normalizedModel);
+}
+function clearEvaluationValuesFromTemplateMap(templateMap) {
+  const normalized = normalizeModelItemTemplates(templateMap || {});
+  const next = {};
+  Object.entries(normalized).forEach(([modelKey, items]) => {
+    next[modelKey] = clearEvaluationValuesFromItems(items, modelKey);
+  });
+  return next;
+}
+
 function normalizeState(candidate) {
   const selectedModel = candidate?.form?.modelo && MODEL_CONFIGS[candidate.form.modelo] ? candidate.form.modelo : DEFAULT_MODEL_KEY;
   const defaults = buildDefaultState(candidate?.storeStreetTemplates || {}, candidate?.modelItemTemplates || {}, selectedModel);
@@ -1270,12 +1291,18 @@ function bindInputs() {
     if (!confirm('Deseja iniciar uma nova avaliação? Os dados preenchidos na avaliação atual serão apagados.')) return;
     const activeModel = state.form.modelo || DEFAULT_MODEL_KEY;
     const preservedTemplates = clone(state.storeStreetTemplates || {});
-    const preservedItemTemplates = clone(state.modelItemTemplates || {});
+    const currentTemplates = clearEvaluationValuesFromTemplateMap(state.modelItemTemplates || {});
+    currentTemplates[activeModel] = clearEvaluationValuesFromItems(state.items, activeModel);
     const resetTimestamp = Date.now();
     manageDraftItems = null;
     manageStreetCounts = null;
-    state = buildDefaultState(preservedTemplates, preservedItemTemplates, activeModel);
-    loadStreetCountsForStore('', activeModel);
+    state = buildDefaultState(preservedTemplates, currentTemplates, activeModel);
+    state.modelItemTemplates = currentTemplates;
+    if (isStreetCountEnabled(activeModel)) {
+      state.streetCounts = makeDefaultStreetCounts();
+    } else {
+      state.streetCounts = [];
+    }
     lastCloudDraftAt = resetTimestamp;
     cloudDraftInitialized = true;
     try { localStorage.removeItem(STORAGE_KEY); } catch (err) {}

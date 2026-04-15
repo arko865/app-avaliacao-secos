@@ -103,17 +103,6 @@
     .manage-empty { color:var(--muted); font-size:14px; border:1px dashed var(--border); padding:16px; border-radius:14px; text-align:center; }
     @media (max-width: 640px) { .manage-grid { grid-template-columns:1fr; } .manage-header { padding:16px 16px 0; } .manage-body { padding:14px 16px 16px; } }
 
-
-    .locked-banner { margin-top:16px; padding:14px 16px; border-radius:16px; background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; font-size:14px; font-weight:700; display:none; }
-    .locked-banner.show { display:block; }
-    .history-modal { position:fixed; inset:0; background:rgba(15,23,42,.45); display:none; align-items:center; justify-content:center; z-index:80; padding:18px; }
-    .history-modal.open { display:flex; }
-    .history-panel { width:min(980px, 100%); max-height:min(88vh, 920px); overflow:auto; background:#fff; border-radius:20px; box-shadow:var(--shadow); border:1px solid var(--border); }
-    .history-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 18px 0; }
-    .history-body { padding:16px 18px 18px; }
-    .history-subtitle { color:var(--muted); font-size:13px; margin-top:6px; line-height:1.45; }
-    .preview-note { margin-top:12px; color:var(--muted); font-size:12px; }
-
     .hidden { display:none !important; }
     @media (max-width: 980px) { .layout { grid-template-columns:1fr; } .sticky-col { position:static; } }
     @media (max-width: 640px) { .page { padding:12px; } .card-header { padding:18px 16px 0; } .card-content { padding:0 16px 16px; } .grid-2, .summary-grid { grid-template-columns:1fr; } .item-top { flex-direction:column; } .score-text { width:100%; } .status-score { font-size:38px; } .card-title { font-size:24px; } }
@@ -133,7 +122,7 @@
           </div>
           <div class="card-content">
             <div class="grid-2">
-              <div class="field"><label for="nomeLoja">Nome da loja</label><select id="nomeLoja"></select></div>
+              <div class="field"><label for="nomeLoja">Nome da loja</label><input id="nomeLoja" type="text" /></div>
               <div class="field"><label for="visita">Visita</label><select id="visita"><option>1° Visita</option><option>2° Visita</option><option>3° Visita</option><option>4° Visita</option></select></div>
               <div class="field"><label for="coordArko">Coord. Arko</label><input id="coordArko" type="text" /></div>
               <div class="field"><label for="setor">Setor</label><input id="setor" type="text" /></div>
@@ -164,13 +153,12 @@
 
             <div class="actions">
               <button id="exportBtn" class="btn" type="button">Exportar PDF</button>
-              <button id="historyBtn" class="btn secondary" type="button">Histórico</button>
+              <button id="saveEvaluationBtn" class="btn secondary" type="button">Salvar avaliação</button>
+              <button id="downloadBackupBtn" class="btn secondary" type="button">Exportar backup</button>
               <button id="manageItemsBtn" class="btn secondary" type="button">Gerenciar itens</button>
-              <button id="finalizeBtn" class="btn secondary" type="button">Finalizar avaliação</button>
               <button id="resetBtn" class="btn danger" type="button">Nova avaliação</button>
             </div>
             <div class="muted-note">O app salva automaticamente o rascunho neste aparelho. Mesmo se a conexão oscilar, os dados preenchidos continuam no navegador.</div>
-            <div id="lockedBanner" class="locked-banner">Avaliação finalizada. Os campos estão travados para evitar alterações acidentais. Use Nova avaliação para iniciar um novo formulário ou abra uma avaliação no histórico.</div>
           </div>
         </div>
       </div>
@@ -199,9 +187,9 @@
         </div>
 
         <div class="card">
-          <div class="card-header"><h2 class="card-title" style="font-size:22px;">Últimas avaliações</h2></div>
+          <div class="card-header"><h2 class="card-title" style="font-size:22px;">Avaliações salvas</h2></div>
           <div class="card-content">
-            <div id="historyList" class="history-list"></div><div class="preview-note">Abra o botão Histórico para ver a tela completa das avaliações finalizadas.</div>
+            <div id="historyList" class="history-list"></div>
           </div>
         </div>
 
@@ -213,21 +201,6 @@
     </div>
   </div>
 
-
-  <div id="historyModal" class="history-modal" aria-hidden="true">
-    <div class="history-panel">
-      <div class="history-header">
-        <div>
-          <div class="manage-title">Histórico de avaliações</div>
-          <div class="history-subtitle">Aqui ficam as avaliações finalizadas. Você pode abrir uma avaliação para consulta, exportar novamente em PDF ou excluir um registro salvo neste aparelho.</div>
-        </div>
-        <button id="closeHistoryBtn" class="btn secondary" type="button">Fechar</button>
-      </div>
-      <div class="history-body">
-        <div id="historyModalList" class="history-list"></div>
-      </div>
-    </div>
-  </div>
 
   <div id="manageItemsModal" class="manage-modal" aria-hidden="true">
     <div class="manage-panel">
@@ -275,7 +248,6 @@ const INFORMATIVE_OPTIONS = {
   produtosIdentificados: ["Sim, estão identificados", "Não existem", "Existem, mas NÃO estão identificados corretamente"],
   impactoMercadoria: ["Sim, não há espaço para movimentação", "Necessidade mão de obra extra", "Está de acordo com o esperado"]
 };
-const STORE_OPTIONS = ["01 Matriz", "07 Compensa", "10 Flores", "100 TG Foods", "11 G. Circular", "12 Djalma", "13 Via Norte", "18 Viver Melhor", "20 Adrianópolis", "22 Morada", "31 Torres", "32 Centro", "33 Barreira", "34 Silves", "35 Cid Deus", "36 Ponte C", "44 Ponta Negra", "48 Galpão Cd", "52 Alvorada", "53 Cid. Nova", "54 Max Teixeira", "55 Dom Pedro", "56 Coroado", "57 Parque10", "58 Nilton Lins"];
 const STATUS_THRESHOLD = 84.5;
 const STORAGE_KEY = 'arko_avaliacao_rascunho_v2';
 const HISTORY_KEY = 'arko_avaliacao_historico_v2';
@@ -322,7 +294,7 @@ function buildDefaultState() {
   return {
     form: {
       nomeLoja:'', visita:'1° Visita', coordArko:'', setor:'', gerenteLoja:'', gerenteAcompanhou:true,
-      data:new Date().toISOString().slice(0,10), horaVisita:'', produtosIdentificados:'', impactoMercadoria:'', finalizada:false, finalizedAt:'', historyId:''
+      data:new Date().toISOString().slice(0,10), horaVisita:'', produtosIdentificados:'', impactoMercadoria:''
     },
     items: makeDefaultItems()
   };
@@ -397,51 +369,41 @@ function loadDraft() {
   } catch (err) { console.warn('Não foi possível carregar rascunho.', err); }
 }
 
-function saveHistorySnapshot(forceNew = false) {
+function saveHistorySnapshot() {
   const summary = getSummary();
-  const list = getHistory();
-  const existingIndex = !forceNew && state.form.historyId ? list.findIndex(x => String(x.id) === String(state.form.historyId)) : -1;
   const entry = {
-    id: existingIndex >= 0 ? list[existingIndex].id : Date.now(),
-    createdAt: existingIndex >= 0 ? list[existingIndex].createdAt : new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    id: Date.now(),
+    createdAt: new Date().toISOString(),
     title: state.form.nomeLoja || 'Loja sem nome',
     subtitle: `${state.form.setor || 'Sem setor'} • ${state.form.visita || 'Sem visita'}`,
     notaFinal: summary.notaFinal,
-    statusLoja: summary.statusLoja,
     data: clone(state)
   };
-  if (existingIndex >= 0) list[existingIndex] = entry;
-  else list.unshift(entry);
-  state.form.historyId = entry.id;
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, 50)));
+  const list = getHistory();
+  list.unshift(entry);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, 20)));
   renderHistory();
 }
 function getHistory() {
   try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch { return []; }
 }
 function renderHistory() {
-  renderHistoryList(document.getElementById('historyList'));
-  renderHistoryList(document.getElementById('historyModalList'));
-}
-function renderHistoryList(target) {
-  if (!target) return;
+  const target = document.getElementById('historyList');
   const list = getHistory();
   if (!list.length) {
-    target.innerHTML = '<div class="history-empty">Nenhuma avaliação finalizada ainda.</div>';
+    target.innerHTML = '<div class="history-empty">Nenhuma avaliação salva ainda.</div>';
     return;
   }
   target.innerHTML = '';
   list.forEach(entry => {
     const div = document.createElement('div');
     div.className = 'history-item';
-    const when = new Date(entry.updatedAt || entry.createdAt);
+    const when = new Date(entry.createdAt);
     div.innerHTML = `
       <div class="history-title">${entry.title}</div>
-      <div class="history-meta">${entry.subtitle}<br>Nota: ${formatPercent(entry.notaFinal)} • ${entry.statusLoja || ''}<br>Atualizada em ${when.toLocaleDateString('pt-BR')} ${when.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}</div>
+      <div class="history-meta">${entry.subtitle}<br>Nota: ${formatPercent(entry.notaFinal)} • Salva em ${when.toLocaleDateString('pt-BR')} ${when.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}</div>
       <div class="history-actions">
         <button class="history-btn" data-load="${entry.id}">Abrir</button>
-        <button class="history-btn" data-export-history="${entry.id}">Exportar PDF</button>
         <button class="history-btn" data-delete="${entry.id}">Excluir</button>
       </div>`;
     target.appendChild(div);
@@ -450,27 +412,13 @@ function renderHistoryList(target) {
     const entry = list.find(x => String(x.id) === btn.dataset.load);
     if (!entry) return;
     state = normalizeState(clone(entry.data));
-    state.form.finalizada = true;
-    state.form.historyId = entry.id;
     persistState();
     renderApp();
-    closeHistoryModal();
-    showToast('Avaliação carregada do histórico.');
-  });
-  target.querySelectorAll('[data-export-history]').forEach(btn => btn.onclick = () => {
-    const entry = list.find(x => String(x.id) === btn.dataset.exportHistory);
-    if (!entry) return;
-    const previous = clone(state);
-    state = normalizeState(clone(entry.data));
-    exportPDF();
-    state = previous;
-    persistState();
-    renderApp();
+    showToast('Avaliação carregada.');
   });
   target.querySelectorAll('[data-delete]').forEach(btn => btn.onclick = () => {
     const next = list.filter(x => String(x.id) !== btn.dataset.delete);
     localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
-    if (String(state.form.historyId || '') === String(btn.dataset.delete)) state.form.historyId = '';
     renderHistory();
     showToast('Avaliação removida.');
   });
@@ -484,7 +432,7 @@ function createItemCard(item) {
       <div class="item-top-left">
         <span class="badge">Item ${item.id}</span>
         <label class="item-nao-avaliar">
-          <input type="checkbox" data-id="${item.id}" data-field="naoAvaliar" ${item.naoAvaliar ? 'checked' : ''} ${state.form.finalizada ? 'disabled' : ''} />
+          <input type="checkbox" data-id="${item.id}" data-field="naoAvaliar" ${item.naoAvaliar ? 'checked' : ''} />
           <span>Não Avaliar</span>
         </label>
       </div>
@@ -495,7 +443,7 @@ function createItemCard(item) {
       <div class="field"><label>Áreas avaliadas</label><input type="number" inputmode="numeric" min="0" step="1" value="${item.areaAvaliada ?? ''}" data-id="${item.id}" data-field="areaAvaliada" ${item.naoAvaliar ? 'disabled' : ''} \/><\/div>
       <div class="field"><label>Áreas não conformes</label><input type="number" inputmode="numeric" min="0" step="1" value="${item.naoConformes ?? ''}" data-id="${item.id}" data-field="naoConformes" ${item.naoAvaliar ? 'disabled' : ''} \/><\/div>
     </div>
-    <div class="field" style="margin-top:12px;"><label>Observações</label><textarea placeholder="Observações" data-id="${item.id}" data-field="observacao" ${(item.naoAvaliar || state.form.finalizada) ? 'disabled' : ''}>${item.observacao || ''}<\/textarea><\/div>`;
+    <div class="field" style="margin-top:12px;"><label>Observações</label><textarea placeholder="Observações" data-id="${item.id}" data-field="observacao" ${item.naoAvaliar ? 'disabled' : ''}>${item.observacao || ''}<\/textarea><\/div>`;
   return wrapper;
 }
 
@@ -506,23 +454,8 @@ function renderOptions(targetId, key) {
     const btn = document.createElement('button');
     btn.type = 'button'; btn.className = 'option-button'; btn.textContent = option;
     if (state.form[key] === option) btn.classList.add('active');
-    btn.disabled = !!state.form.finalizada;
-    btn.addEventListener('click', ()=> { if (state.form.finalizada) return; state.form[key] = option; persistState(); renderOptions(targetId, key); scheduleAutosave(); });
+    btn.addEventListener('click', ()=> { state.form[key] = option; renderOptions(targetId, key); scheduleAutosave(); });
     target.appendChild(btn);
-  });
-}
-
-function populateStoreOptions() {
-  const select = document.getElementById('nomeLoja');
-  if (!select) return;
-  const current = state.form.nomeLoja || '';
-  select.innerHTML = '<option value="">Selecione a loja</option>';
-  STORE_OPTIONS.forEach(name => {
-    const opt = document.createElement('option');
-    opt.value = name;
-    opt.textContent = name;
-    if (name === current) opt.selected = true;
-    select.appendChild(opt);
   });
 }
 
@@ -550,50 +483,36 @@ function renderManageItems() {
       <div class="manage-item-top">
         <div class="manage-item-id">Item ${index + 1}</div>
         <div class="manage-actions">
-          <button class="icon-btn" type="button" data-move-up="${index}" ${index === 0 || state.form.finalizada ? 'disabled' : ''}>↑ Subir</button>
-          <button class="icon-btn" type="button" data-move-down="${index}" ${index === state.items.length - 1 || state.form.finalizada ? 'disabled' : ''}>↓ Descer</button>
-          <button class="icon-btn danger" type="button" data-delete-item="${index}" ${state.form.finalizada ? 'disabled' : ''}>Excluir</button>
+          <button class="icon-btn" type="button" data-move-up="${index}" ${index === 0 ? 'disabled' : ''}>↑ Subir</button>
+          <button class="icon-btn" type="button" data-move-down="${index}" ${index === state.items.length - 1 ? 'disabled' : ''}>↓ Descer</button>
+          <button class="icon-btn danger" type="button" data-delete-item="${index}">Excluir</button>
         </div>
       </div>
       <div class="manage-grid">
         <div class="field" style="margin:0;">
           <label>Seção</label>
-          <select data-manage-field="section" data-manage-index="${index}" ${state.form.finalizada ? 'disabled' : ''}>
+          <select data-manage-field="section" data-manage-index="${index}">
             <option value="deposito" ${item.section === 'deposito' ? 'selected' : ''}>Depósito / Aéreo</option>
             <option value="venda" ${item.section === 'venda' ? 'selected' : ''}>Área de Venda</option>
           </select>
         </div>
         <div class="field" style="margin:0;">
           <label>Descrição do item</label>
-          <textarea rows="3" data-manage-field="description" data-manage-index="${index}" placeholder="Descreva o item avaliado" ${state.form.finalizada ? 'disabled' : ''}>${item.description || ''}</textarea>
+          <textarea rows="3" data-manage-field="description" data-manage-index="${index}" placeholder="Descreva o item avaliado">${item.description || ''}</textarea>
         </div>
       </div>
     `;
     list.appendChild(wrap);
   });
 
-  list.querySelectorAll('[data-manage-field="description"]').forEach(el => {
-    el.addEventListener('input', e => {
+  list.querySelectorAll('[data-manage-field]').forEach(el => {
+    const eventName = el.tagName === 'SELECT' ? 'change' : 'input';
+    el.addEventListener(eventName, e => {
       const index = Number(e.target.dataset.manageIndex);
+      const field = e.target.dataset.manageField;
       const item = state.items[index];
       if (!item) return;
-      item.description = e.target.value;
-      persistState();
-      scheduleAutosave();
-    });
-    el.addEventListener('blur', () => {
-      renderItems();
-      bindInputs();
-      updateUI();
-      renderHistory();
-    });
-  });
-  list.querySelectorAll('[data-manage-field="section"]').forEach(el => {
-    el.addEventListener('change', e => {
-      const index = Number(e.target.dataset.manageIndex);
-      const item = state.items[index];
-      if (!item) return;
-      item.section = e.target.value;
+      item[field] = e.target.value;
       reindexItems();
       persistState();
       renderApp();
@@ -633,6 +552,9 @@ function renderManageItems() {
   });
 }
 
+function reindexItems() {
+  state.items = state.items.map((item, index) => normalizeItem({ ...item, id: index + 1 }, index));
+}
 function openManageItemsModal() {
   renderManageItems();
   const modal = document.getElementById('manageItemsModal');
@@ -663,32 +585,19 @@ function addManagedItem(section) {
 }
 
 function bindInputs() {
-  populateStoreOptions();
-  const isLocked = !!state.form.finalizada;
-
   ['nomeLoja','visita','coordArko','setor','gerenteLoja','data','horaVisita'].forEach(id => {
     const el = document.getElementById(id);
     el.value = state.form[id] || '';
-    el.disabled = isLocked;
-    const assign = e => {
-      state.form[id] = e.target.value;
-      persistState();
-      scheduleAutosave();
-      updateUI();
-    };
-    el.oninput = assign;
-    el.onchange = assign;
+    el.oninput = e => { state.form[id] = e.target.value; persistState(); scheduleAutosave(); updateUI(); };
+    el.onchange = e => { state.form[id] = e.target.value; persistState(); scheduleAutosave(); updateUI(); };
   });
   const gerente = document.getElementById('gerenteAcompanhou');
   gerente.checked = !!state.form.gerenteAcompanhou;
-  gerente.disabled = isLocked;
   gerente.onchange = e => { state.form.gerenteAcompanhou = e.target.checked; persistState(); scheduleAutosave(); };
 
   document.querySelectorAll('[data-id][data-field]').forEach(el => {
     const eventName = el.type === 'checkbox' ? 'change' : 'input';
-    el.disabled = isLocked || el.disabled;
     el.addEventListener(eventName, e => {
-      if (state.form.finalizada) return;
       const id = Number(e.target.dataset.id);
       const field = e.target.dataset.field;
       const item = state.items.find(i => i.id === id);
@@ -702,7 +611,9 @@ function bindInputs() {
         return;
       }
       let value = e.target.value ?? '';
-      if (field === 'areaAvaliada' || field === 'naoConformes') value = String(value).replace(/[^\d]/g, '');
+      if (field === 'areaAvaliada' || field === 'naoConformes') {
+        value = String(value).replace(/[^\d]/g, '');
+      }
       item[field] = value;
       if (e.target.value !== value) e.target.value = value;
       persistState();
@@ -711,23 +622,8 @@ function bindInputs() {
     });
   });
 
-  document.querySelectorAll('.option-button').forEach(btn => {
-    btn.disabled = isLocked;
-  });
-  document.getElementById('lockedBanner').classList.toggle('show', isLocked);
-
   document.getElementById('exportBtn').onclick = exportPDF;
-  document.getElementById('historyBtn').onclick = openHistoryModal;
-  document.getElementById('closeHistoryBtn').onclick = closeHistoryModal;
-  document.getElementById('finalizeBtn').onclick = finalizeEvaluation;
-  document.getElementById('finalizeBtn').disabled = isLocked;
-  document.getElementById('manageItemsBtn').onclick = openManageItemsModal;
-  document.getElementById('manageItemsBtn').disabled = isLocked;
-  document.getElementById('closeManageItemsBtn').onclick = closeManageItemsModal;
-  document.getElementById('addDepositoItemBtn').onclick = () => addManagedItem('deposito');
-  document.getElementById('addDepositoItemBtn').disabled = isLocked;
-  document.getElementById('addVendaItemBtn').onclick = () => addManagedItem('venda');
-  document.getElementById('addVendaItemBtn').disabled = isLocked;
+  document.getElementById('saveEvaluationBtn').onclick = () => { saveHistorySnapshot(); persistState(); showToast('Avaliação salva no histórico.'); scheduleAutosave(); };
   document.getElementById('resetBtn').onclick = () => {
     if (!confirm('Deseja iniciar uma nova avaliação? Os dados preenchidos na avaliação atual serão apagados.')) return;
     state = buildDefaultState();
@@ -735,8 +631,12 @@ function bindInputs() {
     renderApp();
     showToast('Nova avaliação iniciada.');
   };
+  document.getElementById('downloadBackupBtn').onclick = downloadBackup;
+  document.getElementById('manageItemsBtn').onclick = openManageItemsModal;
+  document.getElementById('closeManageItemsBtn').onclick = closeManageItemsModal;
+  document.getElementById('addDepositoItemBtn').onclick = () => addManagedItem('deposito');
+  document.getElementById('addVendaItemBtn').onclick = () => addManagedItem('venda');
   document.getElementById('manageItemsModal').onclick = (e) => { if (e.target.id === 'manageItemsModal') closeManageItemsModal(); };
-  document.getElementById('historyModal').onclick = (e) => { if (e.target.id === 'historyModal') closeHistoryModal(); };
 }
 
 function updateUI() {
@@ -749,8 +649,6 @@ function updateUI() {
   document.getElementById('totalNaoConformes').textContent = summary.totalNaoConformes;
   const statusBox = document.getElementById('statusBox');
   statusBox.className = 'status-box ' + (summary.notaFinal >= STATUS_THRESHOLD ? 'status-good' : 'status-bad');
-  const finalizeBtn = document.getElementById('finalizeBtn');
-  if (finalizeBtn) finalizeBtn.textContent = state.form.finalizada ? 'Avaliação finalizada' : 'Finalizar avaliação';
 
   summary.rows.forEach(row => {
     const scoreEl = document.getElementById(`itemScore-${row.id}`);
@@ -773,7 +671,6 @@ function updateUI() {
 
 function renderApp() {
   reindexItems();
-  populateStoreOptions();
   renderItems();
   renderOptions('produtosIdentificadosOptions','produtosIdentificados');
   renderOptions('impactoMercadoriaOptions','impactoMercadoria');

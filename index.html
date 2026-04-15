@@ -135,7 +135,7 @@
               <button id="exportBtn" class="btn" type="button">Exportar PDF</button>
               <button id="saveEvaluationBtn" class="btn secondary" type="button">Salvar avaliação</button>
               <button id="downloadBackupBtn" class="btn secondary" type="button">Exportar backup</button>
-              <button id="resetBtn" class="btn danger" type="button">Novo formulário</button>
+              <button id="resetBtn" class="btn danger" type="button">Nova avaliação</button>
               <label class="btn secondary" style="display:inline-flex;align-items:center;justify-content:center;cursor:pointer;">
                 Importar backup
                 <input id="importBackupInput" type="file" accept="application/json" class="hidden" />
@@ -238,10 +238,8 @@ function toNumber(value) { return Math.max(0, Number(String(value || '').replace
 function sectionTotals(rows) { let area=0,nc=0; rows.forEach(r=>{ area += r.areaAvaliada; nc += r.naoConformes; }); return { area, nc, nota: area > 0 ? clampPercent(((area - nc) / area) * 100) : 0 }; }
 function smartFileName() {
   const loja = sanitizeFileName(state.form.nomeLoja || 'sem-loja');
-  const setor = sanitizeFileName(state.form.setor || 'sem-setor');
-  const visita = sanitizeFileName((state.form.visita || 'visita').replace('°','a'));
   const data = sanitizeFileName(state.form.data || new Date().toISOString().slice(0,10));
-  return `${loja}_${setor}_${visita}_${data}.pdf`;
+  return `avaliacao_${loja}_${data}.pdf`;
 }
 
 function getSummary() {
@@ -273,11 +271,19 @@ function showToast(message) {
   showToast._timer = setTimeout(() => toast.classList.remove('show'), 2400);
 }
 
+function persistState() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch (err) {
+    console.warn('Não foi possível salvar o rascunho.', err);
+  }
+}
+
 function scheduleAutosave() {
   clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, 250);
+    persistState();
+  }, 120);
 }
 
 function loadDraft() {
@@ -332,7 +338,7 @@ function renderHistory() {
     const entry = list.find(x => String(x.id) === btn.dataset.load);
     if (!entry) return;
     state = clone(entry.data);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    persistState();
     renderApp();
     showToast('Avaliação carregada.');
   });
@@ -391,12 +397,12 @@ function bindInputs() {
   ['nomeLoja','visita','coordArko','setor','gerenteLoja','data','horaVisita'].forEach(id => {
     const el = document.getElementById(id);
     el.value = state.form[id] || '';
-    el.oninput = e => { state.form[id] = e.target.value; scheduleAutosave(); updateUI(); };
-    el.onchange = e => { state.form[id] = e.target.value; scheduleAutosave(); updateUI(); };
+    el.oninput = e => { state.form[id] = e.target.value; persistState(); scheduleAutosave(); updateUI(); };
+    el.onchange = e => { state.form[id] = e.target.value; persistState(); scheduleAutosave(); updateUI(); };
   });
   const gerente = document.getElementById('gerenteAcompanhou');
   gerente.checked = !!state.form.gerenteAcompanhou;
-  gerente.onchange = e => { state.form.gerenteAcompanhou = e.target.checked; scheduleAutosave(); };
+  gerente.onchange = e => { state.form.gerenteAcompanhou = e.target.checked; persistState(); scheduleAutosave(); };
 
   document.querySelectorAll('[data-id][data-field]').forEach(el => {
     const eventName = el.type === 'checkbox' ? 'change' : 'input';
@@ -408,6 +414,7 @@ function bindInputs() {
       if (field === 'naoAvaliar') {
         item[field] = e.target.checked;
         if (e.target.checked) { item.areaAvaliada = ''; item.naoConformes = ''; }
+        persistState();
         renderApp();
         scheduleAutosave();
         return;
@@ -418,19 +425,20 @@ function bindInputs() {
       }
       item[field] = value;
       if (e.target.value !== value) e.target.value = value;
+      persistState();
       updateUI();
       scheduleAutosave();
     });
   });
 
   document.getElementById('exportBtn').onclick = exportPDF;
-  document.getElementById('saveEvaluationBtn').onclick = () => { saveHistorySnapshot(); showToast('Avaliação salva no histórico.'); scheduleAutosave(); };
+  document.getElementById('saveEvaluationBtn').onclick = () => { saveHistorySnapshot(); persistState(); showToast('Avaliação salva no histórico.'); scheduleAutosave(); };
   document.getElementById('resetBtn').onclick = () => {
-    if (!confirm('Deseja iniciar um novo formulário? O rascunho atual será substituído.')) return;
+    if (!confirm('Deseja iniciar uma nova avaliação? Os dados preenchidos na avaliação atual serão apagados.')) return;
     state = buildDefaultState();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    persistState();
     renderApp();
-    showToast('Novo formulário iniciado.');
+    showToast('Nova avaliação iniciada.');
   };
   document.getElementById('downloadBackupBtn').onclick = downloadBackup;
   document.getElementById('importBackupInput').onchange = importBackup;
@@ -522,14 +530,14 @@ function drawPdfFrame(doc, pageWidth, pageHeight) {
 }
 
 function drawPdfHeader(doc, pageWidth) {
-  const logoW = 34;
+  const logoW = 30;
   const logoH = logoW * (LOGO_PX_H / LOGO_PX_W);
   const x = (pageWidth - logoW) / 2;
   doc.addImage(LOGO_DATA, 'PNG', x, 10, logoW, logoH);
   doc.setTextColor(15,23,42);
   doc.setFont('helvetica','bold');
   doc.setFontSize(14);
-  doc.text('Relatório de Avaliação de Inventário', pageWidth / 2, 34, { align:'center' });
+  doc.text('Relatório de Avaliação de Inventário', pageWidth / 2, 33.5, { align:'center' });
 }
 
 function drawPdfFooter(doc, pageWidth, pageHeight, includeSignatures=false) {
@@ -565,14 +573,14 @@ function exportPDF() {
   const doc = new jsPDF({ unit:'mm', format:'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-  let y = 42;
+  let y = 40;
 
   const newPage = () => {
     drawPdfFooter(doc, pageWidth, pageHeight, false);
     doc.addPage();
     drawPdfFrame(doc, pageWidth, pageHeight);
     drawPdfHeader(doc, pageWidth);
-    y = 42;
+    y = 40;
   };
   const ensureSpace = (needed, reserveSignatures=false) => {
     const limit = reserveSignatures ? pageHeight - 40 : pageHeight - 22;
@@ -597,14 +605,15 @@ function exportPDF() {
     doc.setFontSize(12); doc.text(approved ? 'Loja Aprovada' : 'Loja Reprovada', x + w/2, top + 28.5, { align:'center' });
     doc.setTextColor(15,23,42);
   };
-  const neutralBox = (x, top, w, h, title, value) => {
+  const neutralBox = (x, top, w, h, title, value, titleSize = 8.2) => {
     doc.setFillColor(241,245,249); doc.setDrawColor(226,232,240);
     doc.roundedRect(x, top, w, h, 4, 4, 'FD');
-    doc.setTextColor(100,116,139); doc.setFont('helvetica','bold'); doc.setFontSize(8.2);
-    const lines = doc.splitTextToSize(title, w - 8).slice(0,2);
-    doc.text(lines, x + w/2, top + 5.2, { align:'center' });
+    doc.setTextColor(100,116,139); doc.setFont('helvetica','bold'); doc.setFontSize(titleSize);
+    const lines = String(title).split('\n');
+    const titleY = lines.length > 1 ? top + 5.4 : top + 7.4;
+    doc.text(lines, x + w/2, titleY, { align:'center', baseline:'top' });
     doc.setTextColor(15,23,42); doc.setFont('helvetica','bold'); doc.setFontSize(13.6);
-    doc.text(String(value), x + w/2, top + h - 5, { align:'center' });
+    doc.text(String(value), x + w/2, top + h - 4.5, { align:'center' });
   };
   const itemCard = (row) => {
     const descLines = doc.splitTextToSize(row.description, 116);
@@ -646,7 +655,11 @@ function exportPDF() {
   drawPdfHeader(doc, pageWidth);
 
   doc.setTextColor(15,23,42); doc.setFont('helvetica','bold'); doc.setFontSize(12);
-  doc.text('Resumo da Loja', 16, y); y += 6;
+  doc.text('Resumo da Loja', pageWidth / 2, y, { align:'center' });
+  doc.setDrawColor(215,25,32);
+  doc.setLineWidth(0.5);
+  doc.line(18, y + 2, pageWidth - 18, y + 2);
+  y += 8;
   const infoW = 56;
   writeLabelValue(16, y, infoW, 'Loja', state.form.nomeLoja || '-');
   writeLabelValue(76, y, infoW, 'Visita', state.form.visita || '-');
@@ -659,19 +672,19 @@ function exportPDF() {
   writeLabelValue(76, y, 56, 'Itens críticos', String(summary.itensCriticos));
   writeLabelValue(136, y, 58, 'Itens não avaliados', String(summary.itensNaoAvaliados)); y += 22;
 
-  metricBox(16, y, 64, 34, 'Nota Geral', formatPercent(summary.notaFinal), summary.notaFinal >= STATUS_THRESHOLD);
-  neutralBox(84, y, 54, 20, 'Depósito / Aéreo', formatPercent(summary.deposito.nota));
-  neutralBox(140, y, 54, 20, 'Área de Venda', formatPercent(summary.venda.nota));
-  neutralBox(84, y + 22, 26, 18, 'Áreas avaliadas', summary.totalAreas);
-  neutralBox(112.7, y + 22, 26, 18, 'Não conformes', summary.totalNaoConformes);
-  neutralBox(141.4, y + 22, 26, 18, 'Depósito NC', summary.deposito.nc);
-  neutralBox(168, y + 22, 26, 18, 'Venda NC', summary.venda.nc);
-  y += 46;
+  metricBox(16, y, 62, 34, 'Nota Geral', formatPercent(summary.notaFinal), summary.notaFinal >= STATUS_THRESHOLD);
+  neutralBox(82, y, 52, 20, 'Depósito / Aéreo', formatPercent(summary.deposito.nota), 8.0);
+  neutralBox(138, y, 56, 20, 'Área de Venda', formatPercent(summary.venda.nota), 8.0);
+  neutralBox(82, y + 22, 27, 20, 'Áreas\nAvaliadas', summary.totalAreas, 7.8);
+  neutralBox(111, y + 22, 27, 20, 'Não\nConformes', summary.totalNaoConformes, 7.8);
+  neutralBox(140, y + 22, 27, 20, 'Depósito\nNC', summary.deposito.nc, 7.6);
+  neutralBox(169, y + 22, 25, 20, 'Venda\nNC', summary.venda.nc, 7.6);
+  y += 48;
 
   doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.text('Itens Avaliados', 16, y); y += 6;
   summary.rows.forEach(itemCard);
 
-  ensureSpace(36, true);
+  ensureSpace(48, true);
   doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.text('Itens Informativos (Sem Nota)', 16, y); y += 6;
   doc.setFont('helvetica','normal'); doc.setFontSize(10);
   const info1 = doc.splitTextToSize(`Produtos que não deverão ser contados: ${state.form.produtosIdentificados || '-'}`, 178);
@@ -690,6 +703,10 @@ function init() {
   updateNetworkBadge();
   window.addEventListener('online', updateNetworkBadge);
   window.addEventListener('offline', updateNetworkBadge);
+  window.addEventListener('beforeunload', persistState);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') persistState();
+  });
 }
 init();
 </script>

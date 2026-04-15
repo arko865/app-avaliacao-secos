@@ -83,6 +83,26 @@
     .history-empty { color:var(--muted); font-size:13px; }
     .toast { position:fixed; right:16px; bottom:16px; background:#0f172a; color:#fff; padding:12px 14px; border-radius:12px; box-shadow:var(--shadow); opacity:0; transform:translateY(10px); pointer-events:none; transition:.2s ease; z-index:50; }
     .toast.show { opacity:1; transform:translateY(0); }
+
+    .manage-modal { position:fixed; inset:0; background:rgba(15,23,42,.45); display:none; align-items:center; justify-content:center; z-index:70; padding:18px; }
+    .manage-modal.open { display:flex; }
+    .manage-panel { width:min(920px, 100%); max-height:min(88vh, 900px); overflow:auto; background:#fff; border-radius:20px; box-shadow:var(--shadow); border:1px solid var(--border); }
+    .manage-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 18px 0; }
+    .manage-title { font-size:22px; font-weight:900; }
+    .manage-body { padding:16px 18px 18px; }
+    .manage-help { color:var(--muted); font-size:13px; margin-bottom:14px; line-height:1.45; }
+    .manage-list { display:grid; gap:12px; }
+    .manage-item { border:1px solid var(--border); border-radius:16px; padding:14px; background:#fff; }
+    .manage-item-top { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+    .manage-item-id { font-weight:900; font-size:14px; }
+    .manage-actions { display:flex; gap:8px; flex-wrap:wrap; }
+    .icon-btn { border:1px solid #cbd5e1; background:#fff; color:#0f172a; border-radius:10px; padding:8px 10px; font-size:12px; font-weight:800; cursor:pointer; }
+    .icon-btn.danger { border-color:#fecaca; color:#991b1b; background:#fff5f5; }
+    .manage-grid { display:grid; grid-template-columns:170px 1fr; gap:12px; }
+    .manage-footer { display:flex; justify-content:space-between; gap:12px; margin-top:16px; flex-wrap:wrap; }
+    .manage-empty { color:var(--muted); font-size:14px; border:1px dashed var(--border); padding:16px; border-radius:14px; text-align:center; }
+    @media (max-width: 640px) { .manage-grid { grid-template-columns:1fr; } .manage-header { padding:16px 16px 0; } .manage-body { padding:14px 16px 16px; } }
+
     .hidden { display:none !important; }
     @media (max-width: 980px) { .layout { grid-template-columns:1fr; } .sticky-col { position:static; } }
     @media (max-width: 640px) { .page { padding:12px; } .card-header { padding:18px 16px 0; } .card-content { padding:0 16px 16px; } .grid-2, .summary-grid { grid-template-columns:1fr; } .item-top { flex-direction:column; } .score-text { width:100%; } .status-score { font-size:38px; } .card-title { font-size:24px; } }
@@ -115,10 +135,10 @@
               <span>Gerente acompanhou validação</span>
             </label>
 
-            <h2 class="section-title">DEPÓSITO / AÉREO (Itens 1–7)</h2>
+            <h2 class="section-title">DEPÓSITO / AÉREO</h2>
             <div id="itemsDeposito"></div>
 
-            <h2 class="section-title">ÁREA DE VENDA (Itens 8–18)</h2>
+            <h2 class="section-title">ÁREA DE VENDA</h2>
             <div id="itemsVenda"></div>
 
             <h2 class="section-title">Itens Informativos (Sem Nota)</h2>
@@ -135,11 +155,8 @@
               <button id="exportBtn" class="btn" type="button">Exportar PDF</button>
               <button id="saveEvaluationBtn" class="btn secondary" type="button">Salvar avaliação</button>
               <button id="downloadBackupBtn" class="btn secondary" type="button">Exportar backup</button>
+              <button id="manageItemsBtn" class="btn secondary" type="button">Gerenciar itens</button>
               <button id="resetBtn" class="btn danger" type="button">Nova avaliação</button>
-              <label class="btn secondary" style="display:inline-flex;align-items:center;justify-content:center;cursor:pointer;">
-                Importar backup
-                <input id="importBackupInput" type="file" accept="application/json" class="hidden" />
-              </label>
             </div>
             <div class="muted-note">O app salva automaticamente o rascunho neste aparelho. Mesmo se a conexão oscilar, os dados preenchidos continuam no navegador.</div>
           </div>
@@ -184,6 +201,26 @@
     </div>
   </div>
 
+
+  <div id="manageItemsModal" class="manage-modal" aria-hidden="true">
+    <div class="manage-panel">
+      <div class="manage-header">
+        <div>
+          <div class="manage-title">Gerenciar Itens</div>
+          <div class="manage-help">Você pode editar descrições, mover o item entre Depósito / Aéreo e Área de Venda, excluir itens e adicionar novos. As alterações ficam salvas neste aparelho.</div>
+        </div>
+        <button id="closeManageItemsBtn" class="btn secondary" type="button">Fechar</button>
+      </div>
+      <div class="manage-body">
+        <div id="manageItemsList" class="manage-list"></div>
+        <div class="manage-footer">
+          <button id="addDepositoItemBtn" class="btn secondary" type="button">+ Adicionar em Depósito / Aéreo</button>
+          <button id="addVendaItemBtn" class="btn secondary" type="button">+ Adicionar em Área de Venda</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast"></div>
 
 <script>
@@ -218,13 +255,48 @@ const LOGO_DATA = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATgAAAC6CAYAAAA
 const LOGO_PX_W = 312;
 const LOGO_PX_H = 186;
 
+function makeDefaultItems() {
+  return ITEMS_SCORABLE.map((description, index) => ({
+    id: index + 1,
+    description,
+    section: index < 7 ? 'deposito' : 'venda',
+    areaAvaliada:'',
+    naoConformes:'',
+    observacao:'',
+    naoAvaliar:false
+  }));
+}
+function normalizeItem(item, index) {
+  const fallbackSection = index < 7 ? 'deposito' : 'venda';
+  return {
+    id: Number(item?.id) || (index + 1),
+    description: String(item?.description || '').trim() || `Item ${index + 1}`,
+    section: item?.section === 'venda' ? 'venda' : (item?.section === 'deposito' ? 'deposito' : fallbackSection),
+    areaAvaliada: item?.areaAvaliada ?? '',
+    naoConformes: item?.naoConformes ?? '',
+    observacao: item?.observacao ?? '',
+    naoAvaliar: !!item?.naoAvaliar
+  };
+}
+function normalizeState(candidate) {
+  const defaults = buildDefaultState();
+  if (!candidate || typeof candidate !== 'object') return defaults;
+  const items = Array.isArray(candidate.items) && candidate.items.length
+    ? candidate.items.map((item, index) => normalizeItem(item, index))
+    : defaults.items;
+  items.forEach((item, index) => { item.id = index + 1; });
+  return {
+    form: { ...defaults.form, ...(candidate.form || {}) },
+    items
+  };
+}
 function buildDefaultState() {
   return {
     form: {
       nomeLoja:'', visita:'1° Visita', coordArko:'', setor:'', gerenteLoja:'', gerenteAcompanhou:true,
       data:new Date().toISOString().slice(0,10), horaVisita:'', produtosIdentificados:'', impactoMercadoria:''
     },
-    items: ITEMS_SCORABLE.map((description,index)=>({ id:index+1, description, areaAvaliada:'', naoConformes:'', observacao:'', naoAvaliar:false }))
+    items: makeDefaultItems()
   };
 }
 let state = buildDefaultState();
@@ -244,16 +316,18 @@ function smartFileName() {
 
 function getSummary() {
   let totalAreas = 0, totalNaoConformes = 0;
-  const rows = state.items.map(item => {
+  const rows = state.items.map((item, index) => {
     const naoAvaliar = !!item.naoAvaliar;
     const areaAvaliada = naoAvaliar ? 0 : toNumber(item.areaAvaliada);
     const naoConformes = naoAvaliar ? 0 : Math.min(toNumber(item.naoConformes), areaAvaliada);
     const itemScore = naoAvaliar ? null : (areaAvaliada > 0 ? clampPercent(((areaAvaliada - naoConformes) / areaAvaliada) * 100) : 0);
     totalAreas += areaAvaliada; totalNaoConformes += naoConformes;
-    return { ...item, naoAvaliar, areaAvaliada, naoConformes, itemScore };
+    return { ...item, id: index + 1, naoAvaliar, areaAvaliada, naoConformes, itemScore };
   });
-  const deposito = sectionTotals(rows.slice(0,7).filter(r => !r.naoAvaliar));
-  const venda = sectionTotals(rows.slice(7,18).filter(r => !r.naoAvaliar));
+  const depositoRows = rows.filter(r => r.section === 'deposito' && !r.naoAvaliar);
+  const vendaRows = rows.filter(r => r.section === 'venda' && !r.naoAvaliar);
+  const deposito = sectionTotals(depositoRows);
+  const venda = sectionTotals(vendaRows);
   const notaFinal = totalAreas > 0 ? clampPercent(((totalAreas - totalNaoConformes) / totalAreas) * 100) : 0;
   return {
     rows, deposito, venda, totalAreas, totalNaoConformes, notaFinal,
@@ -291,7 +365,7 @@ function loadDraft() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return;
     const parsed = JSON.parse(raw);
-    if (parsed && parsed.form && Array.isArray(parsed.items)) state = parsed;
+    if (parsed && parsed.form && Array.isArray(parsed.items)) state = normalizeState(parsed);
   } catch (err) { console.warn('Não foi possível carregar rascunho.', err); }
 }
 
@@ -337,7 +411,7 @@ function renderHistory() {
   target.querySelectorAll('[data-load]').forEach(btn => btn.onclick = () => {
     const entry = list.find(x => String(x.id) === btn.dataset.load);
     if (!entry) return;
-    state = clone(entry.data);
+    state = normalizeState(clone(entry.data));
     persistState();
     renderApp();
     showToast('Avaliação carregada.');
@@ -389,8 +463,125 @@ function renderItems() {
   const deposito = document.getElementById('itemsDeposito');
   const venda = document.getElementById('itemsVenda');
   deposito.innerHTML = ''; venda.innerHTML = '';
-  state.items.slice(0,7).forEach(item => deposito.appendChild(createItemCard(item)));
-  state.items.slice(7).forEach(item => venda.appendChild(createItemCard(item)));
+  state.items.filter(item => item.section === 'deposito').forEach(item => deposito.appendChild(createItemCard(item)));
+  state.items.filter(item => item.section === 'venda').forEach(item => venda.appendChild(createItemCard(item)));
+}
+
+
+function renderManageItems() {
+  const list = document.getElementById('manageItemsList');
+  if (!list) return;
+  list.innerHTML = '';
+  if (!state.items.length) {
+    list.innerHTML = '<div class="manage-empty">Nenhum item cadastrado.</div>';
+    return;
+  }
+  state.items.forEach((item, index) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'manage-item';
+    wrap.innerHTML = `
+      <div class="manage-item-top">
+        <div class="manage-item-id">Item ${index + 1}</div>
+        <div class="manage-actions">
+          <button class="icon-btn" type="button" data-move-up="${index}" ${index === 0 ? 'disabled' : ''}>↑ Subir</button>
+          <button class="icon-btn" type="button" data-move-down="${index}" ${index === state.items.length - 1 ? 'disabled' : ''}>↓ Descer</button>
+          <button class="icon-btn danger" type="button" data-delete-item="${index}">Excluir</button>
+        </div>
+      </div>
+      <div class="manage-grid">
+        <div class="field" style="margin:0;">
+          <label>Seção</label>
+          <select data-manage-field="section" data-manage-index="${index}">
+            <option value="deposito" ${item.section === 'deposito' ? 'selected' : ''}>Depósito / Aéreo</option>
+            <option value="venda" ${item.section === 'venda' ? 'selected' : ''}>Área de Venda</option>
+          </select>
+        </div>
+        <div class="field" style="margin:0;">
+          <label>Descrição do item</label>
+          <textarea rows="3" data-manage-field="description" data-manage-index="${index}" placeholder="Descreva o item avaliado">${item.description || ''}</textarea>
+        </div>
+      </div>
+    `;
+    list.appendChild(wrap);
+  });
+
+  list.querySelectorAll('[data-manage-field]').forEach(el => {
+    const eventName = el.tagName === 'SELECT' ? 'change' : 'input';
+    el.addEventListener(eventName, e => {
+      const index = Number(e.target.dataset.manageIndex);
+      const field = e.target.dataset.manageField;
+      const item = state.items[index];
+      if (!item) return;
+      item[field] = e.target.value;
+      reindexItems();
+      persistState();
+      renderApp();
+      scheduleAutosave();
+    });
+  });
+  list.querySelectorAll('[data-delete-item]').forEach(btn => btn.onclick = () => {
+    const index = Number(btn.dataset.deleteItem);
+    if (!confirm('Deseja excluir este item?')) return;
+    state.items.splice(index, 1);
+    if (!state.items.length) state.items = makeDefaultItems();
+    reindexItems();
+    persistState();
+    renderApp();
+    scheduleAutosave();
+    showToast('Item excluído.');
+  });
+  list.querySelectorAll('[data-move-up]').forEach(btn => btn.onclick = () => {
+    const index = Number(btn.dataset.moveUp);
+    if (index <= 0) return;
+    const [item] = state.items.splice(index, 1);
+    state.items.splice(index - 1, 0, item);
+    reindexItems();
+    persistState();
+    renderApp();
+    scheduleAutosave();
+  });
+  list.querySelectorAll('[data-move-down]').forEach(btn => btn.onclick = () => {
+    const index = Number(btn.dataset.moveDown);
+    if (index >= state.items.length - 1) return;
+    const [item] = state.items.splice(index, 1);
+    state.items.splice(index + 1, 0, item);
+    reindexItems();
+    persistState();
+    renderApp();
+    scheduleAutosave();
+  });
+}
+
+function reindexItems() {
+  state.items = state.items.map((item, index) => normalizeItem({ ...item, id: index + 1 }, index));
+}
+function openManageItemsModal() {
+  renderManageItems();
+  const modal = document.getElementById('manageItemsModal');
+  modal.classList.add('open');
+  modal.setAttribute('aria-hidden', 'false');
+}
+function closeManageItemsModal() {
+  const modal = document.getElementById('manageItemsModal');
+  modal.classList.remove('open');
+  modal.setAttribute('aria-hidden', 'true');
+}
+function addManagedItem(section) {
+  const nextIndex = state.items.length;
+  state.items.push(normalizeItem({
+    id: nextIndex + 1,
+    description: section === 'deposito' ? 'Novo item de Depósito / Aéreo' : 'Novo item de Área de Venda',
+    section,
+    areaAvaliada:'',
+    naoConformes:'',
+    observacao:'',
+    naoAvaliar:false
+  }, nextIndex));
+  reindexItems();
+  persistState();
+  renderApp();
+  scheduleAutosave();
+  showToast('Novo item adicionado.');
 }
 
 function bindInputs() {
@@ -441,7 +632,11 @@ function bindInputs() {
     showToast('Nova avaliação iniciada.');
   };
   document.getElementById('downloadBackupBtn').onclick = downloadBackup;
-  document.getElementById('importBackupInput').onchange = importBackup;
+  document.getElementById('manageItemsBtn').onclick = openManageItemsModal;
+  document.getElementById('closeManageItemsBtn').onclick = closeManageItemsModal;
+  document.getElementById('addDepositoItemBtn').onclick = () => addManagedItem('deposito');
+  document.getElementById('addVendaItemBtn').onclick = () => addManagedItem('venda');
+  document.getElementById('manageItemsModal').onclick = (e) => { if (e.target.id === 'manageItemsModal') closeManageItemsModal(); };
 }
 
 function updateUI() {
@@ -475,12 +670,14 @@ function updateUI() {
 }
 
 function renderApp() {
+  reindexItems();
   renderItems();
   renderOptions('produtosIdentificadosOptions','produtosIdentificados');
   renderOptions('impactoMercadoriaOptions','impactoMercadoria');
   bindInputs();
   updateUI();
   renderHistory();
+  if (document.getElementById('manageItemsModal')?.classList.contains('open')) renderManageItems();
 }
 
 function updateNetworkBadge() {
@@ -509,7 +706,7 @@ function importBackup(event) {
     try {
       const parsed = JSON.parse(reader.result);
       if (!parsed.form || !Array.isArray(parsed.items)) throw new Error('Arquivo inválido');
-      state = parsed;
+      state = normalizeState(parsed);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       renderApp();
       showToast('Backup importado com sucesso.');
@@ -699,6 +896,7 @@ function exportPDF() {
 
 function init() {
   loadDraft();
+  state = normalizeState(state);
   renderApp();
   updateNetworkBadge();
   window.addEventListener('online', updateNetworkBadge);

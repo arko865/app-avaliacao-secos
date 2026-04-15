@@ -318,14 +318,19 @@ function drawPdfFrame(doc, pageWidth, pageHeight) {
   doc.rect(0, pageHeight - 14, pageWidth, 14, 'F');
   doc.setDrawColor(230,230,230);
   doc.roundedRect(10, 10, pageWidth - 20, pageHeight - 30, 4, 4);
-  if (LOGO_DATA) doc.addImage(LOGO_DATA, 'PNG', pageWidth/2 - 20, 11.8, 40, 14);
+  if (LOGO_DATA) {
+    const logoWidth = 44;
+    const logoRatio = 186 / 312;
+    const logoHeight = logoWidth * logoRatio;
+    doc.addImage(LOGO_DATA, 'PNG', (pageWidth - logoWidth) / 2, 11.2, logoWidth, logoHeight);
+  }
   doc.setFont('helvetica','bold');
   doc.setFontSize(15);
   doc.setTextColor(15,23,42);
-  doc.text('Relatório de Avaliação de Inventário', pageWidth/2, 34, {align:'center'});
+  doc.text('Relatório de Avaliação de Inventário', pageWidth/2, 38, {align:'center'});
   doc.setDrawColor(215,25,32);
   doc.setLineWidth(0.5);
-  doc.line(16, 38, pageWidth - 16, 38);
+  doc.line(16, 42, pageWidth - 16, 42);
 }
 function drawPdfFooter(doc, pageWidth, pageHeight, includeSignatures = false) {
   doc.setTextColor(255,255,255);

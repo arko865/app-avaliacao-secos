@@ -230,8 +230,8 @@ function createItemCard(item) {
     </div>
     <p class="item-description">${item.description}</p>
     <div class="grid-2">
-      <div class="field"><label>Áreas avaliadas</label><input type="number" min="0" value="${item.areaAvaliada || 0}" data-id="${item.id}" data-field="areaAvaliada" ${item.naoAvaliar ? 'disabled' : ''} /></div>
-      <div class="field"><label>Áreas não conformes</label><input type="number" min="0" value="${item.naoConformes || 0}" data-id="${item.id}" data-field="naoConformes" ${item.naoAvaliar ? 'disabled' : ''} /></div>
+      <div class="field"><label>Áreas avaliadas</label><input type="text" inputmode="numeric" pattern="[0-9]*" value="${item.areaAvaliada ?? ''}" data-id="${item.id}" data-field="areaAvaliada" ${item.naoAvaliar ? 'disabled' : ''} /></div>
+      <div class="field"><label>Áreas não conformes</label><input type="text" inputmode="numeric" pattern="[0-9]*" value="${item.naoConformes ?? ''}" data-id="${item.id}" data-field="naoConformes" ${item.naoAvaliar ? 'disabled' : ''} /></div>
     </div>
     <div class="field" style="margin-top:12px;"><label>Observações</label><textarea placeholder="Observações" data-id="${item.id}" data-field="observacao" ${item.naoAvaliar ? 'disabled' : ''}>${item.observacao || ''}</textarea></div>`;
   return wrapper;
@@ -265,13 +265,25 @@ function bindInputs() {
     el.addEventListener(eventName, e => {
       const id = Number(e.target.dataset.id); const field = e.target.dataset.field;
       const item = state.items.find(i => i.id === id);
-      item[field] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
-      if (field === 'naoAvaliar' && e.target.checked) {
-        item.areaAvaliada = '';
-        item.naoConformes = '';
+      if (!item) return;
+      if (field === 'naoAvaliar') {
+        item[field] = e.target.checked;
+        if (e.target.checked) {
+          item.areaAvaliada = '';
+          item.naoConformes = '';
+          item.observacao = item.observacao || '';
+        }
+        renderItems();
+        bindInputs();
+        updateUI();
+        return;
       }
-      renderItems();
-      bindInputs();
+      let rawValue = e.target.value ?? '';
+      if (field === 'areaAvaliada' || field === 'naoConformes') {
+        rawValue = String(rawValue).replace(/\D+/g, '');
+      }
+      item[field] = rawValue;
+      if (e.target.value !== rawValue) e.target.value = rawValue;
       updateUI();
     });
   });
@@ -306,7 +318,7 @@ function drawPdfFrame(doc, pageWidth, pageHeight) {
   doc.rect(0, pageHeight - 14, pageWidth, 14, 'F');
   doc.setDrawColor(230,230,230);
   doc.roundedRect(10, 10, pageWidth - 20, pageHeight - 30, 4, 4);
-  if (LOGO_DATA) doc.addImage(LOGO_DATA, 'PNG', pageWidth/2 - 24, 11.5, 48, 17);
+  if (LOGO_DATA) doc.addImage(LOGO_DATA, 'PNG', pageWidth/2 - 20, 11.8, 40, 14);
   doc.setFont('helvetica','bold');
   doc.setFontSize(15);
   doc.setTextColor(15,23,42);
@@ -346,7 +358,7 @@ function exportPDF() {
     const pageHeight = doc.internal.pageSize.getHeight();
     const summary = getSummary();
     let y = 44;
-    const contentBottom = pageHeight - 42;
+    const contentBottom = pageHeight - 48;
 
     function newPage() {
       drawPdfFooter(doc, pageWidth, pageHeight, false);
@@ -410,26 +422,35 @@ function exportPDF() {
       doc.setFillColor(241,245,249);
       doc.setDrawColor(226,232,240);
       doc.roundedRect(x, top, w, h, 4, 4, 'FD');
-      const titleLines = doc.splitTextToSize(title, w - 6);
+      const labelMap = {
+        'Áreas avaliadas': ['Áreas', 'avaliadas'],
+        'Não conformes': ['Não', 'conformes'],
+        'Depósito NC': ['Depósito', 'NC'],
+        'Venda NC': ['Venda', 'NC']
+      };
+      const titleLines = labelMap[title] || doc.splitTextToSize(title, w - 8);
       doc.setTextColor(100,116,139);
       doc.setFont('helvetica','bold');
-      doc.setFontSize(7.5);
-      titleLines.forEach((line, idx) => doc.text(line, x + w/2, top + 5 + idx * 3.2, {align:'center'}));
+      doc.setFontSize(7.1);
+      titleLines.forEach((line, idx) => doc.text(line, x + w/2, top + 5.3 + idx * 3.1, {align:'center'}));
       doc.setTextColor(15,23,42);
       doc.setFont('helvetica','bold');
       doc.setFontSize(13.5);
-      const valueY = top + h - 4.8;
+      const valueY = top + h - 5.2;
       doc.text(String(value), x + w/2, valueY, {align:'center'});
     }
 
     function itemCard(row) {
       const descLines = doc.splitTextToSize(row.description, 112);
-      const obsLines = doc.splitTextToSize(row.observacao || '-', 108);
-      const descHeight = descLines.length * 4;
-      const obsHeight = obsLines.length * 4;
+      const obsLines = doc.splitTextToSize(row.observacao || '-', 132);
+      const descHeight = Math.max(4, descLines.length * 4);
+      const obsHeight = Math.max(4, obsLines.length * 4);
       const statusHeight = row.naoAvaliar ? 6 : 0;
-      const boxH = Math.max(24, 24 + statusHeight + descHeight + obsHeight);
-      ensureSpace(boxH + 3);
+      const metaHeight = 5;
+      const obsTopGap = 6;
+      const bottomPadding = 6;
+      const boxH = Math.max(28, 20 + statusHeight + descHeight + metaHeight + obsTopGap + obsHeight + bottomPadding);
+      ensureSpace(boxH + 4, y > pageHeight - 95);
       if (row.naoAvaliar) {
         doc.setFillColor(248,250,252);
       } else {
@@ -454,13 +475,8 @@ function exportPDF() {
         doc.text('N/A', 171, y + 11.1, {align:'center'});
       } else {
         const approved = row.itemScore >= STATUS_THRESHOLD;
-        if (approved) {
-          doc.setFillColor(22,163,74);
-          doc.setTextColor(255,255,255);
-        } else {
-          doc.setFillColor(127,29,29);
-          doc.setTextColor(255,255,255);
-        }
+        doc.setFillColor(approved ? 22 : 127, approved ? 163 : 29, approved ? 74 : 29);
+        doc.setTextColor(255,255,255);
         doc.roundedRect(154, y + 4, 34, 11, 3, 3, 'F');
         doc.setFont('helvetica','bold');
         doc.setFontSize(10.5);
@@ -481,23 +497,23 @@ function exportPDF() {
       doc.setFont('helvetica','normal');
       doc.text(descLines, 20, contentY);
 
-      let lineY = contentY + descHeight + 3;
+      let lineY = contentY + descHeight + 4;
       doc.setFont('helvetica','bold');
       doc.text('Áreas avaliadas:', 20, lineY);
       doc.setFont('helvetica','normal');
       doc.text(String(row.areaAvaliada), 48, lineY);
       doc.setFont('helvetica','bold');
-      doc.text('Não conformes:', 70, lineY);
+      doc.text('Não conformes:', 76, lineY);
       doc.setFont('helvetica','normal');
-      doc.text(String(row.naoConformes), 98, lineY);
+      doc.text(String(row.naoConformes), 104, lineY);
 
-      lineY += 5;
+      lineY += obsTopGap;
       doc.setFont('helvetica','bold');
       doc.text('Observações:', 20, lineY);
       doc.setFont('helvetica','normal');
       doc.text(obsLines, 44, lineY);
 
-      y += boxH + 3;
+      y += boxH + 4;
     }
 
     function infoNotice(title, value) {
@@ -533,19 +549,20 @@ function exportPDF() {
 
     ensureSpace(64);
     metricBox(16, y, 62, 34, 'Nota Geral', formatPercent(summary.notaFinal), summary.notaFinal >= STATUS_THRESHOLD);
-    statBox(82, y, 54, 24, 'Depósito / Aéreo', formatPercent(summary.deposito.nota));
-    statBox(140, y, 54, 24, 'Área de Venda', formatPercent(summary.venda.nota));
-    y += 28;
-    const statY = y;
-    statBox(82, statY, 27, 22, 'Áreas avaliadas', String(summary.totalAreas));
-    statBox(113, statY, 27, 22, 'Não conformes', String(summary.totalNaoConformes));
-    statBox(144, statY, 24, 22, 'Depósito NC', String(summary.deposito.nc));
-    statBox(172, statY, 22, 22, 'Venda NC', String(summary.venda.nc));
+    statBox(82, y, 52, 22, 'Depósito / Aéreo', formatPercent(summary.deposito.nota));
+    statBox(138, y, 56, 22, 'Área de Venda', formatPercent(summary.venda.nota));
     y += 26;
+    const statY = y;
+    statBox(82, statY, 26, 24, 'Áreas avaliadas', String(summary.totalAreas));
+    statBox(111, statY, 26, 24, 'Não conformes', String(summary.totalNaoConformes));
+    statBox(140, statY, 26, 24, 'Depósito NC', String(summary.deposito.nc));
+    statBox(169, statY, 25, 24, 'Venda NC', String(summary.venda.nc));
+    y += 29;
 
     sectionTitle('Itens Avaliados');
     summary.rows.forEach(itemCard);
 
+    ensureSpace(34, true);
     sectionTitle('Itens Informativos (Sem Nota)');
     infoNotice('Produtos que não deverão ser contados:', state.form.produtosIdentificados || '-');
     infoNotice('Mercadorias podem atrasar o inventário:', state.form.impactoMercadoria || '-');

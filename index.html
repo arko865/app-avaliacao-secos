@@ -618,13 +618,13 @@ function parseMillis(value) {
   if (typeof value.toMillis === 'function') return value.toMillis();
   return 0;
 }
-function queueCloudDraftSync(immediate = false) {
+function queueCloudDraftSync(immediate = false, forcedUpdatedAt = 0) {
   if (!firebaseReady || !firestore) return;
   clearTimeout(draftSyncTimer);
   const run = async () => {
     try {
-      const updatedAt = Date.now();
-      lastCloudDraftAt = updatedAt;
+      const updatedAt = forcedUpdatedAt || Date.now();
+      lastCloudDraftAt = Math.max(lastCloudDraftAt || 0, updatedAt);
       await firestore.doc(CLOUD_DRAFT_DOC_PATH).set({
         payload: normalizeState(state),
         updatedAt,
@@ -1271,12 +1271,17 @@ function bindInputs() {
     const activeModel = state.form.modelo || DEFAULT_MODEL_KEY;
     const preservedTemplates = clone(state.storeStreetTemplates || {});
     const preservedItemTemplates = clone(state.modelItemTemplates || {});
+    const resetTimestamp = Date.now();
     manageDraftItems = null;
+    manageStreetCounts = null;
     state = buildDefaultState(preservedTemplates, preservedItemTemplates, activeModel);
     loadStreetCountsForStore('', activeModel);
+    lastCloudDraftAt = resetTimestamp;
+    cloudDraftInitialized = true;
+    try { localStorage.removeItem(STORAGE_KEY); } catch (err) {}
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (err) { console.warn('Não foi possível limpar o rascunho local.', err); }
-    queueCloudDraftSync(true);
     renderApp();
+    queueCloudDraftSync(true, resetTimestamp);
     showToast('Nova avaliação iniciada.');
   };
   document.getElementById('downloadBackupBtn').onclick = downloadBackup;

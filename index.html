@@ -110,10 +110,10 @@
     @media (max-width: 640px) { .manage-grid { grid-template-columns:1fr; } .manage-header { padding:16px 16px 0; } .manage-body { padding:14px 16px 16px; } }
 
 
-    .counts-table-wrap { overflow:auto; padding-bottom:4px; }
-    .count-head { min-width:1320px; }
-    .counts-table { min-width:1320px; }
-    .count-row { min-width:1320px; display:grid; grid-template-columns:220px repeat(6, 120px) 150px 110px; gap:12px; align-items:start; padding:14px 0; border-top:1px solid var(--border); }
+    .counts-table-wrap { overflow:visible; padding-bottom:4px; }
+    .count-head { display:none; }
+    .counts-table { min-width:0; }
+    .count-row { min-width:0; display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; align-items:start; padding:14px 0; border-top:1px solid var(--border); }
     .count-row .field { min-width:0; }
     .count-row .btn { align-self:end; }
     .photo-bank { grid-column:1 / -1; display:grid; gap:12px; }
@@ -128,7 +128,8 @@
 
     .hidden { display:none !important; }
     @media (max-width: 980px) { .layout { grid-template-columns:1fr; } .sticky-col { position:static; } }
-    @media (max-width: 640px) { .page { padding:12px; } .card-header { padding:18px 16px 0; } .card-content { padding:0 16px 16px; } .grid-2, .summary-grid { grid-template-columns:1fr; } .item-top { flex-direction:column; } .score-text { width:100%; } .status-score { font-size:38px; } .card-title { font-size:24px; } .sticky-col { position:static; max-height:none; overflow:visible; } .count-row, .count-head, .counts-table { min-width:100%; grid-template-columns:1fr; } }
+    @media (max-width: 980px) { .counts-table-wrap { overflow:visible; } .count-row { grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); } }
+    @media (max-width: 640px) { .page { padding:12px; } .card-header { padding:18px 16px 0; } .card-content { padding:0 16px 16px; } .grid-2, .summary-grid { grid-template-columns:1fr; } .item-top { flex-direction:column; } .score-text { width:100%; } .status-score { font-size:38px; } .card-title { font-size:24px; } .sticky-col { position:static; max-height:none; overflow:visible; } .count-row { grid-template-columns:1fr; } .photo-grid { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
@@ -294,13 +295,13 @@ const MODEL_CONFIGS = {
   nova_era_secos: {
     key:'nova_era_secos',
     label:'Nova Era — Secos',
-    reportLabel:'Formulário de Validação de Pré-Inventário - Nova Era Secos',
+    reportLabel:'Formulário de Validação de Pré-Inventário',
     usesStreetCounts:true,
     autoAreaMap:{
       paletesMix:[1,2,6],
-      paletesFull:[4,7],
-      prateleiras:[8,10,11,12,13,14],
-      caixarias:[9]
+      paletesFull:[4],
+      prateleiras:[7,9,10,11,12,13,14],
+      caixarias:[8]
     },
     items:[
   "Depósito/Aéreo: Nos Paletes Mix foi armazenado produtos de uma mesma categoria?",
@@ -309,10 +310,8 @@ const MODEL_CONFIGS = {
   "Depósito: Para os Paletes Full foram organizados com amarração única e placas contendo identificação?",
   "Depósito: Área segregada do PAR foi organizada respeitando agrupamento por códigos?",
   "Depósito/Aéreo: Os Paletes Mix foram organizados separando por códigos?",
-  "Depósito/Aéreo: Produtos do aéreo foram organizados respeitando agrupamento por categoria e código?",
   "Área de Venda: Foram eliminadas caixas nas gôndolas?",
   "Área de Venda: Foi organizada a caixaria da última prateleira com descrição voltada para fora?",
-  "Área de Venda: Foi reduzido o abastecimento dos produtos de Baixo e Médio Giro em D-5 e produtos de Alto Giro em D-1?",
   "Área de Venda: Mercadorias puxadas para frente facilitando visualização?",
   "Área de Venda: Produtos agrupados por códigos nas prateleiras?",
   "Área de Venda: Foi deixado 1 cm de separação entre grupos?",
@@ -508,6 +507,36 @@ function applyAutomaticAreas(targetState = state) {
   });
   return targetState;
 }
+
+function applyAutomaticNonConformities(targetState = state) {
+  if (!targetState || !Array.isArray(targetState.items)) return targetState;
+  const modelKey = targetState?.form?.modelo || DEFAULT_MODEL_KEY;
+  const optionMap = PHOTO_NONCONFORMITY_ITEM_MAP[modelKey];
+  if (!optionMap) return targetState;
+  const totalsByItem = {};
+  Object.values(optionMap).forEach(itemId => { totalsByItem[itemId] = 0; });
+  (targetState.streetCounts || []).forEach(row => {
+    (Array.isArray(row.photos) ? row.photos : []).forEach(photo => {
+      const qty = toNumber(photo?.areasNaoConformes);
+      if (!qty) return;
+      const selected = Array.isArray(photo?.nonConformities) ? [...new Set(photo.nonConformities)] : [];
+      selected.forEach(option => {
+        const itemId = optionMap[option];
+        if (itemId) totalsByItem[itemId] = (totalsByItem[itemId] || 0) + qty;
+      });
+    });
+  });
+  targetState.items.forEach(item => {
+    const itemId = Number(item.id);
+    if (!(itemId in totalsByItem)) return;
+    item.naoConformes = item.naoAvaliar ? '' : String(totalsByItem[itemId] || '');
+    if (toNumber(item.naoConformes) > toNumber(item.areaAvaliada)) {
+      item.naoConformes = item.areaAvaliada ? String(item.areaAvaliada) : '';
+    }
+  });
+  return targetState;
+}
+
 function normalizeItem(item, index, modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY) {
   const defaults = buildItemsFromModel(modelKey);
   const fallbackSection = defaults[index]?.section || 'venda';
@@ -580,9 +609,10 @@ function normalizeModelItemTemplates(templates) {
   if (!templates || typeof templates !== 'object') return next;
   Object.entries(templates).forEach(([modelKey, items]) => {
     const normalizedModel = MODEL_CONFIGS[modelKey] ? modelKey : DEFAULT_MODEL_KEY;
+    const defaultItems = buildItemsFromModel(normalizedModel);
     next[normalizedModel] = Array.isArray(items) && items.length
-      ? reindexItems(items.map((item, index) => normalizeItem(item, index, normalizedModel)), normalizedModel)
-      : buildItemsFromModel(normalizedModel);
+      ? reindexItems(defaultItems.map((defaultItem, index) => normalizeItem(items[index] || defaultItem, index, normalizedModel)), normalizedModel)
+      : defaultItems;
   });
   return next;
 }
@@ -612,7 +642,7 @@ function normalizeState(candidate) {
   const defaults = buildDefaultState(candidate?.storeStreetTemplates || {}, candidate?.modelItemTemplates || {}, selectedModel);
   if (!candidate || typeof candidate !== 'object') return defaults;
   const items = Array.isArray(candidate.items) && candidate.items.length
-    ? candidate.items.map((item, index) => normalizeItem(item, index, selectedModel))
+    ? defaults.items.map((defaultItem, index) => normalizeItem(candidate.items[index] || defaultItem, index, selectedModel))
     : clone(defaults.items);
   items.forEach((item, index) => { item.id = index + 1; });
   const storeStreetTemplates = normalizeStoreStreetTemplates(candidate.storeStreetTemplates || {});
@@ -701,15 +731,49 @@ function formatDateForInput(value) {
   if (!Number.isNaN(date.getTime())) return date.toISOString().slice(0,10);
   return new Date().toISOString().slice(0,10);
 }
-const PHOTO_NONCONFORMITY_OPTIONS = [
-  'Paletes Mix com mais de uma categoria',
-  'Produtos não agrupados por código',
-  'Paletes Full sem identificação',
-  'Caixaria fora do padrão',
-  'Prateleiras sem separação adequada',
-  'BackLight desorganizado',
-  'Gancheiras sem padronização'
-];
+const PHOTO_NONCONFORMITY_OPTIONS_BY_MODEL = {
+  nova_era_secos: [
+    'Paletes Mix com produtos de mais de uma categoria',
+    'Caixas abertas (incompletas) e/ou contendo diversos itens mesclados',
+    'Paletes de uma mesma categoria em vários corredores?',
+    'Paletes Full sem placa de identificação',
+    'PAR não foi organizada respeitando agrupamento por códigos',
+    'Paletes Mix não foram organizados separando por códigos',
+    'Caixas nas gôndolas atrás dos produtos expostos',
+    'Caixarias desorganizadas',
+    'Mercadorias não foram puxadas para frente',
+    'Produtos não agrupados por código',
+    'Produtos sem espaço entre os itens',
+    'Produtos organizados com posições diferentes (deitado/de pé)',
+    'Pontas de Gôndola com necessidade de organização',
+    'Peg board com necessidade de organização',
+    'PAR Garrafas de bebidas em embalagens incorretas',
+    'PAR Vitrines com necessidade de organização'
+  ]
+};
+const PHOTO_NONCONFORMITY_ITEM_MAP = {
+  nova_era_secos: {
+    'Paletes Mix com produtos de mais de uma categoria': 1,
+    'Caixas abertas (incompletas) e/ou contendo diversos itens mesclados': 2,
+    'Paletes de uma mesma categoria em vários corredores?': 3,
+    'Paletes Full sem placa de identificação': 4,
+    'PAR não foi organizada respeitando agrupamento por códigos': 5,
+    'Paletes Mix não foram organizados separando por códigos': 6,
+    'Caixas nas gôndolas atrás dos produtos expostos': 7,
+    'Caixarias desorganizadas': 8,
+    'Mercadorias não foram puxadas para frente': 9,
+    'Produtos não agrupados por código': 10,
+    'Produtos sem espaço entre os itens': 11,
+    'Produtos organizados com posições diferentes (deitado/de pé)': 12,
+    'Pontas de Gôndola com necessidade de organização': 13,
+    'Peg board com necessidade de organização': 14,
+    'PAR Garrafas de bebidas em embalagens incorretas': 15,
+    'PAR Vitrines com necessidade de organização': 16
+  }
+};
+function getPhotoOptionsForModel(modelKey) {
+  return PHOTO_NONCONFORMITY_OPTIONS_BY_MODEL[modelKey] || PHOTO_NONCONFORMITY_OPTIONS_BY_MODEL.nova_era_secos;
+}
 function makeDefaultPhoto(reportLocation='') {
   return {
     id: `photo-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
@@ -1233,7 +1297,7 @@ function renderStreetCounts() {
               <div class="field">
                 <label>Não conformidades</label>
                 <div class="check-chip-group">
-                  ${PHOTO_NONCONFORMITY_OPTIONS.map(option => `
+                  ${getPhotoOptionsForModel(state.form.modelo).map(option => `
                     <label class="check-chip">
                       <input type="checkbox" data-photo-index="${photoIndex}" data-count-index="${index}" data-photo-check="${escapeHtml(option)}" ${photo.nonConformities.includes(option) ? 'checked' : ''} />
                       <span>${escapeHtml(option)}</span>
@@ -1834,34 +1898,55 @@ function exportPDF() {
   doc.text(info1, 16, y); y += info1.length * 4 + 2;
   doc.text(info2, 16, y); y += info2.length * 4 + 4;
 
+  
   const photoRows = (state.streetCounts || []).filter(row => Array.isArray(row.photos) && row.photos.length);
   if (photoRows.length) {
     ensureSpace(20, true);
     doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.text('Relatório Fotográfico', 16, y); y += 7;
     photoRows.forEach(row => {
-      row.photos.forEach(photo => {
-        ensureSpace(72, true);
+      const validPhotos = (row.photos || []).filter(photo => photo && photo.dataUrl);
+      if (!validPhotos.length) return;
+      ensureSpace(12, true);
+      doc.setFillColor(241,245,249); doc.setDrawColor(226,232,240);
+      doc.roundedRect(16, y, 178, 10, 3, 3, 'FD');
+      doc.setTextColor(15,23,42); doc.setFont('helvetica','bold'); doc.setFontSize(10.5);
+      doc.text(`Rua: ${row.rua || '-'}`, 20, y + 6.5);
+      y += 14;
+
+      validPhotos.forEach((photo, photoIndex) => {
+        const imageW = 52;
+        const imageH = 39;
+        const cardH = 60;
+        if (photoIndex % 2 === 0) ensureSpace(cardH + 4, true);
+        const col = photoIndex % 2;
+        const cardX = col === 0 ? 16 : 107;
+        const cardY = y;
+
         doc.setFillColor(255,255,255); doc.setDrawColor(226,232,240);
-        doc.roundedRect(16, y, 178, 64, 3, 3, 'FD');
-        doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(15,23,42);
-        doc.text(`Rua: ${row.rua || '-'}`, 20, y + 6);
+        doc.roundedRect(cardX, cardY, 87, cardH, 3, 3, 'FD');
+
         try {
-          if (photo.dataUrl) doc.addImage(photo.dataUrl, 'JPEG', 20, y + 10, 58, 44);
+          doc.addImage(photo.dataUrl, 'JPEG', cardX + 3, cardY + 3, imageW, imageH, undefined, 'MEDIUM');
         } catch (err) {
-          try { doc.addImage(photo.dataUrl, 'PNG', 20, y + 10, 58, 44); } catch (e) {}
+          try { doc.addImage(photo.dataUrl, 'PNG', cardX + 3, cardY + 3, imageW, imageH, undefined, 'MEDIUM'); } catch (e) {}
         }
+
+        const infoX = cardX + 58;
         const ncText = (Array.isArray(photo.nonConformities) && photo.nonConformities.length) ? photo.nonConformities.join('; ') : '-';
-        const ncLines = doc.splitTextToSize(`Não conformidades: ${ncText}`, 106);
-        const setorLines = doc.splitTextToSize(`Setor / Local: ${photo.setor || row.rua || '-'}`, 106);
-        const obsLines = doc.splitTextToSize(`Observação: ${photo.observacao || '-'}`, 106);
-        doc.setFont('helvetica','normal'); doc.setFontSize(9);
-        doc.text(ncLines, 84, y + 14);
-        let py = y + 14 + (ncLines.length * 4) + 2;
-        doc.text(`Áreas não conformes: ${photo.areasNaoConformes || '-'}`, 84, py); py += 6;
-        doc.text(setorLines, 84, py); py += setorLines.length * 4 + 2;
-        doc.text(obsLines, 84, py);
-        y += 68;
+        const titleLines = doc.splitTextToSize(`NC: ${ncText}`, 25);
+        const areaLine = `Áreas NC: ${photo.areasNaoConformes || '-'}`;
+        const setorLines = doc.splitTextToSize(`Setor: ${photo.setor || row.rua || '-'}`, 25);
+
+        doc.setTextColor(15,23,42); doc.setFont('helvetica','bold'); doc.setFontSize(8.2);
+        doc.text(titleLines.slice(0,4), infoX, cardY + 7);
+        let infoY = cardY + 7 + Math.min(titleLines.length,4) * 3.6 + 1;
+        doc.setFont('helvetica','normal'); doc.setFontSize(8.2);
+        doc.text(areaLine, infoX, infoY); infoY += 4.6;
+        doc.text(setorLines.slice(0,3), infoX, infoY);
+
+        if (photoIndex % 2 === 1 || photoIndex === validPhotos.length - 1) y += cardH + 4;
       });
+      y += 2;
     });
   }
 

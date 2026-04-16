@@ -1215,8 +1215,11 @@ function renderManageItems() {
           </select>
         </div>
         <div class="field" style="margin:0;">
-          <label>Posição</label>
-          <input type="number" min="1" max="${sourceItems.length}" value="${index + 1}" data-manage-position="${index}" />
+          <label>Mover para posição</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input type="number" min="1" max="${sourceItems.length}" value="${index + 1}" data-manage-position="${index}" />
+            <button class="icon-btn" type="button" data-apply-position="${index}">Mover</button>
+          </div>
         </div>
         <div class="field" style="margin:0;">
           <label>Descrição do item</label>
@@ -1245,29 +1248,26 @@ function renderManageItems() {
     });
   });
 
-  list.querySelectorAll('input[data-manage-position]').forEach(el => {
-    const applyMove = () => {
-      const currentIndex = Number(el.dataset.managePosition);
-      if (!Array.isArray(manageDraftItems) || !manageDraftItems[currentIndex]) return;
-      const targetRaw = Number(el.value);
-      const maxIndex = manageDraftItems.length;
-      if (!Number.isFinite(targetRaw)) {
-        el.value = String(currentIndex + 1);
-        return;
-      }
-      const targetIndex = Math.max(0, Math.min(maxIndex - 1, Math.round(targetRaw) - 1));
-      if (targetIndex === currentIndex) {
-        el.value = String(currentIndex + 1);
-        return;
-      }
-      const [item] = manageDraftItems.splice(currentIndex, 1);
-      manageDraftItems.splice(targetIndex, 0, item);
-      manageDraftItems = reindexItems(manageDraftItems);
-      renderManageItems();
-      showToast(`Item movido para a posição ${targetIndex + 1}. Clique em "Salvar alterações" para confirmar.`);
-    };
-    el.addEventListener('change', applyMove);
-    el.addEventListener('blur', applyMove);
+  list.querySelectorAll('[data-apply-position]').forEach(btn => btn.onclick = () => {
+    const currentIndex = Number(btn.dataset.applyPosition);
+    const input = list.querySelector(`input[data-manage-position="${currentIndex}"]`);
+    if (!input || !Array.isArray(manageDraftItems) || !manageDraftItems[currentIndex]) return;
+    const targetRaw = Number(input.value);
+    const maxIndex = manageDraftItems.length;
+    if (!Number.isFinite(targetRaw)) {
+      input.value = String(currentIndex + 1);
+      return;
+    }
+    const targetIndex = Math.max(0, Math.min(maxIndex - 1, Math.round(targetRaw) - 1));
+    if (targetIndex === currentIndex) {
+      input.value = String(currentIndex + 1);
+      return;
+    }
+    const [item] = manageDraftItems.splice(currentIndex, 1);
+    manageDraftItems.splice(targetIndex, 0, item);
+    manageDraftItems = reindexItems(manageDraftItems);
+    renderManageItems();
+    showToast(`Item movido para a posição ${targetIndex + 1}. Clique em "Salvar alterações" para confirmar.`);
   });
 
   list.querySelectorAll('[data-delete-item]').forEach(btn => btn.onclick = () => {

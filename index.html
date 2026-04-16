@@ -267,13 +267,14 @@
       </div>
       <div class="manage-body">
         <div class="counts-table-wrap"><div class="count-head">
-          <div>Rua</div>
+          <div>Área Avaliada</div>
           <div>Paletes Full</div>
           <div>Paletes Mix</div>
           <div>Caixarias</div>
           <div>Prateleiras</div>
           <div>BackLight</div>
           <div>Gancheiras</div>
+          <div>PAR</div>
           <div>Fotos / Câmera</div>
           <div></div>
         </div>
@@ -298,10 +299,14 @@ const MODEL_CONFIGS = {
     reportLabel:'Formulário de Validação de Pré-Inventário',
     usesStreetCounts:true,
     autoAreaMap:{
-      paletesMix:[1,2,6],
-      paletesFull:[4],
-      prateleiras:[7,9,10,11,12,13,14],
-      caixarias:[8]
+      paletesMix:[1,2,3,6],
+      paletesFull:[3,4],
+      par:[5],
+      prateleiras:[7,9,10,11,12],
+      caixarias:[8],
+      pontas:[13],
+      gancheiras:[14],
+      vitrine:[15,16]
     },
     items:[
   "Depósito/Aéreo: Nos Paletes Mix foi armazenado produtos de uma mesma categoria?",
@@ -454,7 +459,10 @@ function makeDefaultItems(modelKey = DEFAULT_MODEL_KEY) {
   return buildItemsFromModel(modelKey);
 }
 function makeDefaultStreetCounts() {
-  return [{ id: Date.now(), rua:'Rua 1', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', backlight:'', gancheiras:'', photos:[] }];
+  return [
+    { id: `${Date.now()}-0`, rua:'Depósito', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', backlight:'', gancheiras:'', par:'', pontas:'', vitrine:'', photos:[] },
+    { id: `${Date.now()}-1`, rua:'Área de Venda', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', backlight:'', gancheiras:'', par:'', pontas:'', vitrine:'', photos:[] }
+  ];
 }
 function normalizeStreetCount(row, index) {
   return {
@@ -466,6 +474,9 @@ function normalizeStreetCount(row, index) {
     prateleiras: String(row?.prateleiras ?? ''),
     backlight: String(row?.backlight ?? ''),
     gancheiras: String(row?.gancheiras ?? ''),
+    par: String(row?.par ?? ''),
+    pontas: String(row?.pontas ?? ''),
+    vitrine: String(row?.vitrine ?? ''),
     photos: Array.isArray(row?.photos) ? row.photos.map((photo, photoIndex) => ({
       ...makeDefaultPhoto(String(row?.rua || `Rua ${index + 1}`)),
       ...photo,
@@ -486,24 +497,31 @@ function getStreetCountTotals(rows = state.streetCounts || []) {
     acc.prateleiras += toNumber(row.prateleiras);
     acc.backlight += toNumber(row.backlight);
     acc.gancheiras += toNumber(row.gancheiras);
+    acc.par += toNumber(row.par);
+    acc.pontas += toNumber(row.pontas);
+    acc.vitrine += toNumber(row.vitrine);
     acc.photos += Array.isArray(row.photos) ? row.photos.length : 0;
     return acc;
-  }, { paletesFull:0, paletesMix:0, caixarias:0, prateleiras:0, backlight:0, gancheiras:0, photos:0 });
+  }, { paletesFull:0, paletesMix:0, caixarias:0, prateleiras:0, backlight:0, gancheiras:0, par:0, pontas:0, vitrine:0, photos:0 });
 }
 function applyAutomaticAreas(targetState = state) {
   if (!targetState || !Array.isArray(targetState.items)) return targetState;
   if (!isStreetCountEnabled(targetState?.form?.modelo)) return targetState;
   const totals = getStreetCountTotals(targetState.streetCounts || []);
+  const totalsByItem = {};
   Object.entries(getAutoAreaMap(targetState?.form?.modelo)).forEach(([key, itemIds]) => {
-    const totalValue = String(totals[key] || '');
+    const qty = toNumber(totals[key]);
     itemIds.forEach(itemId => {
-      const item = targetState.items.find(x => Number(x.id) === Number(itemId));
-      if (!item) return;
-      item.areaAvaliada = item.naoAvaliar ? '' : totalValue;
-      if (toNumber(item.naoConformes) > toNumber(item.areaAvaliada)) {
-        item.naoConformes = item.areaAvaliada;
-      }
+      totalsByItem[itemId] = (totalsByItem[itemId] || 0) + qty;
     });
+  });
+  targetState.items.forEach(item => {
+    const itemId = Number(item.id);
+    if (!(itemId in totalsByItem)) return;
+    item.areaAvaliada = item.naoAvaliar ? '' : String(totalsByItem[itemId] || '');
+    if (toNumber(item.naoConformes) > toNumber(item.areaAvaliada)) {
+      item.naoConformes = item.areaAvaliada;
+    }
   });
   return targetState;
 }
@@ -561,6 +579,7 @@ function makeStreetCountsFromTemplateRows(rows) {
     prateleiras: '',
     backlight: '',
     gancheiras: '',
+    par: '',
     photos: []
   }, index));
 }
@@ -1324,13 +1343,16 @@ function renderStreetCounts() {
           `).join('')}
         </div>` : '<div class="manage-empty">Nenhuma foto registrada nesta rua.</div>';
       wrap.innerHTML = `
-        <div class="field"><label>Rua</label><input type="text" data-count-index="${index}" data-count-field="rua" value="${escapeHtml(String(row.rua || ''))}" placeholder="Ex.: Depósito" /></div>
+        <div class="field"><label>Área Avaliada</label><select data-count-index="${index}" data-count-field="rua"><option value="Depósito" ${String(row.rua||'')==='Depósito'?'selected':''}>Depósito</option><option value="Área de Venda" ${String(row.rua||'')==='Área de Venda'?'selected':''}>Área de Venda</option></select></div>
         <div class="field"><label>Paletes Full</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="paletesFull" value="${row.paletesFull ?? ''}" /></div>
         <div class="field"><label>Paletes Mix</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="paletesMix" value="${row.paletesMix ?? ''}" /></div>
         <div class="field"><label>Caixarias</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="caixarias" value="${row.caixarias ?? ''}" /></div>
         <div class="field"><label>Prateleiras</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="prateleiras" value="${row.prateleiras ?? ''}" /></div>
         <div class="field"><label>BackLight</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="backlight" value="${row.backlight ?? ''}" /></div>
         <div class="field"><label>Gancheiras</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="gancheiras" value="${row.gancheiras ?? ''}" /></div>
+        <div class="field"><label>PAR</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="par" value="${row.par ?? ''}" /></div>
+        <div class="field"><label>Pontas</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="pontas" value="${row.pontas ?? ''}" /></div>
+        <div class="field"><label>Vitrine</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="vitrine" value="${row.vitrine ?? ''}" /></div>
         <div class="field">
           <label>Relatório fotográfico</label>
           <button class="btn secondary" type="button" data-open-camera="${index}">Abrir câmera</button>
@@ -1441,6 +1463,9 @@ function updateStreetCountsSummary() {
     <div class="count-summary-tile"><div class="count-summary-label">Prateleiras</div><div class="count-summary-value">${totals.prateleiras}</div></div>
     <div class="count-summary-tile"><div class="count-summary-label">BackLight</div><div class="count-summary-value">${totals.backlight}</div></div>
     <div class="count-summary-tile"><div class="count-summary-label">Gancheiras</div><div class="count-summary-value">${totals.gancheiras}</div></div>
+    <div class="count-summary-tile"><div class="count-summary-label">PAR</div><div class="count-summary-value">${totals.par}</div></div>
+    <div class="count-summary-tile"><div class="count-summary-label">Pontas</div><div class="count-summary-value">${totals.pontas}</div></div>
+    <div class="count-summary-tile"><div class="count-summary-label">Vitrine</div><div class="count-summary-value">${totals.vitrine}</div></div>
     <div class="count-summary-tile"><div class="count-summary-label">Fotos registradas</div><div class="count-summary-value">${totals.photos}</div></div>
   `;
 }
@@ -1459,7 +1484,7 @@ function closeStreetCountsModal() {
 }
 function addStreetCountRow() {
   if (!Array.isArray(manageStreetCounts)) manageStreetCounts = clone(state.streetCounts || makeDefaultStreetCounts());
-  manageStreetCounts.push(normalizeStreetCount({ rua:`Rua ${manageStreetCounts.length + 1}` }, manageStreetCounts.length));
+  manageStreetCounts.push(normalizeStreetCount({ rua: manageStreetCounts.length % 2 === 0 ? 'Depósito' : 'Área de Venda' }, manageStreetCounts.length));
   renderStreetCounts();
 }
 function saveStreetCounts() {
@@ -1910,7 +1935,7 @@ function exportPDF() {
       doc.setFillColor(241,245,249); doc.setDrawColor(226,232,240);
       doc.roundedRect(16, y, 178, 10, 3, 3, 'FD');
       doc.setTextColor(15,23,42); doc.setFont('helvetica','bold'); doc.setFontSize(10.5);
-      doc.text(`Rua: ${row.rua || '-'}`, 20, y + 6.5);
+      doc.text(`Área: ${row.rua || '-'}`, 20, y + 6.5);
       y += 14;
 
       validPhotos.forEach((photo, photoIndex) => {

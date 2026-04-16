@@ -474,14 +474,14 @@ function makeDefaultItems(modelKey = DEFAULT_MODEL_KEY) {
 }
 function makeDefaultStreetCounts() {
   return [
-    { id: `${Date.now()}-0`, rua:'Depósito', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', gancheiras:'', par:'', pontas:'', vitrine:'', photos:[] },
-    { id: `${Date.now()}-1`, rua:'Área de Venda', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', gancheiras:'', par:'', pontas:'', vitrine:'', photos:[] }
+    { id: `${Date.now()}-0`, rua:'Área 1', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', gancheiras:'', par:'', pontas:'', vitrine:'', photos:[] },
+    { id: `${Date.now()}-1`, rua:'Área 2', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', gancheiras:'', par:'', pontas:'', vitrine:'', photos:[] }
   ];
 }
 function normalizeStreetCount(row, index) {
   return {
     id: row?.id || `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`,
-    rua: String(row?.rua || `Rua ${index + 1}`).trim() || `Rua ${index + 1}`,
+    rua: String(row?.rua || `Área ${index + 1}`).trim() || `Área ${index + 1}`,
     paletesFull: String(row?.paletesFull ?? ''),
     paletesMix: String(row?.paletesMix ?? ''),
     caixarias: String(row?.caixarias ?? ''),
@@ -491,12 +491,12 @@ function normalizeStreetCount(row, index) {
     pontas: String(row?.pontas ?? ''),
     vitrine: String(row?.vitrine ?? ''),
     photos: Array.isArray(row?.photos) ? row.photos.map((photo, photoIndex) => ({
-      ...makeDefaultPhoto(String(row?.rua || `Rua ${index + 1}`)),
+      ...makeDefaultPhoto(String(row?.rua || `Área ${index + 1}`)),
       ...photo,
       id: photo?.id || `photo-${Date.now()}-${index}-${photoIndex}`,
       nonConformities: Array.isArray(photo?.nonConformities) ? photo.nonConformities.filter(Boolean) : [],
       areasNaoConformes: String(photo?.areasNaoConformes ?? ''),
-      setor: String(photo?.setor || row?.rua || `Rua ${index + 1}`),
+      setor: String(photo?.setor || row?.rua || `Área ${index + 1}`),
       observacao: String(photo?.observacao ?? ''),
       dataUrl: String(photo?.dataUrl || '')
     })) : []
@@ -1357,7 +1357,7 @@ function renderStreetCounts() {
         <div>
           <div class="count-stage-title">1. Escolha a área e informe as quantidades avaliadas</div>
           <div class="count-fields-grid">
-            <div class="field"><label>Área Avaliada</label><select data-count-index="${index}" data-count-field="rua"><option value="Depósito" ${String(row.rua||'')==='Depósito'?'selected':''}>Depósito</option><option value="Área de Venda" ${String(row.rua||'')==='Área de Venda'?'selected':''}>Área de Venda</option></select></div>
+            <div class="field"><label>Área</label><input type="text" value="${escapeHtml(areaName)}" readonly /></div>
             <div class="field"><label>Paletes Full</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="paletesFull" value="${row.paletesFull ?? ''}" /></div>
             <div class="field"><label>Paletes Mix</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="paletesMix" value="${row.paletesMix ?? ''}" /></div>
             <div class="field"><label>Caixarias</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="caixarias" value="${row.caixarias ?? ''}" /></div>
@@ -1399,7 +1399,7 @@ function renderStreetCounts() {
               </div>
               <div class="field">
                 <label>Setor / Local</label>
-                <input type="text" data-count-index="${index}" data-draft-field="setor" value="${escapeHtml(draftPhoto.setor || row.rua || '')}" placeholder="Ex.: Depósito" />
+                <input type="text" data-count-index="${index}" data-draft-field="setor" value="${escapeHtml(draftPhoto.setor || row.rua || '')}" placeholder="Ex.: observação da foto" />
               </div>
               <div class="field" style="grid-column:1 / -1;">
                 <label>Observação complementar</label>
@@ -1556,7 +1556,7 @@ function closeStreetCountsModal() {
 }
 function addStreetCountRow() {
   if (!Array.isArray(manageStreetCounts)) manageStreetCounts = clone(state.streetCounts || makeDefaultStreetCounts());
-  manageStreetCounts.push(normalizeStreetCount({ rua: manageStreetCounts.length % 2 === 0 ? 'Depósito' : 'Área de Venda' }, manageStreetCounts.length));
+  manageStreetCounts.push(normalizeStreetCount({ rua: `Área ${manageStreetCounts.length + 1}` }, manageStreetCounts.length));
   renderStreetCounts();
 }
 function saveStreetCounts() {
@@ -1902,9 +1902,10 @@ function exportPDF() {
     doc.text(lines.slice(0,2), x + 4, top + 10.2);
   };
   const metricBox = (x, top, w, h, title, value, approved) => {
-    doc.setFillColor(...(approved ? [22,163,74] : [127,29,29]));
+    doc.setFillColor(...(approved ? [134,239,172] : [127,29,29]));
     doc.roundedRect(x, top, w, h, 4, 4, 'F');
-    doc.setTextColor(255,255,255); doc.setFont('helvetica','bold');
+    const approvedText = approved ? [20,83,45] : [255,255,255];
+    doc.setTextColor(...approvedText); doc.setFont('helvetica','bold');
     doc.setFontSize(10); doc.text(title, x + w/2, top + 6.8, { align:'center' });
     doc.setFontSize(20); doc.text(value, x + w/2, top + 17.8, { align:'center' });
     doc.setFontSize(12); doc.text(approved ? 'Loja Aprovada' : 'Loja Reprovada', x + w/2, top + 28.5, { align:'center' });

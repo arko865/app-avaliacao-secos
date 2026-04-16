@@ -17,7 +17,7 @@
     * { box-sizing:border-box; }
     body { margin:0; font-family:Arial,Helvetica,sans-serif; background:var(--bg); color:var(--text); }
     .page { min-height:100vh; padding:16px; }
-    .layout { max-width:1440px; margin:0 auto; display:grid; gap:24px; grid-template-columns:minmax(0,1.35fr) minmax(320px,.65fr); align-items:start; }
+    .layout { max-width:1440px; margin:0 auto; display:grid; gap:24px; grid-template-columns:minmax(0,1.35fr) minmax(340px,.65fr); align-items:start; }
     .card { background:var(--card); border:1px solid var(--border); border-radius:20px; box-shadow:var(--shadow); overflow:hidden; }
     .card-header { padding:20px 22px 0; }
     .card-title { margin:0 0 14px; font-size:28px; font-weight:800; }
@@ -26,7 +26,7 @@
     .pill { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:999px; background:#fff; border:1px solid var(--border); color:var(--muted); font-size:13px; font-weight:700; }
     .pill-dot { width:10px; height:10px; border-radius:50%; background:#16a34a; }
     .pill.offline .pill-dot { background:#dc2626; }
-    .grid-2 { display:grid; gap:16px; grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .grid-2 { display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); }
     .field { display:flex; flex-direction:column; gap:8px; }
     label { font-size:14px; font-weight:700; color:var(--text); }
     input, select, textarea { width:100%; padding:13px 14px; border-radius:14px; border:1px solid #cbd5e1; background:#fff; font-size:16px; color:var(--text); outline:none; }
@@ -55,7 +55,7 @@
     .score-text.good { background:#166534; }
     .score-text.na { background:#cbd5e1; color:#475569; }
     .item-description { margin:0 0 14px; font-size:17px; line-height:1.4; }
-    .sticky-col { position:sticky; top:16px; display:grid; gap:24px; }
+    .sticky-col { position:sticky; top:16px; display:grid; gap:24px; max-height:calc(100vh - 32px); overflow:auto; padding-right:4px; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; }
     .status-box { border-radius:18px; padding:18px; color:#fff; text-align:center; margin-bottom:14px; }
     .status-bad { background:var(--red-2); }
     .status-good { background:#166534; }
@@ -109,9 +109,26 @@
     .manage-empty { color:var(--muted); font-size:14px; border:1px dashed var(--border); padding:16px; border-radius:14px; text-align:center; }
     @media (max-width: 640px) { .manage-grid { grid-template-columns:1fr; } .manage-header { padding:16px 16px 0; } .manage-body { padding:14px 16px 16px; } }
 
+
+    .counts-table-wrap { overflow:auto; padding-bottom:4px; }
+    .count-head { min-width:1320px; }
+    .counts-table { min-width:1320px; }
+    .count-row { min-width:1320px; display:grid; grid-template-columns:220px repeat(6, 120px) 150px 110px; gap:12px; align-items:start; padding:14px 0; border-top:1px solid var(--border); }
+    .count-row .field { min-width:0; }
+    .count-row .btn { align-self:end; }
+    .photo-bank { grid-column:1 / -1; display:grid; gap:12px; }
+    .photo-grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); }
+    .photo-card { border:1px solid var(--border); border-radius:16px; padding:12px; background:#fff; display:grid; gap:10px; }
+    .photo-thumb { width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:12px; border:1px solid var(--border); background:#e2e8f0; }
+    .check-chip-group { display:flex; flex-wrap:wrap; gap:8px; }
+    .check-chip { display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:999px; padding:8px 10px; background:#fff; font-size:12px; font-weight:700; color:var(--text); }
+    .check-chip input { width:16px; height:16px; margin:0; accent-color:#0f172a; }
+    .camera-input { display:none; }
+    .photo-card-actions { display:flex; justify-content:flex-end; }
+
     .hidden { display:none !important; }
     @media (max-width: 980px) { .layout { grid-template-columns:1fr; } .sticky-col { position:static; } }
-    @media (max-width: 640px) { .page { padding:12px; } .card-header { padding:18px 16px 0; } .card-content { padding:0 16px 16px; } .grid-2, .summary-grid { grid-template-columns:1fr; } .item-top { flex-direction:column; } .score-text { width:100%; } .status-score { font-size:38px; } .card-title { font-size:24px; } }
+    @media (max-width: 640px) { .page { padding:12px; } .card-header { padding:18px 16px 0; } .card-content { padding:0 16px 16px; } .grid-2, .summary-grid { grid-template-columns:1fr; } .item-top { flex-direction:column; } .score-text { width:100%; } .status-score { font-size:38px; } .card-title { font-size:24px; } .sticky-col { position:static; max-height:none; overflow:visible; } .count-row, .count-head, .counts-table { min-width:100%; grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
@@ -141,13 +158,13 @@
               <div class="field"><label for="visita">Visita</label><select id="visita"><option>1° Visita</option><option>2° Visita</option><option>3° Visita</option><option>4° Visita</option></select></div>
               <div class="field"><label for="coordArko">Coord. Arko</label><input id="coordArko" type="text" /></div>
               <div class="field"><label for="setor">Setor</label><input id="setor" type="text" /></div>
-              <div class="field"><label for="gerenteLoja">Gerente da loja</label><input id="gerenteLoja" type="text" /></div>
+              <div class="field"><label for="gerenteLoja">Responsável Loja</label><input id="gerenteLoja" type="text" /></div>
               <div class="field"><label for="data">Data</label><input id="data" type="date" /></div>
               <div class="field"><label for="horaVisita">Hora da visita</label><input id="horaVisita" type="time" /></div>
             </div>
             <label class="checkbox-row" for="gerenteAcompanhou">
               <input id="gerenteAcompanhou" type="checkbox" checked />
-              <span>Gerente acompanhou validação</span>
+              <span>Responsável acompanhou validação</span>
             </label>
 
             <h2 class="section-title">DEPÓSITO / AÉREO</h2>
@@ -242,21 +259,24 @@
     <div class="manage-panel" style="max-width:1180px;">
       <div class="manage-header">
         <div>
-          <div class="manage-title">Paletes e Prateleiras por Rua</div>
-          <div class="manage-help">Digite livremente as quantidades por rua. O app soma automaticamente os totais e preenche <strong>Áreas avaliadas</strong> dos itens vinculados.</div>
+          <div class="manage-title">Paletes, Prateleiras e Relatório Fotográfico por Rua</div>
+          <div class="manage-help">Digite livremente as quantidades por rua. O app soma automaticamente os totais e preenche <strong>Áreas avaliadas</strong> dos itens vinculados. Também é possível registrar fotos por rua com não conformidades e quantidade de áreas não conformes.</div>
         </div>
         <button id="closeStreetCountsBtn" class="btn secondary" type="button">Fechar</button>
       </div>
       <div class="manage-body">
-        <div class="count-head">
+        <div class="counts-table-wrap"><div class="count-head">
           <div>Rua</div>
           <div>Paletes Full</div>
           <div>Paletes Mix</div>
           <div>Caixarias</div>
           <div>Prateleiras</div>
+          <div>BackLight</div>
+          <div>Gancheiras</div>
+          <div>Fotos / Câmera</div>
           <div></div>
         </div>
-        <div id="streetCountsList" class="counts-table"></div>
+        <div id="streetCountsList" class="counts-table"></div></div>
         <div id="streetCountsSummary" class="count-summary"></div>
         <div class="manage-footer">
           <button id="addStreetCountRowBtn" class="btn secondary" type="button">+ Adicionar rua</button>
@@ -435,7 +455,7 @@ function makeDefaultItems(modelKey = DEFAULT_MODEL_KEY) {
   return buildItemsFromModel(modelKey);
 }
 function makeDefaultStreetCounts() {
-  return [{ id: Date.now(), rua:'Rua 1', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'' }];
+  return [{ id: Date.now(), rua:'Rua 1', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', backlight:'', gancheiras:'', photos:[] }];
 }
 function normalizeStreetCount(row, index) {
   return {
@@ -444,7 +464,19 @@ function normalizeStreetCount(row, index) {
     paletesFull: String(row?.paletesFull ?? ''),
     paletesMix: String(row?.paletesMix ?? ''),
     caixarias: String(row?.caixarias ?? ''),
-    prateleiras: String(row?.prateleiras ?? '')
+    prateleiras: String(row?.prateleiras ?? ''),
+    backlight: String(row?.backlight ?? ''),
+    gancheiras: String(row?.gancheiras ?? ''),
+    photos: Array.isArray(row?.photos) ? row.photos.map((photo, photoIndex) => ({
+      ...makeDefaultPhoto(String(row?.rua || `Rua ${index + 1}`)),
+      ...photo,
+      id: photo?.id || `photo-${Date.now()}-${index}-${photoIndex}`,
+      nonConformities: Array.isArray(photo?.nonConformities) ? photo.nonConformities.filter(Boolean) : [],
+      areasNaoConformes: String(photo?.areasNaoConformes ?? ''),
+      setor: String(photo?.setor || row?.rua || `Rua ${index + 1}`),
+      observacao: String(photo?.observacao ?? ''),
+      dataUrl: String(photo?.dataUrl || '')
+    })) : []
   };
 }
 function getStreetCountTotals(rows = state.streetCounts || []) {
@@ -453,8 +485,11 @@ function getStreetCountTotals(rows = state.streetCounts || []) {
     acc.paletesMix += toNumber(row.paletesMix);
     acc.caixarias += toNumber(row.caixarias);
     acc.prateleiras += toNumber(row.prateleiras);
+    acc.backlight += toNumber(row.backlight);
+    acc.gancheiras += toNumber(row.gancheiras);
+    acc.photos += Array.isArray(row.photos) ? row.photos.length : 0;
     return acc;
-  }, { paletesFull:0, paletesMix:0, caixarias:0, prateleiras:0 });
+  }, { paletesFull:0, paletesMix:0, caixarias:0, prateleiras:0, backlight:0, gancheiras:0, photos:0 });
 }
 function applyAutomaticAreas(targetState = state) {
   if (!targetState || !Array.isArray(targetState.items)) return targetState;
@@ -494,7 +529,10 @@ function makeStreetCountsFromTemplateRows(rows) {
     paletesFull: '',
     paletesMix: '',
     caixarias: '',
-    prateleiras: ''
+    prateleiras: '',
+    backlight: '',
+    gancheiras: '',
+    photos: []
   }, index));
 }
 function normalizeStoreStreetTemplates(templates) {
@@ -583,7 +621,7 @@ function normalizeState(candidate) {
     : clone(defaults.streetCounts);
   const modelItemTemplates = normalizeModelItemTemplates(candidate.modelItemTemplates || defaults.modelItemTemplates || {});
   return applyAutomaticAreas({
-    form: { ...defaults.form, ...(candidate.form || {}), modelo:selectedModel },
+    form: { ...defaults.form, ...(candidate.form || {}), modelo:selectedModel, data: formatDateForInput(candidate?.form?.data || defaults.form.data) },
     items,
     streetCounts,
     storeStreetTemplates,
@@ -632,6 +670,56 @@ function clampPercent(value) { return Number.isFinite(value) ? Math.max(0, Math.
 function formatPercent(value) { return `${Number(value || 0).toFixed(1)}%`; }
 function sanitizeFileName(name) { return (name || 'relatorio-avaliacao').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-zA-Z0-9\-_ ]/g,'').trim().replace(/\s+/g,'-').toLowerCase() || 'relatorio-avaliacao'; }
 function toNumber(value) { return Math.max(0, Number(String(value || '').replace(',', '.')) || 0); }
+
+function formatDateBR(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '-';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const [y,m,d] = raw.split('-');
+    return `${d}/${m}/${y.slice(-2)}`;
+  }
+  if (/^\d{2}\/\d{2}\/\d{2,4}$/.test(raw)) return raw;
+  const date = new Date(raw);
+  if (!Number.isNaN(date.getTime())) {
+    const d = String(date.getDate()).padStart(2,'0');
+    const m = String(date.getMonth()+1).padStart(2,'0');
+    const y = String(date.getFullYear()).slice(-2);
+    return `${d}/${m}/${y}`;
+  }
+  return raw;
+}
+function formatDateForInput(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return new Date().toISOString().slice(0,10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const match = raw.match(/^(\d{2})\/(\d{2})\/(\d{2,4})$/);
+  if (match) {
+    const year = match[3].length === 2 ? `20${match[3]}` : match[3];
+    return `${year}-${match[2]}-${match[1]}`;
+  }
+  const date = new Date(raw);
+  if (!Number.isNaN(date.getTime())) return date.toISOString().slice(0,10);
+  return new Date().toISOString().slice(0,10);
+}
+const PHOTO_NONCONFORMITY_OPTIONS = [
+  'Paletes Mix com mais de uma categoria',
+  'Produtos não agrupados por código',
+  'Paletes Full sem identificação',
+  'Caixaria fora do padrão',
+  'Prateleiras sem separação adequada',
+  'BackLight desorganizado',
+  'Gancheiras sem padronização'
+];
+function makeDefaultPhoto(reportLocation='') {
+  return {
+    id: `photo-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+    dataUrl:'',
+    nonConformities:[],
+    areasNaoConformes:'',
+    setor:reportLocation || '',
+    observacao:''
+  };
+}
 
 function getDeviceId() {
   try {
@@ -783,9 +871,8 @@ async function initializeFirebaseSync() {
 function sectionTotals(rows) { let area=0,nc=0; rows.forEach(r=>{ area += r.areaAvaliada; nc += r.naoConformes; }); return { area, nc, nota: area > 0 ? clampPercent(((area - nc) / area) * 100) : 0 }; }
 function smartFileName() {
   const loja = sanitizeFileName(state.form.nomeLoja || 'sem-loja');
-  const modelo = sanitizeFileName(getModelConfig(state.form.modelo).label || 'modelo');
-  const data = sanitizeFileName(state.form.data || new Date().toISOString().slice(0,10));
-  return `avaliacao_${modelo}_${loja}_${data}.pdf`;
+  const data = sanitizeFileName(formatDateBR(state.form.data || new Date().toISOString().slice(0,10)).replace(/\//g, '-'));
+  return `Avaliacao_${loja}_${data}.pdf`;
 }
 
 function getSummary() {
@@ -850,7 +937,7 @@ function saveHistorySnapshot() {
     id: String(Date.now()),
     createdAt: new Date().toISOString(),
     title: state.form.nomeLoja || 'Loja sem nome',
-    subtitle: `${getModelConfig(state.form.modelo).label} • ${state.form.setor || 'Sem setor'} • ${state.form.visita || 'Sem visita'}`,
+    subtitle: `${getModelConfig(state.form.modelo).label} • ${state.form.setor || 'Sem setor'} • ${state.form.visita || 'Sem visita'} • ${formatDateBR(state.form.data)}`,
     notaFinal: summary.notaFinal,
     data: clone(state)
   };
@@ -1138,18 +1225,63 @@ function renderStreetCounts() {
     rows.forEach((row, index) => {
       const wrap = document.createElement('div');
       wrap.className = 'count-row';
+      const photosHtml = Array.isArray(row.photos) && row.photos.length ? `
+        <div class="photo-grid">
+          ${row.photos.map((photo, photoIndex) => `
+            <div class="photo-card">
+              <img class="photo-thumb" src="${photo.dataUrl}" alt="Foto ${photoIndex + 1} da ${escapeHtml(row.rua)}" />
+              <div class="field">
+                <label>Não conformidades</label>
+                <div class="check-chip-group">
+                  ${PHOTO_NONCONFORMITY_OPTIONS.map(option => `
+                    <label class="check-chip">
+                      <input type="checkbox" data-photo-index="${photoIndex}" data-count-index="${index}" data-photo-check="${escapeHtml(option)}" ${photo.nonConformities.includes(option) ? 'checked' : ''} />
+                      <span>${escapeHtml(option)}</span>
+                    </label>
+                  `).join('')}
+                </div>
+              </div>
+              <div class="field">
+                <label>Áreas não conformes</label>
+                <input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-photo-index="${photoIndex}" data-photo-field="areasNaoConformes" value="${photo.areasNaoConformes ?? ''}" />
+              </div>
+              <div class="field">
+                <label>Setor / Local</label>
+                <input type="text" data-count-index="${index}" data-photo-index="${photoIndex}" data-photo-field="setor" value="${escapeHtml(photo.setor || row.rua || '')}" placeholder="Ex.: Depósito" />
+              </div>
+              <div class="field">
+                <label>Observação complementar</label>
+                <textarea data-count-index="${index}" data-photo-index="${photoIndex}" data-photo-field="observacao" placeholder="Detalhe complementar da não conformidade">${escapeHtml(photo.observacao || '')}</textarea>
+              </div>
+              <div class="photo-card-actions">
+                <button class="btn danger" type="button" data-remove-photo="${index}" data-photo-index="${photoIndex}">Excluir foto</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>` : '<div class="manage-empty">Nenhuma foto registrada nesta rua.</div>';
       wrap.innerHTML = `
-        <div class="field"><label>Rua</label><input type="text" data-count-index="${index}" data-count-field="rua" value="${String(row.rua || '').replace(/"/g, '&quot;')}" placeholder="Ex.: Rua 1" /></div>
+        <div class="field"><label>Rua</label><input type="text" data-count-index="${index}" data-count-field="rua" value="${escapeHtml(String(row.rua || ''))}" placeholder="Ex.: Depósito" /></div>
         <div class="field"><label>Paletes Full</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="paletesFull" value="${row.paletesFull ?? ''}" /></div>
         <div class="field"><label>Paletes Mix</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="paletesMix" value="${row.paletesMix ?? ''}" /></div>
         <div class="field"><label>Caixarias</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="caixarias" value="${row.caixarias ?? ''}" /></div>
         <div class="field"><label>Prateleiras</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="prateleiras" value="${row.prateleiras ?? ''}" /></div>
+        <div class="field"><label>BackLight</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="backlight" value="${row.backlight ?? ''}" /></div>
+        <div class="field"><label>Gancheiras</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="gancheiras" value="${row.gancheiras ?? ''}" /></div>
+        <div class="field">
+          <label>Relatório fotográfico</label>
+          <button class="btn secondary" type="button" data-open-camera="${index}">Abrir câmera</button>
+          <input class="camera-input" type="file" accept="image/*" capture="environment" data-camera-input="${index}" />
+          <div class="muted-note">Fotos registradas: ${(Array.isArray(row.photos) ? row.photos.length : 0)}</div>
+        </div>
         <button class="btn danger remove-count-row" type="button" data-remove-count-row="${index}">Excluir</button>
+        <div class="photo-bank">
+          <label>Fotos e não conformidades da rua</label>
+          ${photosHtml}
+        </div>
       `;
       list.appendChild(wrap);
     });
   }
-
   list.querySelectorAll('[data-count-field]').forEach(el => {
     el.addEventListener('input', e => {
       const index = Number(e.target.dataset.countIndex);
@@ -1162,10 +1294,69 @@ function renderStreetCounts() {
         if (e.target.value !== value) e.target.value = value;
       }
       row[field] = value;
+      if (field === 'rua' && Array.isArray(row.photos)) row.photos = row.photos.map(photo => ({ ...photo, setor: photo.setor || value }));
       updateStreetCountsSummary();
     });
   });
-
+  list.querySelectorAll('[data-open-camera]').forEach(btn => btn.onclick = () => {
+    const index = Number(btn.dataset.openCamera);
+    list.querySelector(`[data-camera-input="${index}"]`)?.click();
+  });
+  list.querySelectorAll('[data-camera-input]').forEach(input => {
+    input.onchange = e => {
+      const index = Number(e.target.dataset.cameraInput);
+      const row = manageStreetCounts?.[index];
+      const file = e.target.files && e.target.files[0];
+      if (!row || !file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        row.photos = Array.isArray(row.photos) ? row.photos : [];
+        row.photos.push({ ...makeDefaultPhoto(row.rua || `Rua ${index + 1}`), dataUrl: String(reader.result || '') });
+        renderStreetCounts();
+        showToast('Foto adicionada. Complete as não conformidades antes de salvar.');
+      };
+      reader.readAsDataURL(file);
+      e.target.value = '';
+    };
+  });
+  list.querySelectorAll('[data-photo-field]').forEach(el => {
+    el.addEventListener('input', e => {
+      const index = Number(e.target.dataset.countIndex);
+      const photoIndex = Number(e.target.dataset.photoIndex);
+      const field = e.target.dataset.photoField;
+      const row = manageStreetCounts?.[index];
+      const photo = row?.photos?.[photoIndex];
+      if (!photo) return;
+      let value = e.target.value ?? '';
+      if (field === 'areasNaoConformes') {
+        value = String(value).replace(/[^\d]/g, '');
+        if (e.target.value !== value) e.target.value = value;
+      }
+      photo[field] = value;
+    });
+  });
+  list.querySelectorAll('[data-photo-check]').forEach(el => {
+    el.onchange = e => {
+      const index = Number(e.target.dataset.countIndex);
+      const photoIndex = Number(e.target.dataset.photoIndex);
+      const option = e.target.dataset.photoCheck;
+      const row = manageStreetCounts?.[index];
+      const photo = row?.photos?.[photoIndex];
+      if (!photo) return;
+      const current = new Set(Array.isArray(photo.nonConformities) ? photo.nonConformities : []);
+      if (e.target.checked) current.add(option); else current.delete(option);
+      photo.nonConformities = Array.from(current);
+    };
+  });
+  list.querySelectorAll('[data-remove-photo]').forEach(btn => btn.onclick = () => {
+    const index = Number(btn.dataset.removePhoto);
+    const photoIndex = Number(btn.dataset.photoIndex);
+    const row = manageStreetCounts?.[index];
+    if (!row?.photos) return;
+    row.photos.splice(photoIndex, 1);
+    renderStreetCounts();
+    showToast('Foto removida.');
+  });
   list.querySelectorAll('[data-remove-count-row]').forEach(btn => btn.onclick = () => {
     const index = Number(btn.dataset.removeCountRow);
     manageStreetCounts.splice(index, 1);
@@ -1173,7 +1364,6 @@ function renderStreetCounts() {
     renderStreetCounts();
     showToast('Rua removida. Clique em "Salvar contagem automática" para confirmar.');
   });
-
   updateStreetCountsSummary();
 }
 function updateStreetCountsSummary() {
@@ -1185,6 +1375,9 @@ function updateStreetCountsSummary() {
     <div class="count-summary-tile"><div class="count-summary-label">Paletes Mix</div><div class="count-summary-value">${totals.paletesMix}</div></div>
     <div class="count-summary-tile"><div class="count-summary-label">Caixarias</div><div class="count-summary-value">${totals.caixarias}</div></div>
     <div class="count-summary-tile"><div class="count-summary-label">Prateleiras</div><div class="count-summary-value">${totals.prateleiras}</div></div>
+    <div class="count-summary-tile"><div class="count-summary-label">BackLight</div><div class="count-summary-value">${totals.backlight}</div></div>
+    <div class="count-summary-tile"><div class="count-summary-label">Gancheiras</div><div class="count-summary-value">${totals.gancheiras}</div></div>
+    <div class="count-summary-tile"><div class="count-summary-label">Fotos registradas</div><div class="count-summary-value">${totals.photos}</div></div>
   `;
 }
 function openStreetCountsModal() {
@@ -1487,9 +1680,6 @@ function drawPdfHeader(doc, pageWidth) {
   doc.setFont('helvetica','bold');
   doc.setFontSize(14);
   doc.text('Relatório de Avaliação de Inventário', pageWidth / 2, 33.5, { align:'center' });
-  doc.setFont('helvetica','normal');
-  doc.setFontSize(9.5);
-  doc.text(getModelConfig(state.form.modelo).label, pageWidth / 2, 38.8, { align:'center' });
 }
 
 function drawPdfFooter(doc, pageWidth, pageHeight, includeSignatures=false) {
@@ -1616,11 +1806,11 @@ function exportPDF() {
   writeLabelValue(16, y, infoW, 'Loja', state.form.nomeLoja || '-');
   writeLabelValue(76, y, infoW, 'Visita', state.form.visita || '-');
   writeLabelValue(136, y, 58, 'Coord. Arko', state.form.coordArko || '-'); y += 18;
-  writeLabelValue(16, y, infoW, 'Gerente da Loja', state.form.gerenteLoja || '-');
+  writeLabelValue(16, y, infoW, 'Responsável Loja', state.form.gerenteLoja || '-');
   writeLabelValue(76, y, infoW, 'Setor', state.form.setor || '-');
-  writeLabelValue(136, y, 28, 'Data', state.form.data || '-');
+  writeLabelValue(136, y, 28, 'Data', formatDateBR(state.form.data) || '-');
   writeLabelValue(166, y, 28, 'Hora', state.form.horaVisita || '-'); y += 18;
-  writeLabelValue(16, y, 56, 'Gerente acompanhou', state.form.gerenteAcompanhou ? 'Sim' : 'Não');
+  writeLabelValue(16, y, 56, 'Responsável acompanhou', state.form.gerenteAcompanhou ? 'Sim' : 'Não');
   writeLabelValue(76, y, 56, 'Itens críticos', String(summary.itensCriticos));
   writeLabelValue(136, y, 58, 'Itens não avaliados', String(summary.itensNaoAvaliados)); y += 22;
 
@@ -1644,6 +1834,37 @@ function exportPDF() {
   doc.text(info1, 16, y); y += info1.length * 4 + 2;
   doc.text(info2, 16, y); y += info2.length * 4 + 4;
 
+  const photoRows = (state.streetCounts || []).filter(row => Array.isArray(row.photos) && row.photos.length);
+  if (photoRows.length) {
+    ensureSpace(20, true);
+    doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.text('Relatório Fotográfico', 16, y); y += 7;
+    photoRows.forEach(row => {
+      row.photos.forEach(photo => {
+        ensureSpace(72, true);
+        doc.setFillColor(255,255,255); doc.setDrawColor(226,232,240);
+        doc.roundedRect(16, y, 178, 64, 3, 3, 'FD');
+        doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(15,23,42);
+        doc.text(`Rua: ${row.rua || '-'}`, 20, y + 6);
+        try {
+          if (photo.dataUrl) doc.addImage(photo.dataUrl, 'JPEG', 20, y + 10, 58, 44);
+        } catch (err) {
+          try { doc.addImage(photo.dataUrl, 'PNG', 20, y + 10, 58, 44); } catch (e) {}
+        }
+        const ncText = (Array.isArray(photo.nonConformities) && photo.nonConformities.length) ? photo.nonConformities.join('; ') : '-';
+        const ncLines = doc.splitTextToSize(`Não conformidades: ${ncText}`, 106);
+        const setorLines = doc.splitTextToSize(`Setor / Local: ${photo.setor || row.rua || '-'}`, 106);
+        const obsLines = doc.splitTextToSize(`Observação: ${photo.observacao || '-'}`, 106);
+        doc.setFont('helvetica','normal'); doc.setFontSize(9);
+        doc.text(ncLines, 84, y + 14);
+        let py = y + 14 + (ncLines.length * 4) + 2;
+        doc.text(`Áreas não conformes: ${photo.areasNaoConformes || '-'}`, 84, py); py += 6;
+        doc.text(setorLines, 84, py); py += setorLines.length * 4 + 2;
+        doc.text(obsLines, 84, py);
+        y += 68;
+      });
+    });
+  }
+
   drawPdfFooter(doc, pageWidth, pageHeight, true);
   doc.save(smartFileName());
   showToast('PDF gerado com sucesso.');
@@ -1654,6 +1875,15 @@ function init() {
   state = normalizeState(state);
   renderApp();
   updateNetworkBadge();
+  const stickyCol = document.querySelector('.sticky-col');
+  if (stickyCol) {
+    stickyCol.addEventListener('wheel', event => {
+      const canScroll = stickyCol.scrollHeight > stickyCol.clientHeight;
+      if (!canScroll) return;
+      stickyCol.scrollTop += event.deltaY;
+      event.preventDefault();
+    }, { passive:false });
+  }
   window.addEventListener('online', updateNetworkBadge);
   window.addEventListener('offline', updateNetworkBadge);
   window.addEventListener('beforeunload', () => { persistState(); queueCloudDraftSync(true); });

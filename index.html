@@ -272,9 +272,10 @@
           <div>Paletes Mix</div>
           <div>Caixarias</div>
           <div>Prateleiras</div>
-          <div>BackLight</div>
           <div>Gancheiras</div>
           <div>PAR</div>
+          <div>Pontas</div>
+          <div>Vitrine</div>
           <div>Fotos / Câmera</div>
           <div></div>
         </div>
@@ -460,8 +461,8 @@ function makeDefaultItems(modelKey = DEFAULT_MODEL_KEY) {
 }
 function makeDefaultStreetCounts() {
   return [
-    { id: `${Date.now()}-0`, rua:'Depósito', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', backlight:'', gancheiras:'', par:'', pontas:'', vitrine:'', photos:[] },
-    { id: `${Date.now()}-1`, rua:'Área de Venda', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', backlight:'', gancheiras:'', par:'', pontas:'', vitrine:'', photos:[] }
+    { id: `${Date.now()}-0`, rua:'Depósito', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', gancheiras:'', par:'', pontas:'', vitrine:'', photos:[] },
+    { id: `${Date.now()}-1`, rua:'Área de Venda', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', gancheiras:'', par:'', pontas:'', vitrine:'', photos:[] }
   ];
 }
 function normalizeStreetCount(row, index) {
@@ -472,7 +473,6 @@ function normalizeStreetCount(row, index) {
     paletesMix: String(row?.paletesMix ?? ''),
     caixarias: String(row?.caixarias ?? ''),
     prateleiras: String(row?.prateleiras ?? ''),
-    backlight: String(row?.backlight ?? ''),
     gancheiras: String(row?.gancheiras ?? ''),
     par: String(row?.par ?? ''),
     pontas: String(row?.pontas ?? ''),
@@ -495,14 +495,13 @@ function getStreetCountTotals(rows = state.streetCounts || []) {
     acc.paletesMix += toNumber(row.paletesMix);
     acc.caixarias += toNumber(row.caixarias);
     acc.prateleiras += toNumber(row.prateleiras);
-    acc.backlight += toNumber(row.backlight);
     acc.gancheiras += toNumber(row.gancheiras);
     acc.par += toNumber(row.par);
     acc.pontas += toNumber(row.pontas);
     acc.vitrine += toNumber(row.vitrine);
     acc.photos += Array.isArray(row.photos) ? row.photos.length : 0;
     return acc;
-  }, { paletesFull:0, paletesMix:0, caixarias:0, prateleiras:0, backlight:0, gancheiras:0, par:0, pontas:0, vitrine:0, photos:0 });
+  }, { paletesFull:0, paletesMix:0, caixarias:0, prateleiras:0, gancheiras:0, par:0, pontas:0, vitrine:0, photos:0 });
 }
 function applyAutomaticAreas(targetState = state) {
   if (!targetState || !Array.isArray(targetState.items)) return targetState;
@@ -577,9 +576,10 @@ function makeStreetCountsFromTemplateRows(rows) {
     paletesMix: '',
     caixarias: '',
     prateleiras: '',
-    backlight: '',
     gancheiras: '',
     par: '',
+    pontas: '',
+    vitrine: '',
     photos: []
   }, index));
 }
@@ -622,6 +622,7 @@ function loadStreetCountsForStore(storeName, modelKey = state?.form?.modelo) {
   const templateRows = normalizedStore ? (state.storeStreetTemplates || {})[key] : null;
   state.streetCounts = makeStreetCountsFromTemplateRows(templateRows);
   applyAutomaticAreas(state);
+  applyAutomaticNonConformities(state);
 }
 function normalizeModelItemTemplates(templates) {
   const next = {};
@@ -1272,6 +1273,7 @@ function saveManageItems() {
   state.items = reindexItems(clone(manageDraftItems));
   state.modelItemTemplates = normalizeModelItemTemplates({ ...(state.modelItemTemplates || {}), [state.form.modelo]: clone(state.items) });
   applyAutomaticAreas(state);
+  applyAutomaticNonConformities(state);
   persistState();
   renderApp();
   closeManageItemsModal();
@@ -1348,7 +1350,6 @@ function renderStreetCounts() {
         <div class="field"><label>Paletes Mix</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="paletesMix" value="${row.paletesMix ?? ''}" /></div>
         <div class="field"><label>Caixarias</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="caixarias" value="${row.caixarias ?? ''}" /></div>
         <div class="field"><label>Prateleiras</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="prateleiras" value="${row.prateleiras ?? ''}" /></div>
-        <div class="field"><label>BackLight</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="backlight" value="${row.backlight ?? ''}" /></div>
         <div class="field"><label>Gancheiras</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="gancheiras" value="${row.gancheiras ?? ''}" /></div>
         <div class="field"><label>PAR</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="par" value="${row.par ?? ''}" /></div>
         <div class="field"><label>Pontas</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="pontas" value="${row.pontas ?? ''}" /></div>
@@ -1461,7 +1462,6 @@ function updateStreetCountsSummary() {
     <div class="count-summary-tile"><div class="count-summary-label">Paletes Mix</div><div class="count-summary-value">${totals.paletesMix}</div></div>
     <div class="count-summary-tile"><div class="count-summary-label">Caixarias</div><div class="count-summary-value">${totals.caixarias}</div></div>
     <div class="count-summary-tile"><div class="count-summary-label">Prateleiras</div><div class="count-summary-value">${totals.prateleiras}</div></div>
-    <div class="count-summary-tile"><div class="count-summary-label">BackLight</div><div class="count-summary-value">${totals.backlight}</div></div>
     <div class="count-summary-tile"><div class="count-summary-label">Gancheiras</div><div class="count-summary-value">${totals.gancheiras}</div></div>
     <div class="count-summary-tile"><div class="count-summary-label">PAR</div><div class="count-summary-value">${totals.par}</div></div>
     <div class="count-summary-tile"><div class="count-summary-label">Pontas</div><div class="count-summary-value">${totals.pontas}</div></div>
@@ -1494,6 +1494,7 @@ function saveStreetCounts() {
   state.streetCounts = manageStreetCounts.map((row, index) => normalizeStreetCount(row, index));
   saveStreetTemplateForCurrentStore(state.streetCounts);
   applyAutomaticAreas(state);
+  applyAutomaticNonConformities(state);
   persistState();
   renderApp();
   closeStreetCountsModal();
@@ -1547,6 +1548,7 @@ function switchModel(nextModel) {
     loadStreetCountsForStore(state.form.nomeLoja, modelKey);
   } else {
     applyAutomaticAreas(state);
+    applyAutomaticNonConformities(state);
   }
 
   persistState();

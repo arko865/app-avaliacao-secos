@@ -104,7 +104,7 @@
     .manage-actions { display:flex; gap:8px; flex-wrap:wrap; }
     .icon-btn { border:1px solid #cbd5e1; background:#fff; color:#0f172a; border-radius:10px; padding:8px 10px; font-size:12px; font-weight:800; cursor:pointer; }
     .icon-btn.danger { border-color:#fecaca; color:#991b1b; background:#fff5f5; }
-    .manage-grid { display:grid; grid-template-columns:170px 1fr; gap:12px; }
+    .manage-grid { display:grid; grid-template-columns:170px 140px 1fr; gap:12px; }
     .manage-footer { display:flex; justify-content:space-between; gap:12px; margin-top:16px; flex-wrap:wrap; }
     .manage-empty { color:var(--muted); font-size:14px; border:1px dashed var(--border); padding:16px; border-radius:14px; text-align:center; }
     @media (max-width: 640px) { .manage-grid { grid-template-columns:1fr; } .manage-header { padding:16px 16px 0; } .manage-body { padding:14px 16px 16px; } }
@@ -161,7 +161,7 @@
               <button id="saveEvaluationBtn" class="btn secondary" type="button">Salvar avaliação</button>
               <button id="downloadBackupBtn" class="btn secondary" type="button">Exportar backup</button>
               <button id="manageItemsBtn" class="btn secondary" type="button">Gerenciar itens</button>
-              <button id="streetCountsBtn" class="btn secondary" type="button">Paletes / Prateleiras</button>
+              <button id="streetCountsBtn" class="btn secondary" type="button">Avaliar</button>
               <button id="resetBtn" class="btn danger" type="button">Nova avaliação</button>
             </div>
           </div>
@@ -253,7 +253,7 @@
       <div class="manage-header">
         <div>
           <div class="manage-title">Gerenciar Itens</div>
-          <div class="manage-help">Você pode editar descrições, mover o item entre Depósito / Aéreo e Área de Venda, excluir itens e adicionar novos. As alterações ficam salvas neste aparelho.</div>
+          <div class="manage-help">Você pode editar descrições, mover o item entre Depósito / Aéreo e Área de Venda, excluir itens e adicionar novos. Ao mudar a posição, a numeração é recalculada automaticamente (o item movido assume a nova posição e os demais avançam em sequência). As alterações ficam salvas neste aparelho.</div>
         </div>
         <button id="closeManageItemsBtn" class="btn secondary" type="button">Fechar</button>
       </div>
@@ -280,7 +280,8 @@
       </div>
       <div class="manage-body">
         <div class="counts-table-wrap"><div class="count-head">
-                    <div>Paletes Full</div>
+          <div>Área Avaliada</div>
+          <div>Paletes Full</div>
           <div>Paletes Mix</div>
           <div>Caixarias</div>
           <div>Prateleiras</div>
@@ -473,7 +474,7 @@ function makeDefaultItems(modelKey = DEFAULT_MODEL_KEY) {
 }
 function makeDefaultStreetCounts() {
   return [
-    { id: `${Date.now()}-0`, rua:'Avaliação', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', gancheiras:'', par:'', pontas:'', vitrine:'', photos:[] },
+    { id: `${Date.now()}-0`, rua:'Depósito', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', gancheiras:'', par:'', pontas:'', vitrine:'', photos:[] },
     { id: `${Date.now()}-1`, rua:'Área de Venda', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', gancheiras:'', par:'', pontas:'', vitrine:'', photos:[] }
   ];
 }
@@ -1214,6 +1215,10 @@ function renderManageItems() {
           </select>
         </div>
         <div class="field" style="margin:0;">
+          <label>Posição</label>
+          <input type="number" min="1" max="${sourceItems.length}" value="${index + 1}" data-manage-position="${index}" />
+        </div>
+        <div class="field" style="margin:0;">
           <label>Descrição do item</label>
           <textarea rows="3" data-manage-field="description" data-manage-index="${index}" placeholder="Descreva o item avaliado">${item.description || ''}</textarea>
         </div>
@@ -1240,12 +1245,37 @@ function renderManageItems() {
     });
   });
 
+  list.querySelectorAll('input[data-manage-position]').forEach(el => {
+    const applyMove = () => {
+      const currentIndex = Number(el.dataset.managePosition);
+      if (!Array.isArray(manageDraftItems) || !manageDraftItems[currentIndex]) return;
+      const targetRaw = Number(el.value);
+      const maxIndex = manageDraftItems.length;
+      if (!Number.isFinite(targetRaw)) {
+        el.value = String(currentIndex + 1);
+        return;
+      }
+      const targetIndex = Math.max(0, Math.min(maxIndex - 1, Math.round(targetRaw) - 1));
+      if (targetIndex === currentIndex) {
+        el.value = String(currentIndex + 1);
+        return;
+      }
+      const [item] = manageDraftItems.splice(currentIndex, 1);
+      manageDraftItems.splice(targetIndex, 0, item);
+      manageDraftItems = reindexItems(manageDraftItems);
+      renderManageItems();
+      showToast(`Item movido para a posição ${targetIndex + 1}. Clique em "Salvar alterações" para confirmar.`);
+    };
+    el.addEventListener('change', applyMove);
+    el.addEventListener('blur', applyMove);
+  });
+
   list.querySelectorAll('[data-delete-item]').forEach(btn => btn.onclick = () => {
     const index = Number(btn.dataset.deleteItem);
     if (!confirm('Deseja excluir este item?')) return;
     manageDraftItems.splice(index, 1);
     if (!manageDraftItems.length) manageDraftItems = makeDefaultItems(state.form.modelo);
-    reindexItems(manageDraftItems);
+    manageDraftItems = reindexItems(manageDraftItems);
     renderManageItems();
     showToast('Item excluído. Clique em "Salvar alterações" para confirmar.');
   });
@@ -1255,8 +1285,9 @@ function renderManageItems() {
     if (index <= 0) return;
     const [item] = manageDraftItems.splice(index, 1);
     manageDraftItems.splice(index - 1, 0, item);
-    reindexItems(manageDraftItems);
+    manageDraftItems = reindexItems(manageDraftItems);
     renderManageItems();
+    showToast(`Item movido para a posição ${index}. Clique em "Salvar alterações" para confirmar.`);
   });
 
   list.querySelectorAll('[data-move-down]').forEach(btn => btn.onclick = () => {
@@ -1264,8 +1295,9 @@ function renderManageItems() {
     if (index >= manageDraftItems.length - 1) return;
     const [item] = manageDraftItems.splice(index, 1);
     manageDraftItems.splice(index + 1, 0, item);
-    reindexItems(manageDraftItems);
+    manageDraftItems = reindexItems(manageDraftItems);
     renderManageItems();
+    showToast(`Item movido para a posição ${index + 2}. Clique em "Salvar alterações" para confirmar.`);
   });
 
   list.scrollTop = scrollTop;
@@ -1331,7 +1363,7 @@ function renderStreetCounts() {
     rows.forEach((row, index) => {
       const wrap = document.createElement('div');
       wrap.className = 'count-row';
-      const areaName = escapeHtml((row.rua && String(row.rua).trim()) || 'Registro');
+      const areaName = escapeHtml(row.rua || 'Área Avaliada');
       const draftPhoto = getDraftPhotoForRow(row);
       const savedPhotosHtml = Array.isArray(row.photos) && row.photos.length ? `
         <div class="saved-photo-grid">
@@ -1356,7 +1388,7 @@ function renderStreetCounts() {
         <div>
           <div class="count-stage-title">1. Escolha a área e informe as quantidades avaliadas</div>
           <div class="count-fields-grid">
-            <div class="field hidden"><label>Área Avaliada</label><input type="hidden" data-count-index="${index}" data-count-field="rua" value="Avaliação" /></div>
+            <div class="field"><label>Área Avaliada</label><select data-count-index="${index}" data-count-field="rua"><option value="Depósito" ${String(row.rua||'')==='Depósito'?'selected':''}>Depósito</option><option value="Área de Venda" ${String(row.rua||'')==='Área de Venda'?'selected':''}>Área de Venda</option></select></div>
             <div class="field"><label>Paletes Full</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="paletesFull" value="${row.paletesFull ?? ''}" /></div>
             <div class="field"><label>Paletes Mix</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="paletesMix" value="${row.paletesMix ?? ''}" /></div>
             <div class="field"><label>Caixarias</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="caixarias" value="${row.caixarias ?? ''}" /></div>

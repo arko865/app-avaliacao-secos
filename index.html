@@ -41,7 +41,7 @@
     .option-button.active { background:#0f172a; color:#fff; border-color:#0f172a; }
     .actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:24px; }
     .btn { border:none; border-radius:14px; padding:13px 16px; font-size:15px; font-weight:800; cursor:pointer; background:#0f172a; color:#fff; }
-    .btn.highlight { background:#d71920; box-shadow:0 10px 24px rgba(215,25,32,.22); }
+    .btn.highlight { background:#7f1d1d; color:#fff; font-weight:800; box-shadow:0 10px 24px rgba(127,29,29,.24); }
     .btn.highlight:hover { filter:brightness(.98); }
     .btn.secondary { background:#fff; color:#0f172a; border:1px solid #cbd5e1; }
     .btn.danger { background:var(--danger); }
@@ -140,6 +140,8 @@
     .saved-photo-card { border:1px solid var(--border); border-radius:14px; padding:10px; background:#fff; display:grid; gap:8px; }
     .saved-photo-thumb { width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:10px; border:1px solid var(--border); background:#e2e8f0; }
     .saved-photo-meta { font-size:12px; color:var(--text); line-height:1.45; }
+    .nc-dropdown { border:1px dashed var(--border); border-radius:14px; padding:12px; background:#fff; margin-top:8px; }
+    .nc-summary { font-size:12px; color:var(--muted); margin-top:6px; }
 
     .hidden { display:none !important; }
     @media (max-width: 980px) { .layout { grid-template-columns:1fr; } .sticky-col { position:static; } }
@@ -164,7 +166,7 @@
               <button id="downloadBackupBtn" class="btn secondary" type="button">Exportar backup</button>
               <button id="manageItemsBtn" class="btn secondary" type="button">Gerenciar itens</button>
               <button id="streetCountsBtn" class="btn highlight" type="button">Avaliar</button>
-              <button id="resetBtn" class="btn danger" type="button">Limpar avaliação</button>
+              <button id="resetBtn" class="btn secondary" type="button">Limpar avaliação</button>
             </div>
           </div>
           <div class="card-content">
@@ -2608,7 +2610,6 @@ function renderStreetCounts() {
   const summary = document.getElementById('streetCountsSummary');
   if (!list || !summary) return;
   const rows = Array.isArray(manageStreetCounts) ? manageStreetCounts : state.streetCounts;
-  const areaDefs = getAreaDefinitions(state.form.modelo);
   list.innerHTML = '';
   if (!rows.length) {
     list.innerHTML = '<div class="manage-empty">Nenhuma área cadastrada.</div>';
@@ -2616,13 +2617,9 @@ function renderStreetCounts() {
     rows.forEach((row, index) => {
       const wrap = document.createElement('div');
       wrap.className = 'count-row';
-      const areaName = escapeHtml(row.rua || `Área ${index+1}`);
+      const areaName = escapeHtml(row.rua || 'Área Avaliada');
       const draftPhoto = getDraftPhotoForRow(row);
-      const fieldsHtml = areaDefs.map(def => `
-        <div class="field">
-          <label>${escapeHtml(def.label)}</label>
-          <input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-key="${escapeHtml(def.key)}" value="${escapeHtml(row.counts?.[def.key] ?? '')}" />
-        </div>`).join('');
+      const selectedNcText = Array.isArray(draftPhoto.nonConformities) && draftPhoto.nonConformities.length ? draftPhoto.nonConformities.join('; ') : 'Nenhuma NC selecionada';
       const savedPhotosHtml = Array.isArray(row.photos) && row.photos.length ? `
         <div class="saved-photo-grid">
           ${row.photos.map((photo, photoIndex) => {
@@ -2633,28 +2630,40 @@ function renderStreetCounts() {
                 <div class="saved-photo-meta"><strong>Foto ${photoIndex + 1}</strong></div>
                 <div class="saved-photo-meta"><strong>NC:</strong> ${escapeHtml(ncText)}</div>
                 <div class="saved-photo-meta"><strong>Áreas NC:</strong> ${escapeHtml(photo.areasNaoConformes || '-')}</div>
+                <div class="saved-photo-meta"><strong>Setor:</strong> ${escapeHtml(photo.setor || row.rua || '-')}</div>
                 ${photo.observacao ? `<div class="saved-photo-meta"><strong>Obs.:</strong> ${escapeHtml(photo.observacao)}</div>` : ''}
-                <div class="photo-card-actions"><button class="btn danger" type="button" data-remove-photo="${index}" data-photo-index="${photoIndex}">Excluir foto</button></div>
-              </div>`;
+                <div class="photo-card-actions">
+                  <button class="btn secondary" type="button" data-edit-photo="${index}" data-photo-index="${photoIndex}">Editar foto</button>
+                  <button class="btn danger" type="button" data-remove-photo="${index}" data-photo-index="${photoIndex}">Excluir foto</button>
+                </div>
+              </div>
+            `;
           }).join('')}
         </div>` : '<div class="manage-empty">Nenhuma foto registrada nesta área.</div>';
       wrap.innerHTML = `
         <div>
-          <div class="count-stage-title">1. Informe as quantidades avaliadas</div>
+          <div class="count-stage-title">1. Escolha a área e informe as quantidades avaliadas</div>
           <div class="count-fields-grid">
-            <div class="field"><label>Rua / Área</label><input type="text" data-count-index="${index}" data-count-field="rua" value="${areaName}" placeholder="Ex.: Rua Biscoitos" /></div>
-            ${fieldsHtml}
+            <div class="field"><label>Área Avaliada</label><select data-count-index="${index}" data-count-field="rua"><option value="Depósito" ${String(row.rua||'')==='Depósito'?'selected':''}>Depósito</option><option value="Área de Venda" ${String(row.rua||'')==='Área de Venda'?'selected':''}>Área de Venda</option></select></div>
+            <div class="field"><label>Paletes Full</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="paletesFull" value="${row.paletesFull ?? ''}" /></div>
+            <div class="field"><label>Paletes Mix</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="paletesMix" value="${row.paletesMix ?? ''}" /></div>
+            <div class="field"><label>Caixarias</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="caixarias" value="${row.caixarias ?? ''}" /></div>
+            <div class="field"><label>Prateleiras</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="prateleiras" value="${row.prateleiras ?? ''}" /></div>
+            <div class="field"><label>Gancheiras</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="gancheiras" value="${row.gancheiras ?? ''}" /></div>
+            <div class="field"><label>PAR</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="par" value="${row.par ?? ''}" /></div>
+            <div class="field"><label>Pontas</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="pontas" value="${row.pontas ?? ''}" /></div>
+            <div class="field"><label>Vitrine</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="vitrine" value="${row.vitrine ?? ''}" /></div>
           </div>
         </div>
         <div>
-          <div class="count-stage-title">2. Registre a foto atual</div>
+          <div class="count-stage-title">2. Registre a foto atual sem rolagem longa</div>
           <div class="photo-draft-panel">
             <div class="photo-draft-top">
-              <div class="muted-note">Área: <strong>${areaName}</strong> · Fotos registradas: <strong>${(Array.isArray(row.photos) ? row.photos.length : 0)}</strong></div>
+              <div class="muted-note">Área: <strong>${areaName}</strong> · Fotos registradas: <strong>${(Array.isArray(row.photos) ? row.photos.length : 0)}</strong>${draftPhoto.editIndex !== undefined && draftPhoto.editIndex !== null ? ` · <strong>Editando foto ${Number(draftPhoto.editIndex) + 1}</strong>` : ''}</div>
               <div class="actions" style="margin-top:0;">
                 <button class="btn secondary" type="button" data-open-camera="${index}">Tirar foto</button>
-                <button class="btn secondary" type="button" data-clear-draft="${index}">Nova foto</button>
-                <button class="btn" type="button" data-save-draft="${index}" ${draftPhoto.dataUrl ? '' : 'disabled'}>Salvar foto</button>
+                <button class="btn secondary" type="button" data-clear-draft="${index}">${draftPhoto.editIndex !== undefined && draftPhoto.editIndex !== null ? 'Cancelar edição' : 'Nova foto'}</button>
+                <button class="btn" type="button" data-save-draft="${index}" ${draftPhoto.dataUrl ? '' : 'disabled'}>${draftPhoto.editIndex !== undefined && draftPhoto.editIndex !== null ? 'Atualizar foto' : 'Salvar foto'}</button>
                 <input class="camera-input" type="file" accept="image/*" capture="environment" data-camera-input="${index}" />
               </div>
             </div>
@@ -2662,17 +2671,29 @@ function renderStreetCounts() {
             <div class="photo-fields-grid">
               <div class="field" style="grid-column:1 / -1;">
                 <label>Não conformidades</label>
-                <div class="check-chip-group">
-                  ${getPhotoOptionsForModel(state.form.modelo).map(option => `
-                    <label class="check-chip">
-                      <input type="checkbox" data-draft-check="${escapeHtml(option)}" data-count-index="${index}" ${Array.isArray(draftPhoto.nonConformities) && draftPhoto.nonConformities.includes(option) ? 'checked' : ''} />
-                      <span>${escapeHtml(option)}</span>
-                    </label>`).join('')}
+                <div class="actions" style="margin-top:0;">
+                  <button class="btn secondary" type="button" data-toggle-nc="${index}">Add NC+</button>
                 </div>
+                <div class="nc-summary">Selecionadas: <strong>${escapeHtml(selectedNcText)}</strong></div>
+                ${draftPhoto.ncSelectorOpen ? `
+                  <div class="nc-dropdown">
+                    <div class="check-chip-group">
+                      ${getPhotoOptionsForModel(state.form.modelo).map(option => `
+                        <label class="check-chip">
+                          <input type="checkbox" data-draft-check="${escapeHtml(option)}" data-count-index="${index}" ${Array.isArray(draftPhoto.nonConformities) && draftPhoto.nonConformities.includes(option) ? 'checked' : ''} />
+                          <span>${escapeHtml(option)}</span>
+                        </label>
+                      `).join('')}
+                    </div>
+                  </div>` : ''}
               </div>
               <div class="field">
                 <label>Áreas não conformes</label>
-                <input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-draft-field="areasNaoConformes" value="${escapeHtml(draftPhoto.areasNaoConformes ?? '')}" />
+                <input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-draft-field="areasNaoConformes" value="${draftPhoto.areasNaoConformes ?? ''}" />
+              </div>
+              <div class="field">
+                <label>Setor / Local</label>
+                <input type="text" data-count-index="${index}" data-draft-field="setor" value="${escapeHtml(draftPhoto.setor || row.rua || '')}" placeholder="Ex.: Depósito" />
               </div>
               <div class="field" style="grid-column:1 / -1;">
                 <label>Observação complementar</label>
@@ -2685,7 +2706,10 @@ function renderStreetCounts() {
           <div class="count-stage-title">3. Fotos já registradas nesta área</div>
           ${savedPhotosHtml}
         </div>
-        <div class="count-row-actions"><button class="btn danger remove-count-row" type="button" data-remove-count-row="${index}">Excluir área</button></div>`;
+        <div class="count-row-actions">
+          <button class="btn danger remove-count-row" type="button" data-remove-count-row="${index}">Excluir área</button>
+        </div>
+      `;
       list.appendChild(wrap);
     });
   }
@@ -2695,22 +2719,26 @@ function renderStreetCounts() {
       const field = e.target.dataset.countField;
       const row = manageStreetCounts?.[index];
       if (!row) return;
-      row[field] = e.target.value ?? '';
-    });
-  });
-  list.querySelectorAll('[data-count-key]').forEach(el => {
-    el.addEventListener('input', e => {
-      const index = Number(e.target.dataset.countIndex);
-      const key = e.target.dataset.countKey;
-      const row = manageStreetCounts?.[index];
-      if (!row) return;
-      const value = String(e.target.value ?? '').replace(/[^\d]/g, '');
-      if (e.target.value !== value) e.target.value = value;
-      row.counts[key] = value;
+      let value = e.target.value ?? '';
+      if (field !== 'rua') {
+        value = String(value).replace(/[^\d]/g, '');
+        if (e.target.value !== value) e.target.value = value;
+      }
+      row[field] = value;
+      if (field === 'rua') {
+        const draft = getDraftPhotoForRow(row);
+        if (!draft.setor) draft.setor = value;
+        if (Array.isArray(row.photos)) row.photos = row.photos.map(photo => ({ ...photo, setor: photo.setor || value }));
+        renderStreetCounts();
+        return;
+      }
       updateStreetCountsSummary();
     });
   });
-  list.querySelectorAll('[data-open-camera]').forEach(btn => btn.onclick = () => list.querySelector(`[data-camera-input="${Number(btn.dataset.openCamera)}"]`)?.click());
+  list.querySelectorAll('[data-open-camera]').forEach(btn => btn.onclick = () => {
+    const index = Number(btn.dataset.openCamera);
+    list.querySelector(`[data-camera-input="${index}"]`)?.click();
+  });
   list.querySelectorAll('[data-camera-input]').forEach(input => {
     input.onchange = e => {
       const index = Number(e.target.dataset.cameraInput);
@@ -2718,35 +2746,96 @@ function renderStreetCounts() {
       const file = e.target.files && e.target.files[0];
       if (!row || !file) return;
       const reader = new FileReader();
-      reader.onload = () => { const draft = getDraftPhotoForRow(row); draft.dataUrl = String(reader.result || ''); renderStreetCounts(); };
-      reader.readAsDataURL(file); e.target.value = '';
+      reader.onload = () => {
+        const draft = getDraftPhotoForRow(row);
+        draft.dataUrl = String(reader.result || '');
+        if (!draft.setor) draft.setor = row.rua || '';
+        renderStreetCounts();
+        showToast(draft.editIndex !== undefined && draft.editIndex !== null ? 'Nova imagem carregada para atualização da foto.' : 'Foto pronta. Preencha as não conformidades e clique em Salvar foto.');
+      };
+      reader.readAsDataURL(file);
+      e.target.value = '';
     };
   });
   list.querySelectorAll('[data-draft-field]').forEach(el => {
     el.addEventListener('input', e => {
       const index = Number(e.target.dataset.countIndex);
       const field = e.target.dataset.draftField;
-      const row = manageStreetCounts?.[index]; const draft = getDraftPhotoForRow(row);
+      const row = manageStreetCounts?.[index];
+      const draft = getDraftPhotoForRow(row);
       let value = e.target.value ?? '';
-      if (field === 'areasNaoConformes') { value = String(value).replace(/[^\d]/g, ''); if (e.target.value !== value) e.target.value = value; }
+      if (field === 'areasNaoConformes') {
+        value = String(value).replace(/[^\d]/g, '');
+        if (e.target.value !== value) e.target.value = value;
+      }
       draft[field] = value;
     });
   });
+  list.querySelectorAll('[data-toggle-nc]').forEach(btn => btn.onclick = () => {
+    const index = Number(btn.dataset.toggleNc);
+    const row = manageStreetCounts?.[index];
+    const draft = getDraftPhotoForRow(row);
+    draft.ncSelectorOpen = !draft.ncSelectorOpen;
+    renderStreetCounts();
+  });
   list.querySelectorAll('[data-draft-check]').forEach(el => {
     el.onchange = e => {
-      const index = Number(e.target.dataset.countIndex); const option = e.target.dataset.draftCheck;
-      const draft = getDraftPhotoForRow(manageStreetCounts?.[index]); const current = new Set(Array.isArray(draft.nonConformities) ? draft.nonConformities : []);
-      if (e.target.checked) current.add(option); else current.delete(option); draft.nonConformities = Array.from(current);
+      const index = Number(e.target.dataset.countIndex);
+      const option = e.target.dataset.draftCheck;
+      const draft = getDraftPhotoForRow(manageStreetCounts?.[index]);
+      const current = new Set(Array.isArray(draft.nonConformities) ? draft.nonConformities : []);
+      if (e.target.checked) current.add(option); else current.delete(option);
+      draft.nonConformities = Array.from(current);
+      draft.ncSelectorOpen = false;
+      renderStreetCounts();
     };
   });
   list.querySelectorAll('[data-clear-draft]').forEach(btn => btn.onclick = () => {
-    const index = Number(btn.dataset.clearDraft); const row = manageStreetCounts?.[index]; if (!row) return; row.draftPhoto = makeDefaultPhoto(row.rua || ''); renderStreetCounts();
+    const row = manageStreetCounts?.[Number(btn.dataset.clearDraft)];
+    if (!row) return;
+    row._draftPhoto = makeEmptyDraftPhoto(row.rua || '');
+    renderStreetCounts();
   });
   list.querySelectorAll('[data-save-draft]').forEach(btn => btn.onclick = () => {
-    const index = Number(btn.dataset.saveDraft); const row = manageStreetCounts?.[index]; if (!row) return;
-    const draft = getDraftPhotoForRow(row); if (!draft.dataUrl) { showToast('Tire uma foto antes de salvar.'); return; }
-    row.photos = Array.isArray(row.photos) ? row.photos : []; row.photos.push({ ...draft, id: `photo-${Date.now()}-${Math.random().toString(36).slice(2,7)}` });
-    row.draftPhoto = makeDefaultPhoto(row.rua || ''); renderStreetCounts(); showToast('Foto salva nesta área.');
+    const row = manageStreetCounts?.[Number(btn.dataset.saveDraft)];
+    const draft = getDraftPhotoForRow(row);
+    if (!row || !draft.dataUrl) return;
+    if (!Array.isArray(row.photos)) row.photos = [];
+    const photoPayload = {
+      dataUrl: draft.dataUrl,
+      nonConformities: Array.isArray(draft.nonConformities) ? draft.nonConformities.filter(Boolean) : [],
+      areasNaoConformes: draft.areasNaoConformes || '',
+      setor: draft.setor || row.rua || '',
+      observacao: draft.observacao || ''
+    };
+    if (draft.editIndex !== undefined && draft.editIndex !== null && row.photos[draft.editIndex]) {
+      row.photos[draft.editIndex] = photoPayload;
+      showToast('Foto atualizada com sucesso.');
+    } else {
+      row.photos.push(photoPayload);
+      showToast('Foto salva nesta área.');
+    }
+    row._draftPhoto = makeEmptyDraftPhoto(row.rua || '');
+    updateStreetCountsSummary();
+    renderStreetCounts();
+  });
+  list.querySelectorAll('[data-edit-photo]').forEach(btn => btn.onclick = () => {
+    const rowIndex = Number(btn.dataset.editPhoto);
+    const photoIndex = Number(btn.dataset.photoIndex);
+    const row = manageStreetCounts?.[rowIndex];
+    const photo = row?.photos?.[photoIndex];
+    if (!row || !photo) return;
+    row._draftPhoto = {
+      dataUrl: photo.dataUrl || '',
+      nonConformities: Array.isArray(photo.nonConformities) ? [...photo.nonConformities] : [],
+      areasNaoConformes: photo.areasNaoConformes || '',
+      setor: photo.setor || row.rua || '',
+      observacao: photo.observacao || '',
+      editIndex: photoIndex,
+      ncSelectorOpen: false
+    };
+    renderStreetCounts();
+    showToast('Foto carregada para edição.');
   });
   list.querySelectorAll('[data-remove-photo]').forEach(btn => btn.onclick = () => {
     const row = manageStreetCounts?.[Number(btn.dataset.removePhoto)]; if (!row?.photos) return; row.photos.splice(Number(btn.dataset.photoIndex),1); renderStreetCounts();
@@ -2817,6 +2906,7 @@ function injectConfigButtonAndModal(){
           <div class="actions" style="margin:0;align-self:end;">
             <button id="newConfigModelBtn" class="btn secondary" type="button">Novo modelo</button>
             <button id="duplicateConfigModelBtn" class="btn secondary" type="button">Duplicar atual</button>
+            <button id="deleteConfigModelBtn" class="btn danger" type="button">Excluir modelo</button>
           </div>
           <div class="field"><label>Nome do modelo</label><input id="configModelLabel" type="text" /></div>
           <div class="field"><label>Título do relatório</label><input id="configReportLabel" type="text" /></div>
@@ -3005,6 +3095,22 @@ function addConfiguredItem(){
   renderConfigModal();
   showToast('Item configurado adicionado ao modelo.');
 }
+function deleteConfigModel(){
+  if (!configDraft || !configDraft.models[configEditorModelKey]) return;
+  const modelKeys = Object.keys(configDraft.models || {});
+  if (modelKeys.length <= 1) {
+    showToast('Mantenha pelo menos um modelo cadastrado.');
+    return;
+  }
+  const label = configDraft.models[configEditorModelKey]?.label || configEditorModelKey;
+  if (!confirm(`Deseja excluir o modelo "${label}"?`)) return;
+  delete configDraft.models[configEditorModelKey];
+  delete configDraft.templates[configEditorModelKey];
+  configEditorModelKey = Object.keys(configDraft.models)[0] || DEFAULT_MODEL_KEY;
+  renderConfigModal();
+  showToast('Modelo excluído da configuração atual. Clique em Salvar configuração para aplicar.');
+}
+
 function saveConfigModels(){
   state.modelConfigs = migrateConfigurableModels(configDraft.models);
   state.modelItemTemplates = normalizeModelItemTemplates(configDraft.templates);
@@ -3032,6 +3138,7 @@ function bindNewConfigEvents(){
   document.getElementById('addConfigNcBtn').onclick = addConfigNc;
   document.getElementById('newConfigModelBtn').onclick = ()=>createNewConfigModel(false);
   document.getElementById('duplicateConfigModelBtn').onclick = ()=>createNewConfigModel(true);
+  document.getElementById('deleteConfigModelBtn').onclick = deleteConfigModel;
   document.getElementById('addConfiguredItemBtn').onclick = addConfiguredItem;
   document.getElementById('saveConfigModelsBtn').onclick = saveConfigModels;
 }

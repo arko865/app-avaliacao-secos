@@ -3036,6 +3036,29 @@ function renderConfigModal(){
     model.ncDefinitions.splice(Number(btn.dataset.removeConfigNc),1); renderConfigModal();
   });
 }
+
+function syncConfigDraftFromDom(){
+  if (!configDraft) return;
+  const model = ensureConfigDraftModel(configEditorModelKey);
+  const labelInput = document.getElementById('configModelLabel');
+  const reportInput = document.getElementById('configReportLabel');
+  if (labelInput) model.label = labelInput.value;
+  if (reportInput) model.reportLabel = reportInput.value;
+  document.querySelectorAll('[data-config-area-field]').forEach(input=>{
+    const idx = Number(input.dataset.configAreaIndex);
+    const field = input.dataset.configAreaField;
+    if (!model.areaDefinitions[idx]) return;
+    if (field === 'label') model.areaDefinitions[idx].label = input.value;
+    else model.areaDefinitions[idx].itemIds = parseCsvNumbers(input.value);
+  });
+  document.querySelectorAll('[data-config-nc-field]').forEach(input=>{
+    const idx = Number(input.dataset.configNcIndex);
+    const field = input.dataset.configNcField;
+    if (!model.ncDefinitions[idx]) return;
+    if (field === 'label') model.ncDefinitions[idx].label = input.value;
+    else model.ncDefinitions[idx].itemIds = parseCsvNumbers(input.value);
+  });
+}
 function addConfigArea(){
   const model = ensureConfigDraftModel(configEditorModelKey);
   const nextLabel = `Nova área ${model.areaDefinitions.length + 1}`;
@@ -3112,6 +3135,7 @@ function deleteConfigModel(){
 }
 
 function saveConfigModels(){
+  syncConfigDraftFromDom();
   state.modelConfigs = migrateConfigurableModels(configDraft.models);
   state.modelItemTemplates = normalizeModelItemTemplates(configDraft.templates);
   Object.values(state.modelConfigs).forEach(model=>{

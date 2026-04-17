@@ -3230,5 +3230,120 @@ function bindNewConfigEvents(){
 })();
 </script>
 
+
+<script>
+/* === Patch v6: persistência correta de modelos/NCs personalizados === */
+(function(){
+  function getDynamicModelKeysFromStateLike(candidate){
+    const models = migrateConfigurableModels(candidate?.modelConfigs || state?.modelConfigs || buildInitialConfigurableModels());
+    return Object.keys(models || {});
+  }
+
+  normalizeModelItemTemplates = function(templates, modelConfigs){
+    const next = {};
+    const models = migrateConfigurableModels(modelConfigs || state?.modelConfigs || buildInitialConfigurableModels());
+    const validKeys = new Set(Object.keys(models));
+    if (!templates || typeof templates !== 'object') return next;
+    Object.entries(templates).forEach(([modelKey, items]) => {
+      const normalizedModel = validKeys.has(modelKey) ? modelKey : (validKeys.has(DEFAULT_MODEL_KEY) ? DEFAULT_MODEL_KEY : Object.keys(models)[0]);
+      const defaultItems = (models[normalizedModel]?.items || []).map((entry, index) => ({
+        id: index + 1,
+        description: typeof entry === 'string' ? entry : String(entry?.description || `Item ${index+1}`),
+        section: (typeof entry === 'object' && entry?.section === 'venda') ? 'venda' : 'deposito'
+      }));
+      next[normalizedModel] = Array.isArray(items) && items.length
+        ? reindexItems(defaultItems.map((defaultItem, index) => normalizeItem(items[index] || defaultItem, index, normalizedModel)), normalizedModel)
+        : defaultItems;
+    });
+    return next;
+  };
+
+  buildDefaultState = function(storeStreetTemplates = {}, modelItemTemplates = {}, modelKey = DEFAULT_MODEL_KEY, modelConfigs){
+    const normalizedConfigs = migrateConfigurableModels(modelConfigs || buildInitialConfigurableModels());
+    const availableKeys = Object.keys(normalizedConfigs);
+    const safeModelKey = availableKeys.includes(modelKey) ? modelKey : (availableKeys[0] || DEFAULT_MODEL_KEY);
+    const normalizedTemplates = normalizeModelItemTemplates(modelItemTemplates || {}, normalizedConfigs);
+    return {
+      form: {
+        modelo:safeModelKey, nomeLoja:'', visita:'1° Visita', coordArko:'', setor:'', gerenteLoja:'', gerenteAcompanhou:true,
+        data:new Date().toISOString().slice(0,10), horaVisita:'', produtosIdentificados:'', impactoMercadoria:''
+      },
+      items: clone(normalizedTemplates[safeModelKey] || buildItemsFromModel(safeModelKey)),
+      streetCounts: isStreetCountEnabled(safeModelKey) ? makeDefaultStreetCounts() : [],
+      storeStreetTemplates: normalizeStoreStreetTemplates(storeStreetTemplates),
+      modelItemTemplates: normalizedTemplates,
+      modelConfigs: normalizedConfigs
+    };
+  };
+
+  normalizeState = function(candidate){
+    const normalizedConfigs = migrateConfigurableModels(candidate?.modelConfigs || state?.modelConfigs || buildInitialConfigurableModels());
+    const validKeys = Object.keys(normalizedConfigs);
+    const selectedModel = (candidate?.form?.modelo && validKeys.includes(candidate.form.modelo))
+      ? candidate.form.modelo
+      : (state?.form?.modelo && validKeys.includes(state.form.modelo) ? state.form.modelo : (validKeys[0] || DEFAULT_MODEL_KEY));
+    const defaults = buildDefaultState(candidate?.storeStreetTemplates || {}, candidate?.modelItemTemplates || {}, selectedModel, normalizedConfigs);
+    if (!candidate || typeof candidate !== 'object') return defaults;
+    const items = Array.isArray(candidate.items) && candidate.items.length
+      ? defaults.items.map((defaultItem, index) => normalizeItem(candidate.items[index] || defaultItem, index, selectedModel))
+      : clone(defaults.items);
+    items.forEach((item, index) => { item.id = index + 1; });
+
+    const storeStreetTemplates = normalizeStoreStreetTemplates(candidate.storeStreetTemplates || {});
+    const streetCounts = Array.isArray(candidate.streetCounts) && candidate.streetCounts.length
+      ? candidate.streetCounts.map((row, index) => normalizeStreetCount(row, index))
+      : clone(defaults.streetCounts);
+    const modelItemTemplates = normalizeModelItemTemplates(candidate.modelItemTemplates || defaults.modelItemTemplates || {}, normalizedConfigs);
+
+    return applyAutomaticAreas({
+      form: { ...defaults.form, ...(candidate.form || {}), modelo:selectedModel, data: formatDateForInput(candidate?.form?.data || defaults.form.data) },
+      items,
+      streetCounts,
+      storeStreetTemplates,
+      modelItemTemplates,
+      modelConfigs: normalizedConfigs
+    });
+  };
+
+  clearEvaluationValuesFromItems = function(items, modelKey = DEFAULT_MODEL_KEY){
+    const configs = migrateConfigurableModels(state?.modelConfigs || buildInitialConfigurableModels());
+    const safeModelKey = configs[modelKey] ? modelKey : (Object.keys(configs)[0] || DEFAULT_MODEL_KEY);
+    const source = Array.isArray(items) && items.length ? items : buildItemsFromModel(safeModelKey);
+    return reindexItems(source.map((item, index) => ({
+      ...normalizeItem(item, index, safeModelKey),
+      areaAvaliada:'',
+      naoConformes:'',
+      observacao:'',
+      naoAvaliar:false
+    })), safeModelKey);
+  };
+
+  getAllModelConfigs = function(){
+    state.modelConfigs = migrateConfigurableModels(state?.modelConfigs || buildInitialConfigurableModels());
+    return state.modelConfigs;
+  };
+
+  // Reidrata do armazenamento local usando a normalização corrigida e força persistência correta
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      state = normalizeState(parsed);
+    } else {
+      state = normalizeState(state);
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch (err) {
+    console.warn('Falha ao reidratar a configuração personalizada.', err);
+    state = normalizeState(state);
+  }
+
+  renderApp();
+  const modelSelect = document.getElementById('modeloAvaliacao');
+  if (modelSelect) modelSelect.onchange = (e)=>onModelChange(e.target.value);
+  showToast('Persistência de modelos e NCs atualizada.');
+})();
+</script>
+
 </body>
 </html>

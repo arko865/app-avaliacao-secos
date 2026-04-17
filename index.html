@@ -273,8 +273,8 @@
     <div class="manage-panel" style="max-width:1180px;">
       <div class="manage-header">
         <div>
-          <div class="manage-title">Paletes, Prateleiras e Relatório Fotográfico por Rua</div>
-          <div class="manage-help">Digite livremente as quantidades por rua. O app soma automaticamente os totais e preenche <strong>Áreas avaliadas</strong> dos itens vinculados. Também é possível registrar fotos por rua com não conformidades e quantidade de áreas não conformes.</div>
+          <div id="streetCountsTitle" class="manage-title">Avaliar</div>
+          <div id="streetCountsHelp" class="manage-help">Digite livremente as quantidades por rua. O app soma automaticamente os totais e preenche <strong>Áreas avaliadas</strong> dos itens vinculados. Também é possível registrar fotos por rua com não conformidades e quantidade de áreas não conformes.</div>
         </div>
         <button id="closeStreetCountsBtn" class="btn secondary" type="button">Fechar</button>
       </div>
@@ -312,6 +312,16 @@ const MODEL_CONFIGS = {
     label:'Nova Era — Secos',
     reportLabel:'Formulário de Validação de Pré-Inventário',
     usesStreetCounts:true,
+    countFields:[
+      { key:'paletesMix', label:'PLT MIX' },
+      { key:'paletesFull', label:'PLT FULL' },
+      { key:'par', label:'PAR' },
+      { key:'prateleiras', label:'PRATELEIRAS' },
+      { key:'gancheiras', label:'GANCHEIRAS' },
+      { key:'pontas', label:'PONTAS' },
+      { key:'caixarias', label:'CAIXARIA' },
+      { key:'vitrine', label:'VITRINE' }
+    ],
     autoAreaMap:{
       paletesMix:[1,2,3,6],
       paletesFull:[3,4],
@@ -323,100 +333,132 @@ const MODEL_CONFIGS = {
       vitrine:[15,16]
     },
     items:[
-  "Depósito/Aéreo: Nos Paletes Mix foi armazenado produtos de uma mesma categoria?",
-  "Depósito/Aéreo: Foram eliminadas caixas abertas (incompletas) e/ou contendo diversos itens mesclados?",
-  "Depósito/Aéreo: Foram organizados os Paletes de uma mesma categoria no seu corredor?",
-  "Depósito: Para os Paletes Full foram organizados com amarração única e placas contendo identificação?",
-  "Depósito: Área segregada do PAR foi organizada respeitando agrupamento por códigos?",
-  "Depósito/Aéreo: Os Paletes Mix foram organizados separando por códigos?",
-  "Área de Venda: Foram eliminadas caixas nas gôndolas?",
-  "Área de Venda: Foi organizada a caixaria da última prateleira com descrição voltada para fora?",
-  "Área de Venda: Mercadorias puxadas para frente facilitando visualização?",
-  "Área de Venda: Produtos agrupados por códigos nas prateleiras?",
-  "Área de Venda: Foi deixado 1 cm de separação entre grupos?",
-  "Área de Venda: Produtos organizados em uma única forma (não misturar posições)?",
-  "Área de Venda: Pontas de gôndola organizadas sem unidades soltas e sem fundo falso?",
-  "Área de Venda: Produtos em peg board reduzidos e empurrados para trás?",
-  "Área de Venda PAR: Garrafas de bebidas em suas embalagens corretas.",
-  "Área de Venda PAR: Produtos em vitrines organizados corretamente."
-]
+      { description:'Depósito/Aéreo: Nos Paletes Mix foi armazenado produtos de uma mesma categoria?', section:'deposito' },
+      { description:'Depósito/Aéreo: Foram eliminadas caixas abertas (incompletas) e/ou contendo diversos itens mesclados?', section:'deposito' },
+      { description:'Depósito/Aéreo: Foram organizados os Paletes de uma mesma categoria no seu corredor?', section:'deposito' },
+      { description:'Depósito: Para os Paletes Full foram organizados com amarração única e placas contendo identificação?', section:'deposito' },
+      { description:'Depósito: Área segregada do PAR foi organizada respeitando agrupamento por códigos?', section:'deposito' },
+      { description:'Depósito/Aéreo: Os Paletes Mix foram organizados separando por códigos?', section:'deposito' },
+      { description:'Área de Venda: Foram eliminadas caixas nas gôndolas?', section:'venda' },
+      { description:'Área de Venda: Foi organizada a caixaria da última prateleira com descrição voltada para fora?', section:'venda' },
+      { description:'Área de Venda: Mercadorias puxadas para frente facilitando visualização?', section:'venda' },
+      { description:'Área de Venda: Produtos agrupados por códigos nas prateleiras?', section:'venda' },
+      { description:'Área de Venda: Foi deixado 1 cm de separação entre grupos?', section:'venda' },
+      { description:'Área de Venda: Produtos organizados em uma única forma (não misturar posições)?', section:'venda' },
+      { description:'Área de Venda: Pontas de gôndola organizadas sem unidades soltas e sem fundo falso?', section:'venda' },
+      { description:'Área de Venda: Produtos em peg board reduzidos e empurrados para trás?', section:'venda' },
+      { description:'Área de Venda PAR: Garrafas de bebidas em suas embalagens corretas.', section:'venda' },
+      { description:'Área de Venda PAR: Produtos em vitrines organizados corretamente.', section:'venda' }
+    ]
   },
   patio_gourmet_secos: {
     key:'patio_gourmet_secos',
     label:'Pátio Gourmet — Secos',
     reportLabel:'Formulário de Validação de Pré-Inventário - Pátio Gourmet Secos',
-    usesStreetCounts:false,
-    autoAreaMap:{},
+    usesStreetCounts:true,
+    countFields:[
+      { key:'paletesMix', label:'PALETES / RACKS' },
+      { key:'paletesFull', label:'PALETES FULL' },
+      { key:'par', label:'PAR' },
+      { key:'prateleiras', label:'PRATELEIRAS' },
+      { key:'gancheiras', label:'GANCHEIRAS' },
+      { key:'vitrine', label:'VITRINES' },
+      { key:'caixarias', label:'CESTAS' }
+    ],
+    autoAreaMap:{
+      paletesMix:[1,2,3,4,5],
+      paletesFull:[6],
+      par:[7],
+      prateleiras:[8,9,10],
+      gancheiras:[11],
+      vitrine:[12,13],
+      caixarias:[14]
+    },
     items:[
-  "Depósito: Em uma mesma área foi armazenado produtos de uma mesma categoria?",
-  "Deposito: Eliminar todas as caixas com diversos itens mesclados, (permitido apenas uma caixa)",
-  "Depósito: Existem espaços entre os itens alocados em um mesmo porta palete? Estão sendo empilhadas as caixas de um mesmo produto respeitando o agrupamento por códigos?",
-  "Depósito: Para os Paletes Full foram organizados com amarração única e colocadas placas contendo código interno do produto, quantidade de embalagem e amarração?",
-  "Depósito: Área segregada do PAR foi organizada, respeitando a organização por agrupamento de códigos?",
-  "Os produtos armazenados no depósito estão sendo agrupados por código?",
-  "Depósito: Deixar no máximo uma caixa por produto com quantidade incompleta.",
-  "Cestas: Verificar se foram impressas etiquetas de cada produto.",
-  "Área de Venda: Foi reduzido o abastecimento dos produtos em D-5?",
-  "Área de Venda: Foi reduzida uma fileira do empilhamento dos produtos em sua exposição na prateleira, com o objetivo de facilitar a visão da contagem do produto?",
-  "Área de Venda: Todos os produtos estão agrupados por códigos?",
-  "Área de Venda: Foi deixado 2 cm de separação entre os grupos de produtos na exposição nas prateleiras?",
-  "Área de Venda: Foram empurrados para trás os produtos expostos em pag board (gancheiras)?",
-  "Área de Venda PAR: Realizar organização de produtos armazenados nas vitrines (para Adega colocar código interno e agrupar por código, para diminuir risco de danos à mercadoria).",
-  "Área de Venda PAR: Colocar todas as garrafas de bebidas em suas devidas embalagens.",
-  "Depósito: Foram organizados os produtos destacando um produto e fixando-o à caixa, para um determinado agrupamento de códigos?",
-  "Depósito: Foram organizados os produtos de uma mesma categoria em seu corredor?",
-  "Depósito/Aéreo: Espaços e identificação dos agrupamentos estão adequados para a contagem?"
-]
+      { description:'Produtos com necessidade de agrupamento por código.', section:'deposito' },
+      { description:'Não existem espaços entre os itens alocados em um mesmo porta palete.', section:'deposito' },
+      { description:'Caixas abertas e incompletas de um mesmo produto.', section:'deposito' },
+      { description:'Em uma mesma área foram armazenados produtos de duas ou mais categorias.', section:'deposito' },
+      { description:'Não foram organizados os produtos destacando um produto e fixando-o à caixa.', section:'deposito' },
+      { description:'Paletes Full sem placa contendo código consigno do produto.', section:'deposito' },
+      { description:'PAR com necessidade de organização por agrupamento de código.', section:'deposito' },
+      { description:'Necessidade de reduzir fileiras de empilhamento.', section:'venda' },
+      { description:'Necessário agrupamento por código.', section:'venda' },
+      { description:'Necessário espaço entre os itens.', section:'venda' },
+      { description:'Necessário organizar gancheiras.', section:'venda' },
+      { description:'Necessário organizar produtos armazenados nas vitrines.', section:'venda' },
+      { description:'Necessário organizar / identificar garrafas e produtos de vitrines.', section:'venda' },
+      { description:'Imprimir códigos dos produtos em cestas.', section:'venda' }
+    ]
   },
   nova_era_pereciveis: {
     key:'nova_era_pereciveis',
     label:'Nova Era — Perecíveis',
     reportLabel:'Formulário de Validação de Pré-Inventário - Nova Era Perecíveis',
-    usesStreetCounts:false,
-    autoAreaMap:{},
+    usesStreetCounts:true,
+    countFields:[
+      { key:'paletesMix', label:'PALETES / RACKS' },
+      { key:'paletesFull', label:'PALETES FULL' },
+      { key:'par', label:'PALETES PESÁVEIS' },
+      { key:'prateleiras', label:'SETORES' },
+      { key:'gancheiras', label:'PRATELEIRAS / ILHAS' },
+      { key:'caixarias', label:'BALANÇAS' }
+    ],
+    autoAreaMap:{
+      paletesMix:[1,2,3,4],
+      paletesFull:[5],
+      par:[6],
+      prateleiras:[7],
+      gancheiras:[8,9,10],
+      caixarias:[11]
+    },
     items:[
-  "Foi impressa a lista de códigos internos para contagem dos produtos da Peixaria, Frios & Laticínios, Açougue e FLV?",
-  "Depósito / Área de Venda: Colocar código interno em todos os produtos que deverão ser pesados.",
-  "Depósito/Aéreo: Para o aéreo Palete Full foram organizados com amarração única e colocadas placas contendo código interno do produto, quantidade de embalagem e amarração?",
-  "Depósito/Aéreo: Os paletes com itens pesáveis foram organizados separando por códigos e identificados com placas contendo a descrição de cada código de produto que há no palete?",
-  "Depósito/Aéreo: Foi realizado o agrupamento por categoria?",
-  "Os produtos armazenados nas câmaras estão sendo agrupados por código?",
-  "Depósito: Organização de itens em paletes no chão deve existir espaço adequado para realização da contagem.",
-  "Depósito: Foram eliminadas caixas abertas (incompletas) e/ou contendo diversos itens mesclados.",
-  "Área de Vendas: Separadas balança e caçapas para pesagem de itens?",
-  "Área de Venda: Organizar produtos em ilhas do FLV não deixando produtos similares próximos?",
-  "Área de Venda: Foi deixado 1 cm de separação entre os grupos de produtos na exposição nas prateleiras?",
-  "Área de Venda: Todos os produtos estão agrupados por códigos nas prateleiras e ilhas frias?",
-  "Área de Venda: As mercadorias foram empurradas para trás das prateleiras e reduzido uma fileira do empilhamento?",
-  "Área de Venda: Foi reduzido o abastecimento dos produtos em D-1?",
-  "Câmaras / Depósito: Fluxo de movimentação e identificação dos agrupamentos está adequado para a contagem?",
-  "Área de Venda / FLV: Organização geral do setor está adequada para o inventário?"
-]
+      { description:'Necessidade de agrupamento por código.', section:'deposito' },
+      { description:'Diversas caixas abertas, incompletas e com diversos itens.', section:'deposito' },
+      { description:'Deixar espaço entre os paletes no chão.', section:'deposito' },
+      { description:'Agrupar por categoria.', section:'deposito' },
+      { description:'Paletes Full sem placa contendo código consigno do produto.', section:'deposito' },
+      { description:'Itens sem identificação de código consigno.', section:'deposito' },
+      { description:'Listagem não impressa.', section:'deposito' },
+      { description:'Trazer produtos para a frente da prateleira / reduzir fileiras de empilhamento.', section:'venda' },
+      { description:'Agrupar itens por código.', section:'venda' },
+      { description:'Deixar espaço entre os itens similares.', section:'venda' },
+      { description:'Balanças insuficientes.', section:'venda' }
+    ]
   },
   patio_gourmet_pereciveis: {
     key:'patio_gourmet_pereciveis',
     label:'Pátio Gourmet — Perecíveis',
     reportLabel:'Formulário de Validação de Pré-Inventário - Pátio Gourmet Perecíveis',
-    usesStreetCounts:false,
-    autoAreaMap:{},
+    usesStreetCounts:true,
+    countFields:[
+      { key:'paletesMix', label:'PALETES / RACKS' },
+      { key:'par', label:'ÁREAS PESÁVEIS' },
+      { key:'gancheiras', label:'PRATELEIRAS / ILHAS' },
+      { key:'caixarias', label:'BALANÇAS' },
+      { key:'prateleiras', label:'SETORES' }
+    ],
+    autoAreaMap:{
+      paletesMix:[1,2,3,4,5,6],
+      par:[7],
+      gancheiras:[8,9,10],
+      caixarias:[11],
+      prateleiras:[12]
+    },
     items:[
-  "Foi impressa a lista de códigos internos para contagem dos produtos da Peixaria, Frios & Laticínios, Açougue e FLV?",
-  "Depósito / Área de Venda: Colocar código interno em todos os produtos que deverão ser pesados.",
-  "Depósito: Separar itens pesados de itens que deverão ser contados por unidades.",
-  "Deposito: Os Paletes Mix foram organizados os produtos separando por agrupamento de códigos?",
-  "Deposito: Nos Paletes Mix e Prateleiras foi armazenado produtos de uma mesma categoria?",
-  "Os produtos armazenados nas câmaras estão sendo agrupadas por código?",
-  "Deposito: Organização de itens em paletes no chão: deve existir um espaçamento entre os itens diferentes.",
-  "Deposito: Foram eliminadas caixas abertas (incompletas) e/ou contendo diversos itens mesclados.",
-  "Área de Vendas: Separadas 1 balança para cada setor e caçapas para pesagem de itens?",
-  "Área de Venda: Organizar produtos em ilhas do FLV não deixando produtos similares próximos?",
-  "Área de Venda: Foi deixado 1 cm de separação entre os grupos de produtos na exposição nas prateleiras?",
-  "Área de Venda: Todos os produtos estão agrupados por códigos nas prateleiras e ilhas frias?",
-  "Área de Venda: As mercadorias foram empurradas para trás das prateleiras e reduzindo, se necessário, camadas do empilhamento?",
-  "Área de Venda: Foi reduzido o abastecimento dos produtos em D-1?",
-  "Depósito / Câmaras: Fluxo de movimentação e identificação dos agrupamentos está adequado para a contagem?",
-  "Área de Venda / FLV: Organização geral do setor está adequada para o inventário?"
-]
+      { description:'Necessidade de agrupamento por código.', section:'deposito' },
+      { description:'Diversas caixas abertas, incompletas e com diversos itens.', section:'deposito' },
+      { description:'Deixar espaço entre os paletes no chão.', section:'deposito' },
+      { description:'Agrupar por categoria.', section:'deposito' },
+      { description:'Necessidade de agrupamento por código em câmaras / áreas frias.', section:'deposito' },
+      { description:'Itens pesáveis junto aos itens em unidade.', section:'deposito' },
+      { description:'Produtos pesáveis sem identificação de código.', section:'deposito' },
+      { description:'Trazer produtos para a frente da prateleira.', section:'venda' },
+      { description:'Agrupar itens por código.', section:'venda' },
+      { description:'Deixar espaço entre os itens similares.', section:'venda' },
+      { description:'Balanças insuficientes.', section:'venda' },
+      { description:'Setores com necessidade de organização para a contagem.', section:'venda' }
+    ]
   }
 };
 const DEFAULT_MODEL_KEY = 'nova_era_secos';
@@ -457,12 +499,23 @@ function getAutoAreaItemIds(modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY)
 function isStreetCountEnabled(modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY) {
   return !!getModelConfig(modelKey).usesStreetCounts;
 }
+function getCountFieldsForModel(modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY) {
+  const fields = getModelConfig(modelKey).countFields;
+  return Array.isArray(fields) && fields.length ? fields : [
+    { key:'paletesFull', label:'Paletes Full' },
+    { key:'paletesMix', label:'Paletes Mix' },
+    { key:'caixarias', label:'Caixarias' },
+    { key:'prateleiras', label:'Prateleiras' }
+  ];
+}
 function buildItemsFromModel(modelKey = DEFAULT_MODEL_KEY) {
   const config = getModelConfig(modelKey);
-  return (config.items || []).map((description, index) => ({
+  return (config.items || []).map((entry, index) => ({
     id: index + 1,
-    description,
-    section: index < Math.ceil((config.items || []).length / 2) ? 'deposito' : 'venda',
+    description: typeof entry === 'string' ? entry : String(entry?.description || `Item ${index + 1}`),
+    section: typeof entry === 'string'
+      ? (index < Math.ceil((config.items || []).length / 2) ? 'deposito' : 'venda')
+      : (entry?.section === 'venda' ? 'venda' : 'deposito'),
     areaAvaliada:'',
     naoConformes:'',
     observacao:'',
@@ -474,8 +527,7 @@ function makeDefaultItems(modelKey = DEFAULT_MODEL_KEY) {
 }
 function makeDefaultStreetCounts() {
   return [
-    { id: `${Date.now()}-0`, rua:'Depósito', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', gancheiras:'', par:'', pontas:'', vitrine:'', photos:[] },
-    { id: `${Date.now()}-1`, rua:'Área de Venda', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', gancheiras:'', par:'', pontas:'', vitrine:'', photos:[] }
+    { id: `${Date.now()}-0`, rua:'Rua 1', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', gancheiras:'', par:'', pontas:'', vitrine:'', photos:[] }
   ];
 }
 function normalizeStreetCount(row, index) {
@@ -551,8 +603,11 @@ function applyAutomaticNonConformities(targetState = state) {
       if (!qty) return;
       const selected = Array.isArray(photo?.nonConformities) ? [...new Set(photo.nonConformities)] : [];
       selected.forEach(option => {
-        const itemId = optionMap[option];
-        if (itemId) totalsByItem[itemId] = (totalsByItem[itemId] || 0) + qty;
+        const itemIds = optionMap[option];
+        const normalizedIds = Array.isArray(itemIds) ? itemIds : (itemIds ? [itemIds] : []);
+        normalizedIds.forEach(itemId => {
+          if (itemId) totalsByItem[itemId] = (totalsByItem[itemId] || 0) + qty;
+        });
       });
     });
   });
@@ -782,26 +837,108 @@ const PHOTO_NONCONFORMITY_OPTIONS_BY_MODEL = {
     'Peg board com necessidade de organização',
     'PAR Garrafas de bebidas em embalagens incorretas',
     'PAR Vitrines com necessidade de organização'
+  ],
+  patio_gourmet_secos: [
+    'Produtos com necessidade de agrupamento por código',
+    'Não existem espaços entre os itens alocados em um mesmo porta palete',
+    'Caixas abertas e incompletas de um mesmo',
+    'Em uma mesma área foi armazenado produtos de duas ou mais categorias',
+    'Não foram organizados os produtos destacando um produto e fixando-o à caixa',
+    'Paletes Full sem placa contendo código consinco do produto',
+    'PRA com necessidade de organização por agrupamento de código',
+    'Necessidade de reduzir fileiras de empilhamento',
+    'Necessário agrupamento por código',
+    'Necessário espaço entre os itens',
+    'Necessário organizar gancheiras',
+    'Necessário organizar produtos armazenados nas vitrines',
+    'Imprimir códigos dos produtos em cestas'
+  ],
+  nova_era_pereciveis: [
+    'Necessidade de agrupamento por código',
+    'Diversas caixas abertas, incompletas e com diversos itens',
+    'Deixar espaço entre os paletes no chão',
+    'Agrupar por categoria',
+    'Paletes Full sem placa contendo código consinco do produto',
+    'Itens sem identificação de código consinco',
+    'Listagem não impressa',
+    'trazer produtos para a frente da prateleira',
+    'Reduzir fileiras de empilhamento',
+    'Agrupar itens por código',
+    'Deixar espaço entre os itens similares',
+    'Balanças insuficientes'
+  ],
+  patio_gourmet_pereciveis: [
+    'Necessidade de agrupamento por código',
+    'Diversas caixas abertas, incompletas e com diversos itens',
+    'Deixar espaço entre os paletes no chão',
+    'Agrupar por categoria',
+    'Itens pesáveis junto aos itens em unidade',
+    'Produtos pesáveis sem identificação de código',
+    'trazer produtos para a frente da prateleira',
+    'Agrupar itens por código',
+    'Deixar espaço entre os itens similares',
+    'Balanças insuficientes'
   ]
 };
 const PHOTO_NONCONFORMITY_ITEM_MAP = {
   nova_era_secos: {
-    'Paletes Mix com produtos de mais de uma categoria': 1,
-    'Caixas abertas (incompletas) e/ou contendo diversos itens mesclados': 2,
-    'Paletes de uma mesma categoria em vários corredores?': 3,
-    'Paletes Full sem placa de identificação': 4,
-    'PAR não foi organizada respeitando agrupamento por códigos': 5,
-    'Paletes Mix não foram organizados separando por códigos': 6,
-    'Caixas nas gôndolas atrás dos produtos expostos': 7,
-    'Caixarias desorganizadas': 8,
-    'Mercadorias não foram puxadas para frente': 9,
-    'Produtos não agrupados por código': 10,
-    'Produtos sem espaço entre os itens': 11,
-    'Produtos organizados com posições diferentes (deitado/de pé)': 12,
-    'Pontas de Gôndola com necessidade de organização': 13,
-    'Peg board com necessidade de organização': 14,
-    'PAR Garrafas de bebidas em embalagens incorretas': 15,
-    'PAR Vitrines com necessidade de organização': 16
+    'Paletes Mix com produtos de mais de uma categoria': [1],
+    'Caixas abertas (incompletas) e/ou contendo diversos itens mesclados': [2],
+    'Paletes de uma mesma categoria em vários corredores?': [3],
+    'Paletes Full sem placa de identificação': [4],
+    'PAR não foi organizada respeitando agrupamento por códigos': [5],
+    'Paletes Mix não foram organizados separando por códigos': [6],
+    'Caixas nas gôndolas atrás dos produtos expostos': [7],
+    'Caixarias desorganizadas': [8],
+    'Mercadorias não foram puxadas para frente': [9],
+    'Produtos não agrupados por código': [10],
+    'Produtos sem espaço entre os itens': [11],
+    'Produtos organizados com posições diferentes (deitado/de pé)': [12],
+    'Pontas de Gôndola com necessidade de organização': [13],
+    'Peg board com necessidade de organização': [14],
+    'PAR Garrafas de bebidas em embalagens incorretas': [15],
+    'PAR Vitrines com necessidade de organização': [16]
+  },
+  patio_gourmet_secos: {
+    'Produtos com necessidade de agrupamento por código': [1],
+    'Não existem espaços entre os itens alocados em um mesmo porta palete': [2],
+    'Caixas abertas e incompletas de um mesmo': [3],
+    'Em uma mesma área foi armazenado produtos de duas ou mais categorias': [4],
+    'Não foram organizados os produtos destacando um produto e fixando-o à caixa': [5],
+    'Paletes Full sem placa contendo código consinco do produto': [6],
+    'PRA com necessidade de organização por agrupamento de código': [7],
+    'Necessidade de reduzir fileiras de empilhamento': [8],
+    'Necessário agrupamento por código': [9],
+    'Necessário espaço entre os itens': [10],
+    'Necessário organizar gancheiras': [11],
+    'Necessário organizar produtos armazenados nas vitrines': [12],
+    'Imprimir códigos dos produtos em cestas': [14]
+  },
+  nova_era_pereciveis: {
+    'Necessidade de agrupamento por código': [1],
+    'Diversas caixas abertas, incompletas e com diversos itens': [2],
+    'Deixar espaço entre os paletes no chão': [3],
+    'Agrupar por categoria': [4],
+    'Paletes Full sem placa contendo código consinco do produto': [5],
+    'Itens sem identificação de código consinco': [6],
+    'Listagem não impressa': [7],
+    'trazer produtos para a frente da prateleira': [8],
+    'Reduzir fileiras de empilhamento': [8],
+    'Agrupar itens por código': [9],
+    'Deixar espaço entre os itens similares': [10],
+    'Balanças insuficientes': [11]
+  },
+  patio_gourmet_pereciveis: {
+    'Necessidade de agrupamento por código': [1,5],
+    'Diversas caixas abertas, incompletas e com diversos itens': [2],
+    'Deixar espaço entre os paletes no chão': [3],
+    'Agrupar por categoria': [4],
+    'Itens pesáveis junto aos itens em unidade': [6],
+    'Produtos pesáveis sem identificação de código': [7],
+    'trazer produtos para a frente da prateleira': [8],
+    'Agrupar itens por código': [9],
+    'Deixar espaço entre os itens similares': [10],
+    'Balanças insuficientes': [11]
   }
 };
 function getPhotoOptionsForModel(modelKey) {
@@ -1384,19 +1521,15 @@ function renderStreetCounts() {
             `;
           }).join('')}
         </div>` : '<div class="manage-empty">Nenhuma foto registrada nesta área.</div>';
+      const countFieldsHtml = getCountFieldsForModel(state.form.modelo).map(field => `
+            <div class="field"><label>${escapeHtml(field.label)}</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="${escapeHtml(field.key)}" value="${row[field.key] ?? ''}" /></div>
+          `).join('');
       wrap.innerHTML = `
         <div>
-          <div class="count-stage-title">1. Escolha a área e informe as quantidades avaliadas</div>
+          <div class="count-stage-title">1. Informe as quantidades avaliadas</div>
           <div class="count-fields-grid">
-            <div class="field"><label>Área Avaliada</label><select data-count-index="${index}" data-count-field="rua"><option value="Depósito" ${String(row.rua||'')==='Depósito'?'selected':''}>Depósito</option><option value="Área de Venda" ${String(row.rua||'')==='Área de Venda'?'selected':''}>Área de Venda</option></select></div>
-            <div class="field"><label>Paletes Full</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="paletesFull" value="${row.paletesFull ?? ''}" /></div>
-            <div class="field"><label>Paletes Mix</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="paletesMix" value="${row.paletesMix ?? ''}" /></div>
-            <div class="field"><label>Caixarias</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="caixarias" value="${row.caixarias ?? ''}" /></div>
-            <div class="field"><label>Prateleiras</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="prateleiras" value="${row.prateleiras ?? ''}" /></div>
-            <div class="field"><label>Gancheiras</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="gancheiras" value="${row.gancheiras ?? ''}" /></div>
-            <div class="field"><label>PAR</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="par" value="${row.par ?? ''}" /></div>
-            <div class="field"><label>Pontas</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="pontas" value="${row.pontas ?? ''}" /></div>
-            <div class="field"><label>Vitrine</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="vitrine" value="${row.vitrine ?? ''}" /></div>
+            <div class="field"><label>Rua</label><input type="text" data-count-index="${index}" data-count-field="rua" value="${escapeHtml(row.rua || `Rua ${index + 1}`)}" placeholder="Ex.: Rua Biscoitos" /></div>
+            ${countFieldsHtml}
           </div>
         </div>
         <div>
@@ -1466,8 +1599,6 @@ function renderStreetCounts() {
         const draft = getDraftPhotoForRow(row);
         if (!draft.setor) draft.setor = value;
         if (Array.isArray(row.photos)) row.photos = row.photos.map(photo => ({ ...photo, setor: photo.setor || value }));
-        renderStreetCounts();
-        return;
       }
       updateStreetCountsSummary();
     });
@@ -1560,20 +1691,20 @@ function updateStreetCountsSummary() {
   const summary = document.getElementById('streetCountsSummary');
   if (!summary) return;
   const totals = getStreetCountTotals(Array.isArray(manageStreetCounts) ? manageStreetCounts : state.streetCounts);
-  summary.innerHTML = `
-    <div class="count-summary-tile"><div class="count-summary-label">Paletes Full</div><div class="count-summary-value">${totals.paletesFull}</div></div>
-    <div class="count-summary-tile"><div class="count-summary-label">Paletes Mix</div><div class="count-summary-value">${totals.paletesMix}</div></div>
-    <div class="count-summary-tile"><div class="count-summary-label">Caixarias</div><div class="count-summary-value">${totals.caixarias}</div></div>
-    <div class="count-summary-tile"><div class="count-summary-label">Prateleiras</div><div class="count-summary-value">${totals.prateleiras}</div></div>
-    <div class="count-summary-tile"><div class="count-summary-label">Gancheiras</div><div class="count-summary-value">${totals.gancheiras}</div></div>
-    <div class="count-summary-tile"><div class="count-summary-label">PAR</div><div class="count-summary-value">${totals.par}</div></div>
-    <div class="count-summary-tile"><div class="count-summary-label">Pontas</div><div class="count-summary-value">${totals.pontas}</div></div>
-    <div class="count-summary-tile"><div class="count-summary-label">Vitrine</div><div class="count-summary-value">${totals.vitrine}</div></div>
+  const tiles = getCountFieldsForModel(state.form.modelo).map(field => `
+    <div class="count-summary-tile"><div class="count-summary-label">${escapeHtml(field.label)}</div><div class="count-summary-value">${totals[field.key] || 0}</div></div>
+  `).join('');
+  summary.innerHTML = `${tiles}
     <div class="count-summary-tile"><div class="count-summary-label">Fotos registradas</div><div class="count-summary-value">${totals.photos}</div></div>
   `;
 }
 function openStreetCountsModal() {
   manageStreetCounts = clone(state.streetCounts || makeDefaultStreetCounts());
+  const modelLabel = getModelConfig(state.form.modelo).label;
+  const titleEl = document.getElementById('streetCountsTitle');
+  const helpEl = document.getElementById('streetCountsHelp');
+  if (titleEl) titleEl.textContent = `Avaliar — ${modelLabel}`;
+  if (helpEl) helpEl.innerHTML = 'Digite livremente as quantidades por rua. O app soma automaticamente os totais e preenche <strong>Áreas avaliadas</strong> e <strong>não conformidades</strong> conforme as regras do modelo selecionado.';
   renderStreetCounts();
   const modal = document.getElementById('streetCountsModal');
   modal.classList.add('open');
@@ -1587,7 +1718,7 @@ function closeStreetCountsModal() {
 }
 function addStreetCountRow() {
   if (!Array.isArray(manageStreetCounts)) manageStreetCounts = clone(state.streetCounts || makeDefaultStreetCounts());
-  manageStreetCounts.push(normalizeStreetCount({ rua: manageStreetCounts.length % 2 === 0 ? 'Depósito' : 'Área de Venda' }, manageStreetCounts.length));
+  manageStreetCounts.push(normalizeStreetCount({ rua: `Rua ${manageStreetCounts.length + 1}` }, manageStreetCounts.length));
   renderStreetCounts();
 }
 function saveStreetCounts() {

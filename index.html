@@ -41,6 +41,8 @@
     .option-button.active { background:#0f172a; color:#fff; border-color:#0f172a; }
     .actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:24px; }
     .btn { border:none; border-radius:14px; padding:13px 16px; font-size:15px; font-weight:800; cursor:pointer; background:#0f172a; color:#fff; }
+    .btn.highlight { background:#d71920; box-shadow:0 10px 24px rgba(215,25,32,.22); }
+    .btn.highlight:hover { filter:brightness(.98); }
     .btn.secondary { background:#fff; color:#0f172a; border:1px solid #cbd5e1; }
     .btn.danger { background:var(--danger); }
     .muted-note { margin-top:12px; color:var(--muted); font-size:13px; line-height:1.45; }
@@ -161,8 +163,8 @@
               <button id="saveEvaluationBtn" class="btn secondary" type="button">Salvar avaliação</button>
               <button id="downloadBackupBtn" class="btn secondary" type="button">Exportar backup</button>
               <button id="manageItemsBtn" class="btn secondary" type="button">Gerenciar itens</button>
-              <button id="streetCountsBtn" class="btn secondary" type="button">Avaliar</button>
-              <button id="resetBtn" class="btn danger" type="button">Nova avaliação</button>
+              <button id="streetCountsBtn" class="btn highlight" type="button">Avaliar</button>
+              <button id="resetBtn" class="btn danger" type="button">Limpar avaliação</button>
             </div>
           </div>
           <div class="card-content">
@@ -428,6 +430,7 @@ const STATUS_THRESHOLD = 84.5;
 const STORE_OPTIONS = ["01 Matriz", "07 Compensa", "10 Flores", "100 TG Foods", "11 G. Circular", "12 Djalma", "13 Via Norte", "18 Viver Melhor", "20 Adrianópolis", "22 Morada", "31 Torres", "32 Centro", "33 Barreira", "34 Silves", "35 Cid Deus", "36 Ponte C", "44 Ponta Negra", "48 Galpão Cd", "52 Alvorada", "53 Cid. Nova", "54 Max Teixeira", "55 Dom Pedro", "56 Coroado", "57 Parque10", "58 Nilton Lins"];
 const STORAGE_KEY = 'arko_avaliacao_rascunho_v2';
 const HISTORY_KEY = 'arko_avaliacao_historico_v2';
+const SAFETY_KEY = 'arko_avaliacao_fail_safe_v1';
 const firebaseConfig = {
   apiKey: "AIzaSyDMMNvtmoaVmsSXHUplibVSGuMf9CkMiUY",
   authDomain: "avaliacao-inventario-arko.firebaseapp.com",
@@ -847,6 +850,31 @@ function getLocalHistory() {
 function setLocalHistory(list) {
   try { localStorage.setItem(HISTORY_KEY, JSON.stringify((list || []).slice(0, 50))); } catch (err) { console.warn('Não foi possível salvar o histórico local.', err); }
 }
+function saveFailSafeCheckpoint(reason = 'manual') {
+  try {
+    localStorage.setItem(SAFETY_KEY, JSON.stringify({
+      reason,
+      savedAt: new Date().toISOString(),
+      payload: normalizeState(state)
+    }));
+  } catch (err) {
+    console.warn('Não foi possível salvar o checkpoint local.', err);
+  }
+}
+function restoreFailSafeCheckpoint() {
+  try {
+    const raw = localStorage.getItem(SAFETY_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !parsed.payload || !parsed.payload.form || !Array.isArray(parsed.payload.items)) return false;
+    state = normalizeState(parsed.payload);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    return true;
+  } catch (err) {
+    console.warn('Não foi possível restaurar o checkpoint local.', err);
+    return false;
+  }
+}
 function parseMillis(value) {
   if (value == null) return 0;
   if (typeof value === 'number') return value;
@@ -1013,6 +1041,7 @@ function showToast(message) {
 }
 
 function persistState() {
+  saveFailSafeCheckpoint('autosave');
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (err) {
@@ -1731,7 +1760,7 @@ function bindInputs() {
   document.getElementById('exportBtn').onclick = exportPDF;
   document.getElementById('saveEvaluationBtn').onclick = () => { saveHistorySnapshot(); persistState(); showToast('Avaliação salva no histórico.'); scheduleAutosave(); };
   document.getElementById('resetBtn').onclick = () => {
-    if (!confirm('Deseja iniciar uma nova avaliação? Os dados preenchidos na avaliação atual serão apagados.')) return;
+    if (!confirm('Deseja limpar a avaliação atual? Os dados preenchidos serão apagados deste rascunho.')) return;
     const activeModel = state.form.modelo || DEFAULT_MODEL_KEY;
     const preservedTemplates = clone(state.storeStreetTemplates || {});
     const currentTemplates = clearEvaluationValuesFromTemplateMap(state.modelItemTemplates || {});
@@ -1752,7 +1781,8 @@ function bindInputs() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (err) { console.warn('Não foi possível limpar o rascunho local.', err); }
     renderApp();
     queueCloudDraftSync(true, resetTimestamp);
-    showToast('Nova avaliação iniciada.');
+    saveFailSafeCheckpoint('reset');
+    showToast('Avaliação limpa com sucesso.');
   };
   document.getElementById('downloadBackupBtn').onclick = downloadBackup;
   document.getElementById('manageItemsBtn').onclick = openManageItemsModal;
@@ -1809,7 +1839,10 @@ function renderApp() {
   updateUI();
   renderHistory();
   const streetBtn = document.getElementById('streetCountsBtn');
-  if (streetBtn) streetBtn.style.display = isStreetCountEnabled(state.form.modelo) ? '' : 'none';
+  if (streetBtn) {
+    streetBtn.style.display = isStreetCountEnabled(state.form.modelo) ? '' : 'none';
+    streetBtn.classList.add('highlight');
+  }
   const streetNote = document.getElementById('streetModeNote');
   if (streetNote) streetNote.textContent = isStreetCountEnabled(state.form.modelo)
     ? 'Contagem por rua disponível neste modelo.'
@@ -1902,11 +1935,15 @@ function drawPdfFooter(doc, pageWidth, pageHeight, includeSignatures=false) {
 }
 
 function exportPDF() {
+  persistState();
+  saveFailSafeCheckpoint('before-pdf-export');
   const summary = getSummary();
-  saveHistorySnapshot();
-  scheduleAutosave();
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit:'mm', format:'a4' });
+  try {
+    if (!(window.jspdf && window.jspdf.jsPDF)) {
+      throw new Error('Biblioteca de PDF indisponível neste momento.');
+    }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit:'mm', format:'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   let y = 40;
@@ -2083,12 +2120,24 @@ function exportPDF() {
 
   drawPdfFooter(doc, pageWidth, pageHeight, true);
   doc.save(smartFileName());
+  saveHistorySnapshot();
+  scheduleAutosave();
   showToast('PDF gerado com sucesso.');
+  } catch (err) {
+    console.warn('Falha ao gerar PDF.', err);
+    persistState();
+    const restored = restoreFailSafeCheckpoint();
+    if (restored) renderApp();
+    showToast(navigator.onLine
+      ? 'Não foi possível gerar o PDF agora, mas a avaliação foi mantida neste aparelho.'
+      : 'Sem internet no momento. A avaliação foi mantida salva neste aparelho para você continuar.');
+  }
 }
 
 function init() {
   loadDraft();
   state = normalizeState(state);
+  restoreFailSafeCheckpoint();
   renderApp();
   updateNetworkBadge();
   const stickyCol = document.querySelector('.sticky-col');
@@ -2100,13 +2149,13 @@ function init() {
       event.preventDefault();
     }, { passive:false });
   }
-  window.addEventListener('online', updateNetworkBadge);
-  window.addEventListener('offline', updateNetworkBadge);
+  window.addEventListener('online', () => { updateNetworkBadge(); initializeFirebaseSync(); queueCloudDraftSync(true); });
+  window.addEventListener('offline', () => { updateNetworkBadge(); persistState(); });
   window.addEventListener('beforeunload', () => { persistState(); queueCloudDraftSync(true); });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') { persistState(); queueCloudDraftSync(true); }
   });
-  initializeFirebaseSync();
+  if (navigator.onLine) initializeFirebaseSync();
 }
 init();
 </script>

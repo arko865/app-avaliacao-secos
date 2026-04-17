@@ -1691,12 +1691,13 @@ function bindInputs() {
   populateModelOptions();
   ['modeloAvaliacao','nomeLoja','visita','coordArko','setor','gerenteLoja','data','horaVisita'].forEach(id => {
     const el = document.getElementById(id);
+    if (!el) return;
     el.value = state.form[id === 'modeloAvaliacao' ? 'modelo' : id] || '';
     if (id === 'modeloAvaliacao') {
       el.onchange = e => {
         const nextModel = e.target.value;
         if (!nextModel || nextModel === (state.form.modelo || DEFAULT_MODEL_KEY)) return;
-        switchModel(nextModel);
+        onModelChange(nextModel);
         showToast('Modelo de avaliação alterado.');
       };
     } else if (id === 'nomeLoja') {
@@ -1718,12 +1719,14 @@ function bindInputs() {
       };
     } else {
       el.oninput = e => { state.form[id] = e.target.value; persistState(); scheduleAutosave(); updateUI(); };
-      el.onchange = e => { state.form[id] = e.target.value; persistState(); scheduleAutosave(); updateUI(); };
+      el.onchange = el.oninput;
     }
   });
   const gerente = document.getElementById('gerenteAcompanhou');
-  gerente.checked = !!state.form.gerenteAcompanhou;
-  gerente.onchange = e => { state.form.gerenteAcompanhou = e.target.checked; persistState(); scheduleAutosave(); };
+  if (gerente) {
+    gerente.checked = !!state.form.gerenteAcompanhou;
+    gerente.onchange = e => { state.form.gerenteAcompanhou = e.target.checked; persistState(); scheduleAutosave(); updateUI(); };
+  }
 
   document.querySelectorAll('[data-id][data-field]').forEach(el => {
     const eventName = el.type === 'checkbox' ? 'change' : 'input';

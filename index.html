@@ -889,10 +889,12 @@ function queueCloudDraftSync(immediate = false, forcedUpdatedAt = 0) {
   clearTimeout(draftSyncTimer);
   const run = async () => {
     try {
-      const updatedAt = forcedUpdatedAt || Date.now();
+      const local = getLocalDraftSnapshot();
+      const payload = normalizeState(local.state || state);
+      const updatedAt = Number(forcedUpdatedAt) || local.updatedAt || Date.now();
       lastCloudDraftAt = Math.max(lastCloudDraftAt || 0, updatedAt);
       await firestore.doc(CLOUD_DRAFT_DOC_PATH).set({
-        payload: normalizeState(state),
+        payload,
         updatedAt,
         deviceId
       }, { merge: true });
@@ -903,7 +905,7 @@ function queueCloudDraftSync(immediate = false, forcedUpdatedAt = 0) {
   if (immediate) {
     run();
   } else {
-    draftSyncTimer = setTimeout(run, 450);
+    draftSyncTimer = setTimeout(run, 350);
   }
 }
 async function syncHistoryEntryToCloud(entry) {
@@ -931,12 +933,18 @@ async function seedCloudFromLocal() {
   try {
     const draftRef = firestore.doc(CLOUD_DRAFT_DOC_PATH);
     const draftSnap = await draftRef.get();
-    if (!draftSnap.exists) {
-      const localRaw = localStorage.getItem(STORAGE_KEY);
-      const localState = localRaw ? normalizeState(JSON.parse(localRaw)) : normalizeState(state);
-      const updatedAt = Date.now();
-      lastCloudDraftAt = updatedAt;
-      await draftRef.set({ payload: localState, updatedAt, deviceId }, { merge: true });
+    const cloudData = draftSnap.exists ? draftSnap.data() : null;
+    const cloudAt = cloudData ? parseMillis(cloudData.updatedAt) : 0;
+    const local = getLocalDraftSnapshot();
+    const localAt = Number(local.updatedAt) || 0;
+    if (!draftSnap.exists || localAt > cloudAt) {
+      const pushAt = localAt || Date.now();
+      lastCloudDraftAt = Math.max(lastCloudDraftAt || 0, pushAt);
+      await draftRef.set({ payload: normalizeState(local.state || state), updatedAt: pushAt, deviceId }, { merge: true });
+    } else if (cloudData && cloudData.payload && cloudAt > localAt) {
+      state = normalizeState(cloudData.payload);
+      writeLocalDraft(state, cloudAt);
+      lastCloudDraftAt = Math.max(lastCloudDraftAt || 0, cloudAt);
     }
     const historySnap = await firestore.collection(CLOUD_HISTORY_COLLECTION).limit(1).get();
     if (historySnap.empty) {
@@ -956,32 +964,39 @@ async function seedCloudFromLocal() {
 }
 function startCloudListeners() {
   if (!firebaseReady || !firestore) return;
-  firestore.doc(CLOUD_DRAFT_DOC_PATH).onSnapshot(snapshot => {
+  if (window.__arkoDraftUnsub) { try { window.__arkoDraftUnsub(); } catch (err) {} }
+  if (window.__arkoHistoryUnsub) { try { window.__arkoHistoryUnsub(); } catch (err) {} }
+
+  window.__arkoDraftUnsub = firestore.doc(CLOUD_DRAFT_DOC_PATH).onSnapshot(snapshot => {
     const data = snapshot.data();
     if (!data || !data.payload) return;
-    const updatedAt = parseMillis(data.updatedAt);
+    const incomingAt = parseMillis(data.updatedAt);
+    const localAt = getCurrentStateUpdatedAt();
     if (data.deviceId === deviceId) {
-      lastCloudDraftAt = Math.max(lastCloudDraftAt, updatedAt);
+      lastCloudDraftAt = Math.max(lastCloudDraftAt || 0, incomingAt || 0, localAt || 0);
       cloudDraftInitialized = true;
       return;
     }
-    if (updatedAt && updatedAt < lastCloudDraftAt) return;
+    if (incomingAt && incomingAt <= Math.max(lastCloudDraftAt || 0, localAt || 0)) {
+      cloudDraftInitialized = true;
+      return;
+    }
     const incoming = normalizeState(data.payload);
     const incomingJson = safeJson(incoming, '{}');
     const currentJson = safeJson(normalizeState(state), '{}');
-    if (incomingJson === currentJson) {
+    if (incomingJson === currentJson && incomingAt <= localAt) {
       cloudDraftInitialized = true;
       return;
     }
     state = incoming;
-    lastCloudDraftAt = updatedAt || Date.now();
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (err) {}
+    writeLocalDraft(state, incomingAt || Date.now());
+    lastCloudDraftAt = Math.max(lastCloudDraftAt || 0, incomingAt || 0);
     renderApp();
     if (cloudDraftInitialized) showToast('Avaliação sincronizada de outro dispositivo.');
     cloudDraftInitialized = true;
   }, err => console.warn('Falha ao escutar avaliação na nuvem.', err));
 
-  firestore.collection(CLOUD_HISTORY_COLLECTION).orderBy('createdAt', 'desc').limit(50).onSnapshot(snapshot => {
+  window.__arkoHistoryUnsub = firestore.collection(CLOUD_HISTORY_COLLECTION).orderBy('createdAt', 'desc').limit(50).onSnapshot(snapshot => {
     const next = [];
     snapshot.forEach(doc => next.push({ ...doc.data(), id: doc.id }));
     historyCache = next;
@@ -1042,14 +1057,56 @@ function showToast(message) {
   showToast._timer = setTimeout(() => toast.classList.remove('show'), 2400);
 }
 
-function persistState() {
-  saveFailSafeCheckpoint('autosave');
+const LOCAL_STATE_META_KEY = 'arko_avaliacao_state_meta_v2';
+function getLocalStateMeta() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    const parsed = JSON.parse(localStorage.getItem(LOCAL_STATE_META_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (err) {
+    return {};
+  }
+}
+function setLocalStateMeta(meta = {}) {
+  try {
+    localStorage.setItem(LOCAL_STATE_META_KEY, JSON.stringify({
+      updatedAt: Number(meta.updatedAt) || 0,
+      deviceId: meta.deviceId || deviceId || ''
+    }));
+  } catch (err) {}
+}
+function getLocalDraftSnapshot() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { state: null, updatedAt: Number(getLocalStateMeta().updatedAt) || 0 };
+    const parsed = JSON.parse(raw);
+    return {
+      state: normalizeState(parsed),
+      updatedAt: Number(getLocalStateMeta().updatedAt) || 0
+    };
+  } catch (err) {
+    console.warn('Não foi possível ler o rascunho local.', err);
+    return { state: null, updatedAt: 0 };
+  }
+}
+function writeLocalDraft(nextState, updatedAt = Date.now()) {
+  const normalized = normalizeState(nextState || state);
+  state = normalized;
+  const safeUpdatedAt = Number(updatedAt) || Date.now();
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+    setLocalStateMeta({ updatedAt: safeUpdatedAt, deviceId });
   } catch (err) {
     console.warn('Não foi possível salvar o rascunho.', err);
   }
-  queueCloudDraftSync();
+  return safeUpdatedAt;
+}
+function getCurrentStateUpdatedAt() {
+  return Number(getLocalStateMeta().updatedAt) || 0;
+}
+function persistState(immediateCloud = false) {
+  saveFailSafeCheckpoint('autosave');
+  const updatedAt = writeLocalDraft(state, Date.now());
+  queueCloudDraftSync(Boolean(immediateCloud), updatedAt);
 }
 
 function scheduleAutosave() {
@@ -1061,10 +1118,10 @@ function scheduleAutosave() {
 
 function loadDraft() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    if (parsed && parsed.form && Array.isArray(parsed.items)) state = normalizeState(parsed);
+    const local = getLocalDraftSnapshot();
+    if (local.state && local.state.form && Array.isArray(local.state.items)) {
+      state = normalizeState(local.state);
+    }
   } catch (err) { console.warn('Não foi possível carregar rascunho.', err); }
 }
 
@@ -3180,7 +3237,7 @@ function deleteConfigModel(){
 function saveConfigModels(){
   syncConfigDraftFromDom();
   state.modelConfigs = migrateConfigurableModels(configDraft.models);
-  state.modelItemTemplates = normalizeModelItemTemplates(configDraft.templates);
+  state.modelItemTemplates = normalizeModelItemTemplates(configDraft.templates, state.modelConfigs);
   Object.values(state.modelConfigs).forEach(model=>{
     const templates = state.modelItemTemplates[model.key] || [];
     model.items = templates.map(item=>({ description:item.description, section:item.section }));
@@ -3193,7 +3250,10 @@ function saveConfigModels(){
   state.streetCounts = isStreetCountEnabled(state.form.modelo) ? makeDefaultStreetCounts(state.form.modelo) : [];
   if (state.form.nomeLoja && isStreetCountEnabled(state.form.modelo)) loadStreetCountsForStore(state.form.nomeLoja, state.form.modelo);
   applyAutomaticAreas(state); applyAutomaticNonConformities(state);
-  persistState(); renderApp(); scheduleAutosave(); closeConfigModal(); showToast('Configuração da avaliação salva.');
+  persistState(true);
+  renderApp();
+  closeConfigModal();
+  showToast('Configuração da avaliação salva.');
 }
 
 function bindNewConfigEvents(){
@@ -3230,251 +3290,6 @@ function bindNewConfigEvents(){
 })();
 </script>
 
-
-<script>
-/* === Patch v6: persistência correta de modelos/NCs personalizados === */
-(function(){
-  function getDynamicModelKeysFromStateLike(candidate){
-    const models = migrateConfigurableModels(candidate?.modelConfigs || state?.modelConfigs || buildInitialConfigurableModels());
-    return Object.keys(models || {});
-  }
-
-  normalizeModelItemTemplates = function(templates, modelConfigs){
-    const next = {};
-    const models = migrateConfigurableModels(modelConfigs || state?.modelConfigs || buildInitialConfigurableModels());
-    const validKeys = new Set(Object.keys(models));
-    if (!templates || typeof templates !== 'object') return next;
-    Object.entries(templates).forEach(([modelKey, items]) => {
-      const normalizedModel = validKeys.has(modelKey) ? modelKey : (validKeys.has(DEFAULT_MODEL_KEY) ? DEFAULT_MODEL_KEY : Object.keys(models)[0]);
-      const defaultItems = (models[normalizedModel]?.items || []).map((entry, index) => ({
-        id: index + 1,
-        description: typeof entry === 'string' ? entry : String(entry?.description || `Item ${index+1}`),
-        section: (typeof entry === 'object' && entry?.section === 'venda') ? 'venda' : 'deposito'
-      }));
-      next[normalizedModel] = Array.isArray(items) && items.length
-        ? reindexItems(defaultItems.map((defaultItem, index) => normalizeItem(items[index] || defaultItem, index, normalizedModel)), normalizedModel)
-        : defaultItems;
-    });
-    return next;
-  };
-
-  buildDefaultState = function(storeStreetTemplates = {}, modelItemTemplates = {}, modelKey = DEFAULT_MODEL_KEY, modelConfigs){
-    const normalizedConfigs = migrateConfigurableModels(modelConfigs || buildInitialConfigurableModels());
-    const availableKeys = Object.keys(normalizedConfigs);
-    const safeModelKey = availableKeys.includes(modelKey) ? modelKey : (availableKeys[0] || DEFAULT_MODEL_KEY);
-    const normalizedTemplates = normalizeModelItemTemplates(modelItemTemplates || {}, normalizedConfigs);
-    return {
-      form: {
-        modelo:safeModelKey, nomeLoja:'', visita:'1° Visita', coordArko:'', setor:'', gerenteLoja:'', gerenteAcompanhou:true,
-        data:new Date().toISOString().slice(0,10), horaVisita:'', produtosIdentificados:'', impactoMercadoria:''
-      },
-      items: clone(normalizedTemplates[safeModelKey] || buildItemsFromModel(safeModelKey)),
-      streetCounts: isStreetCountEnabled(safeModelKey) ? makeDefaultStreetCounts() : [],
-      storeStreetTemplates: normalizeStoreStreetTemplates(storeStreetTemplates),
-      modelItemTemplates: normalizedTemplates,
-      modelConfigs: normalizedConfigs
-    };
-  };
-
-  normalizeState = function(candidate){
-    const normalizedConfigs = migrateConfigurableModels(candidate?.modelConfigs || state?.modelConfigs || buildInitialConfigurableModels());
-    const validKeys = Object.keys(normalizedConfigs);
-    const selectedModel = (candidate?.form?.modelo && validKeys.includes(candidate.form.modelo))
-      ? candidate.form.modelo
-      : (state?.form?.modelo && validKeys.includes(state.form.modelo) ? state.form.modelo : (validKeys[0] || DEFAULT_MODEL_KEY));
-    const defaults = buildDefaultState(candidate?.storeStreetTemplates || {}, candidate?.modelItemTemplates || {}, selectedModel, normalizedConfigs);
-    if (!candidate || typeof candidate !== 'object') return defaults;
-    const items = Array.isArray(candidate.items) && candidate.items.length
-      ? defaults.items.map((defaultItem, index) => normalizeItem(candidate.items[index] || defaultItem, index, selectedModel))
-      : clone(defaults.items);
-    items.forEach((item, index) => { item.id = index + 1; });
-
-    const storeStreetTemplates = normalizeStoreStreetTemplates(candidate.storeStreetTemplates || {});
-    const streetCounts = Array.isArray(candidate.streetCounts) && candidate.streetCounts.length
-      ? candidate.streetCounts.map((row, index) => normalizeStreetCount(row, index))
-      : clone(defaults.streetCounts);
-    const modelItemTemplates = normalizeModelItemTemplates(candidate.modelItemTemplates || defaults.modelItemTemplates || {}, normalizedConfigs);
-
-    return applyAutomaticAreas({
-      form: { ...defaults.form, ...(candidate.form || {}), modelo:selectedModel, data: formatDateForInput(candidate?.form?.data || defaults.form.data) },
-      items,
-      streetCounts,
-      storeStreetTemplates,
-      modelItemTemplates,
-      modelConfigs: normalizedConfigs
-    });
-  };
-
-  clearEvaluationValuesFromItems = function(items, modelKey = DEFAULT_MODEL_KEY){
-    const configs = migrateConfigurableModels(state?.modelConfigs || buildInitialConfigurableModels());
-    const safeModelKey = configs[modelKey] ? modelKey : (Object.keys(configs)[0] || DEFAULT_MODEL_KEY);
-    const source = Array.isArray(items) && items.length ? items : buildItemsFromModel(safeModelKey);
-    return reindexItems(source.map((item, index) => ({
-      ...normalizeItem(item, index, safeModelKey),
-      areaAvaliada:'',
-      naoConformes:'',
-      observacao:'',
-      naoAvaliar:false
-    })), safeModelKey);
-  };
-
-  getAllModelConfigs = function(){
-    state.modelConfigs = migrateConfigurableModels(state?.modelConfigs || buildInitialConfigurableModels());
-    return state.modelConfigs;
-  };
-
-  // Reidrata do armazenamento local usando a normalização corrigida e força persistência correta
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      state = normalizeState(parsed);
-    } else {
-      state = normalizeState(state);
-    }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (err) {
-    console.warn('Falha ao reidratar a configuração personalizada.', err);
-    state = normalizeState(state);
-  }
-
-  renderApp();
-  const modelSelect = document.getElementById('modeloAvaliacao');
-  if (modelSelect) modelSelect.onchange = (e)=>onModelChange(e.target.value);
-  showToast('Persistência de modelos e NCs atualizada.');
-})();
-</script>
-
-
-<script>
-/* === Patch v7: prioridade ao estado local salvo e persistência forte de configurações === */
-(function(){
-  const LOCAL_STATE_UPDATED_AT_KEY = 'arko_avaliacao_local_updated_at_v1';
-
-  function getLocalUpdatedAt(){
-    try { return Number(localStorage.getItem(LOCAL_STATE_UPDATED_AT_KEY) || '0') || 0; } catch (err) { return 0; }
-  }
-  function setLocalUpdatedAt(value){
-    try { localStorage.setItem(LOCAL_STATE_UPDATED_AT_KEY, String(Number(value) || Date.now())); } catch (err) {}
-  }
-
-  const originalPersistState = persistState;
-  persistState = function(){
-    state = normalizeState(state);
-    const updatedAt = Date.now();
-    setLocalUpdatedAt(updatedAt);
-    saveFailSafeCheckpoint('autosave');
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch (err) {
-      console.warn('Não foi possível salvar o rascunho.', err);
-    }
-    queueCloudDraftSync(false, updatedAt);
-  };
-
-  const originalRestoreFailSafeCheckpoint = restoreFailSafeCheckpoint;
-  restoreFailSafeCheckpoint = function(){
-    const restored = originalRestoreFailSafeCheckpoint();
-    if (restored) setLocalUpdatedAt(Date.now());
-    return restored;
-  };
-
-  startCloudListeners = function() {
-    if (!firebaseReady || !firestore) return;
-    firestore.doc(CLOUD_DRAFT_DOC_PATH).onSnapshot(snapshot => {
-      const data = snapshot.data();
-      if (!data || !data.payload) return;
-      const incomingAt = parseMillis(data.updatedAt);
-      const localAt = getLocalUpdatedAt();
-      if (data.deviceId === deviceId) {
-        lastCloudDraftAt = Math.max(lastCloudDraftAt, incomingAt, localAt);
-        cloudDraftInitialized = true;
-        return;
-      }
-      if (incomingAt && incomingAt < Math.max(lastCloudDraftAt || 0, localAt || 0)) {
-        cloudDraftInitialized = true;
-        return;
-      }
-      const incoming = normalizeState(data.payload);
-      const incomingJson = safeJson(incoming, '{}');
-      const currentJson = safeJson(normalizeState(state), '{}');
-      if (incomingJson === currentJson) {
-        lastCloudDraftAt = Math.max(lastCloudDraftAt, incomingAt, localAt);
-        cloudDraftInitialized = true;
-        return;
-      }
-      state = incoming;
-      lastCloudDraftAt = incomingAt || Date.now();
-      setLocalUpdatedAt(lastCloudDraftAt);
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (err) {}
-      renderApp();
-      if (cloudDraftInitialized) showToast('Avaliação sincronizada de outro dispositivo.');
-      cloudDraftInitialized = true;
-    }, err => console.warn('Falha ao escutar avaliação na nuvem.', err));
-
-    firestore.collection(CLOUD_HISTORY_COLLECTION).orderBy('createdAt', 'desc').limit(50).onSnapshot(snapshot => {
-      const next = [];
-      snapshot.forEach(doc => next.push({ ...doc.data(), id: doc.id }));
-      historyCache = next;
-      setLocalHistory(historyCache);
-      renderHistory();
-      if (cloudHistoryInitialized) showToast('Histórico sincronizado.');
-      cloudHistoryInitialized = true;
-    }, err => console.warn('Falha ao escutar histórico na nuvem.', err));
-  };
-
-  initializeFirebaseSync = async function() {
-    if (!(window.firebase && window.firebase.apps)) return;
-    try {
-      if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-      firestore = firebase.firestore();
-      firebaseReady = true;
-
-      const localRaw = localStorage.getItem(STORAGE_KEY);
-      const localState = localRaw ? normalizeState(JSON.parse(localRaw)) : normalizeState(state);
-      const localAt = getLocalUpdatedAt() || Date.now();
-      lastCloudDraftAt = Math.max(lastCloudDraftAt || 0, localAt);
-
-      try {
-        const draftRef = firestore.doc(CLOUD_DRAFT_DOC_PATH);
-        const draftSnap = await draftRef.get();
-        const cloudData = draftSnap.exists ? draftSnap.data() : null;
-        const cloudAt = cloudData ? parseMillis(cloudData.updatedAt) : 0;
-
-        if (!draftSnap.exists || localAt >= cloudAt) {
-          await draftRef.set({ payload: localState, updatedAt: localAt, deviceId }, { merge: true });
-          lastCloudDraftAt = Math.max(lastCloudDraftAt, localAt);
-        } else if (cloudData && cloudData.payload) {
-          state = normalizeState(cloudData.payload);
-          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (err) {}
-          setLocalUpdatedAt(cloudAt);
-          lastCloudDraftAt = Math.max(lastCloudDraftAt, cloudAt);
-          renderApp();
-        }
-      } catch (err) {
-        console.warn('Falha ao conciliar rascunho local com a nuvem.', err);
-      }
-
-      await seedCloudFromLocal();
-      startCloudListeners();
-    } catch (err) {
-      console.warn('Firebase indisponível.', err);
-    }
-  };
-
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      state = normalizeState(JSON.parse(raw));
-      setLocalUpdatedAt(getLocalUpdatedAt() || Date.now());
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      renderApp();
-    }
-  } catch (err) {
-    console.warn('Falha ao reforçar leitura do armazenamento local.', err);
-  }
-})();
-</script>
 
 </body>
 </html>

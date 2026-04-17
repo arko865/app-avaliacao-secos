@@ -3012,7 +3012,7 @@ function renderConfigModal(){
   const ncChecks = document.getElementById('newConfigItemNcs');
   ncChecks.innerHTML = (model.ncDefinitions || []).map((nc, idx)=>`<label class="check-chip"><input type="checkbox" value="${idx}" data-config-new-item-nc /> <span>${escapeHtml(nc.label)}</span></label>`).join('') || '<span class="muted-note">Cadastre primeiro uma não conformidade.</span>';
 
-  select.onchange = (e)=>{ configEditorModelKey = e.target.value; renderConfigModal(); };
+  select.onchange = (e)=>{ syncConfigDraftFromDom(); configEditorModelKey = e.target.value; renderConfigModal(); };
   document.getElementById('configModelLabel').oninput = (e)=>{ model.label = e.target.value; select.querySelector(`option[value="${model.key}"]`).textContent = model.label || model.key; };
   document.getElementById('configReportLabel').oninput = (e)=>{ model.reportLabel = e.target.value; };
   areasList.querySelectorAll('[data-config-area-field]').forEach(input=>{
@@ -3023,7 +3023,7 @@ function renderConfigModal(){
     };
   });
   areasList.querySelectorAll('[data-remove-config-area]').forEach(btn=>btn.onclick = ()=>{
-    model.areaDefinitions.splice(Number(btn.dataset.removeConfigArea),1); renderConfigModal();
+    syncConfigDraftFromDom(); model.areaDefinitions.splice(Number(btn.dataset.removeConfigArea),1); renderConfigModal();
   });
   ncList.querySelectorAll('[data-config-nc-field]').forEach(input=>{
     input.oninput = (e)=>{
@@ -3033,44 +3033,85 @@ function renderConfigModal(){
     };
   });
   ncList.querySelectorAll('[data-remove-config-nc]').forEach(btn=>btn.onclick = ()=>{
-    model.ncDefinitions.splice(Number(btn.dataset.removeConfigNc),1); renderConfigModal();
+    syncConfigDraftFromDom(); model.ncDefinitions.splice(Number(btn.dataset.removeConfigNc),1); renderConfigModal();
   });
 }
 
 function syncConfigDraftFromDom(){
   if (!configDraft) return;
   const model = ensureConfigDraftModel(configEditorModelKey);
-  const labelInput = document.getElementById('configModelLabel');
-  const reportInput = document.getElementById('configReportLabel');
-  if (labelInput) model.label = labelInput.value;
-  if (reportInput) model.reportLabel = reportInput.value;
-  document.querySelectorAll('[data-config-area-field]').forEach(input=>{
+  const modal = document.getElementById('configModelsModal');
+  const scope = modal || document;
+  const labelInput = scope.querySelector('#configModelLabel');
+  const reportInput = scope.querySelector('#configReportLabel');
+  if (labelInput) model.label = labelInput.value.trim() || model.label || model.key;
+  if (reportInput) model.reportLabel = reportInput.value.trim() || model.reportLabel || 'Formulário de Avaliação';
+
+  const areaMap = new Map();
+  scope.querySelectorAll('[data-config-area-index]').forEach(input=>{
     const idx = Number(input.dataset.configAreaIndex);
+    if (!Number.isFinite(idx)) return;
+    if (!areaMap.has(idx)) {
+      const current = model.areaDefinitions[idx] || {};
+      areaMap.set(idx, { key: String(current.key || `area_${idx + 1}`), label: String(current.label || ''), itemIds: uniqueSortedNumbers(current.itemIds) });
+    }
+    const entry = areaMap.get(idx);
     const field = input.dataset.configAreaField;
-    if (!model.areaDefinitions[idx]) return;
-    if (field === 'label') model.areaDefinitions[idx].label = input.value;
-    else model.areaDefinitions[idx].itemIds = parseCsvNumbers(input.value);
+    if (field === 'label') {
+      const nextLabel = input.value.trim();
+      entry.label = nextLabel;
+      entry.key = slugifyConfigKey(currentSafeLabel(nextLabel, entry.key || `area_${idx + 1}`));
+    } else {
+      entry.itemIds = parseCsvNumbers(input.value);
+    }
   });
-  document.querySelectorAll('[data-config-nc-field]').forEach(input=>{
+  model.areaDefinitions = Array.from(areaMap.entries())
+    .sort((a,b)=>a[0]-b[0])
+    .map(([idx, entry])=>({
+      key: slugifyConfigKey(currentSafeLabel(entry.label, entry.key || `area_${idx + 1}`)),
+      label: currentSafeLabel(entry.label, `Área ${idx + 1}`),
+      itemIds: uniqueSortedNumbers(entry.itemIds)
+    }));
+
+  const ncMap = new Map();
+  scope.querySelectorAll('[data-config-nc-index]').forEach(input=>{
     const idx = Number(input.dataset.configNcIndex);
+    if (!Number.isFinite(idx)) return;
+    if (!ncMap.has(idx)) {
+      const current = model.ncDefinitions[idx] || {};
+      ncMap.set(idx, { label: String(current.label || ''), itemIds: uniqueSortedNumbers(current.itemIds) });
+    }
+    const entry = ncMap.get(idx);
     const field = input.dataset.configNcField;
-    if (!model.ncDefinitions[idx]) return;
-    if (field === 'label') model.ncDefinitions[idx].label = input.value;
-    else model.ncDefinitions[idx].itemIds = parseCsvNumbers(input.value);
+    if (field === 'label') entry.label = input.value.trim();
+    else entry.itemIds = parseCsvNumbers(input.value);
   });
+  model.ncDefinitions = Array.from(ncMap.entries())
+    .sort((a,b)=>a[0]-b[0])
+    .map(([idx, entry])=>({
+      label: currentSafeLabel(entry.label, `Não conformidade ${idx + 1}`),
+      itemIds: uniqueSortedNumbers(entry.itemIds)
+    }));
+}
+function currentSafeLabel(value, fallback){
+  const text = String(value || '').trim();
+  return text || String(fallback || '').trim();
 }
 function addConfigArea(){
+  syncConfigDraftFromDom();
   const model = ensureConfigDraftModel(configEditorModelKey);
   const nextLabel = `Nova área ${model.areaDefinitions.length + 1}`;
   model.areaDefinitions.push({ key: slugifyConfigKey(nextLabel), label: nextLabel, itemIds: [] });
   renderConfigModal();
 }
 function addConfigNc(){
+  syncConfigDraftFromDom();
   const model = ensureConfigDraftModel(configEditorModelKey);
   model.ncDefinitions.push({ label:`Nova não conformidade ${model.ncDefinitions.length + 1}`, itemIds: [] });
   renderConfigModal();
 }
 function createNewConfigModel(duplicateCurrent){
+  syncConfigDraftFromDom();
   const source = ensureConfigDraftModel(configEditorModelKey);
   const label = prompt('Nome do novo modelo de avaliação:');
   if (!label) return;
@@ -3086,6 +3127,7 @@ function createNewConfigModel(duplicateCurrent){
   renderConfigModal();
 }
 function addConfiguredItem(){
+  syncConfigDraftFromDom();
   const model = ensureConfigDraftModel(configEditorModelKey);
   const templates = configDraft.templates[configEditorModelKey] = clone(configDraft.templates[configEditorModelKey] || buildItemsFromModel(configEditorModelKey));
   const description = document.getElementById('newConfigItemDescription').value.trim();
@@ -3119,6 +3161,7 @@ function addConfiguredItem(){
   showToast('Item configurado adicionado ao modelo.');
 }
 function deleteConfigModel(){
+  syncConfigDraftFromDom();
   if (!configDraft || !configDraft.models[configEditorModelKey]) return;
   const modelKeys = Object.keys(configDraft.models || {});
   if (modelKeys.length <= 1) {

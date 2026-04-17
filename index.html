@@ -273,8 +273,8 @@
     <div class="manage-panel" style="max-width:1180px;">
       <div class="manage-header">
         <div>
-          <div id="streetCountsTitle" class="manage-title">Avaliar</div>
-          <div id="streetCountsHelp" class="manage-help">Digite livremente as quantidades por rua. O app soma automaticamente os totais e preenche <strong>Áreas avaliadas</strong> dos itens vinculados. Também é possível registrar fotos por rua com não conformidades e quantidade de áreas não conformes.</div>
+          <div class="manage-title">Paletes, Prateleiras e Relatório Fotográfico por Rua</div>
+          <div class="manage-help">Digite livremente as quantidades por rua. O app soma automaticamente os totais e preenche <strong>Áreas avaliadas</strong> dos itens vinculados. Também é possível registrar fotos por rua com não conformidades e quantidade de áreas não conformes.</div>
         </div>
         <button id="closeStreetCountsBtn" class="btn secondary" type="button">Fechar</button>
       </div>
@@ -312,16 +312,6 @@ const MODEL_CONFIGS = {
     label:'Nova Era — Secos',
     reportLabel:'Formulário de Validação de Pré-Inventário',
     usesStreetCounts:true,
-    countFields:[
-      { key:'paletesMix', label:'PLT MIX' },
-      { key:'paletesFull', label:'PLT FULL' },
-      { key:'par', label:'PAR' },
-      { key:'prateleiras', label:'PRATELEIRAS' },
-      { key:'gancheiras', label:'GANCHEIRAS' },
-      { key:'pontas', label:'PONTAS' },
-      { key:'caixarias', label:'CAIXARIA' },
-      { key:'vitrine', label:'VITRINE' }
-    ],
     autoAreaMap:{
       paletesMix:[1,2,3,6],
       paletesFull:[3,4],
@@ -333,132 +323,100 @@ const MODEL_CONFIGS = {
       vitrine:[15,16]
     },
     items:[
-      { description:'Depósito/Aéreo: Nos Paletes Mix foi armazenado produtos de uma mesma categoria?', section:'deposito' },
-      { description:'Depósito/Aéreo: Foram eliminadas caixas abertas (incompletas) e/ou contendo diversos itens mesclados?', section:'deposito' },
-      { description:'Depósito/Aéreo: Foram organizados os Paletes de uma mesma categoria no seu corredor?', section:'deposito' },
-      { description:'Depósito: Para os Paletes Full foram organizados com amarração única e placas contendo identificação?', section:'deposito' },
-      { description:'Depósito: Área segregada do PAR foi organizada respeitando agrupamento por códigos?', section:'deposito' },
-      { description:'Depósito/Aéreo: Os Paletes Mix foram organizados separando por códigos?', section:'deposito' },
-      { description:'Área de Venda: Foram eliminadas caixas nas gôndolas?', section:'venda' },
-      { description:'Área de Venda: Foi organizada a caixaria da última prateleira com descrição voltada para fora?', section:'venda' },
-      { description:'Área de Venda: Mercadorias puxadas para frente facilitando visualização?', section:'venda' },
-      { description:'Área de Venda: Produtos agrupados por códigos nas prateleiras?', section:'venda' },
-      { description:'Área de Venda: Foi deixado 1 cm de separação entre grupos?', section:'venda' },
-      { description:'Área de Venda: Produtos organizados em uma única forma (não misturar posições)?', section:'venda' },
-      { description:'Área de Venda: Pontas de gôndola organizadas sem unidades soltas e sem fundo falso?', section:'venda' },
-      { description:'Área de Venda: Produtos em peg board reduzidos e empurrados para trás?', section:'venda' },
-      { description:'Área de Venda PAR: Garrafas de bebidas em suas embalagens corretas.', section:'venda' },
-      { description:'Área de Venda PAR: Produtos em vitrines organizados corretamente.', section:'venda' }
-    ]
+  "Depósito/Aéreo: Nos Paletes Mix foi armazenado produtos de uma mesma categoria?",
+  "Depósito/Aéreo: Foram eliminadas caixas abertas (incompletas) e/ou contendo diversos itens mesclados?",
+  "Depósito/Aéreo: Foram organizados os Paletes de uma mesma categoria no seu corredor?",
+  "Depósito: Para os Paletes Full foram organizados com amarração única e placas contendo identificação?",
+  "Depósito: Área segregada do PAR foi organizada respeitando agrupamento por códigos?",
+  "Depósito/Aéreo: Os Paletes Mix foram organizados separando por códigos?",
+  "Área de Venda: Foram eliminadas caixas nas gôndolas?",
+  "Área de Venda: Foi organizada a caixaria da última prateleira com descrição voltada para fora?",
+  "Área de Venda: Mercadorias puxadas para frente facilitando visualização?",
+  "Área de Venda: Produtos agrupados por códigos nas prateleiras?",
+  "Área de Venda: Foi deixado 1 cm de separação entre grupos?",
+  "Área de Venda: Produtos organizados em uma única forma (não misturar posições)?",
+  "Área de Venda: Pontas de gôndola organizadas sem unidades soltas e sem fundo falso?",
+  "Área de Venda: Produtos em peg board reduzidos e empurrados para trás?",
+  "Área de Venda PAR: Garrafas de bebidas em suas embalagens corretas.",
+  "Área de Venda PAR: Produtos em vitrines organizados corretamente."
+]
   },
   patio_gourmet_secos: {
     key:'patio_gourmet_secos',
     label:'Pátio Gourmet — Secos',
     reportLabel:'Formulário de Validação de Pré-Inventário - Pátio Gourmet Secos',
-    usesStreetCounts:true,
-    countFields:[
-      { key:'paletesMix', label:'PALETES / RACKS' },
-      { key:'paletesFull', label:'PALETES FULL' },
-      { key:'par', label:'PAR' },
-      { key:'prateleiras', label:'PRATELEIRAS' },
-      { key:'gancheiras', label:'GANCHEIRAS' },
-      { key:'vitrine', label:'VITRINES' },
-      { key:'caixarias', label:'CESTAS' }
-    ],
-    autoAreaMap:{
-      paletesMix:[1,2,3,4,5],
-      paletesFull:[6],
-      par:[7],
-      prateleiras:[8,9,10],
-      gancheiras:[11],
-      vitrine:[12,13],
-      caixarias:[14]
-    },
+    usesStreetCounts:false,
+    autoAreaMap:{},
     items:[
-      { description:'Produtos com necessidade de agrupamento por código.', section:'deposito' },
-      { description:'Não existem espaços entre os itens alocados em um mesmo porta palete.', section:'deposito' },
-      { description:'Caixas abertas e incompletas de um mesmo produto.', section:'deposito' },
-      { description:'Em uma mesma área foram armazenados produtos de duas ou mais categorias.', section:'deposito' },
-      { description:'Não foram organizados os produtos destacando um produto e fixando-o à caixa.', section:'deposito' },
-      { description:'Paletes Full sem placa contendo código consigno do produto.', section:'deposito' },
-      { description:'PAR com necessidade de organização por agrupamento de código.', section:'deposito' },
-      { description:'Necessidade de reduzir fileiras de empilhamento.', section:'venda' },
-      { description:'Necessário agrupamento por código.', section:'venda' },
-      { description:'Necessário espaço entre os itens.', section:'venda' },
-      { description:'Necessário organizar gancheiras.', section:'venda' },
-      { description:'Necessário organizar produtos armazenados nas vitrines.', section:'venda' },
-      { description:'Necessário organizar / identificar garrafas e produtos de vitrines.', section:'venda' },
-      { description:'Imprimir códigos dos produtos em cestas.', section:'venda' }
-    ]
+  "Depósito: Em uma mesma área foi armazenado produtos de uma mesma categoria?",
+  "Deposito: Eliminar todas as caixas com diversos itens mesclados, (permitido apenas uma caixa)",
+  "Depósito: Existem espaços entre os itens alocados em um mesmo porta palete? Estão sendo empilhadas as caixas de um mesmo produto respeitando o agrupamento por códigos?",
+  "Depósito: Para os Paletes Full foram organizados com amarração única e colocadas placas contendo código interno do produto, quantidade de embalagem e amarração?",
+  "Depósito: Área segregada do PAR foi organizada, respeitando a organização por agrupamento de códigos?",
+  "Os produtos armazenados no depósito estão sendo agrupados por código?",
+  "Depósito: Deixar no máximo uma caixa por produto com quantidade incompleta.",
+  "Cestas: Verificar se foram impressas etiquetas de cada produto.",
+  "Área de Venda: Foi reduzido o abastecimento dos produtos em D-5?",
+  "Área de Venda: Foi reduzida uma fileira do empilhamento dos produtos em sua exposição na prateleira, com o objetivo de facilitar a visão da contagem do produto?",
+  "Área de Venda: Todos os produtos estão agrupados por códigos?",
+  "Área de Venda: Foi deixado 2 cm de separação entre os grupos de produtos na exposição nas prateleiras?",
+  "Área de Venda: Foram empurrados para trás os produtos expostos em pag board (gancheiras)?",
+  "Área de Venda PAR: Realizar organização de produtos armazenados nas vitrines (para Adega colocar código interno e agrupar por código, para diminuir risco de danos à mercadoria).",
+  "Área de Venda PAR: Colocar todas as garrafas de bebidas em suas devidas embalagens.",
+  "Depósito: Foram organizados os produtos destacando um produto e fixando-o à caixa, para um determinado agrupamento de códigos?",
+  "Depósito: Foram organizados os produtos de uma mesma categoria em seu corredor?",
+  "Depósito/Aéreo: Espaços e identificação dos agrupamentos estão adequados para a contagem?"
+]
   },
   nova_era_pereciveis: {
     key:'nova_era_pereciveis',
     label:'Nova Era — Perecíveis',
     reportLabel:'Formulário de Validação de Pré-Inventário - Nova Era Perecíveis',
-    usesStreetCounts:true,
-    countFields:[
-      { key:'paletesMix', label:'PALETES / RACKS' },
-      { key:'paletesFull', label:'PALETES FULL' },
-      { key:'par', label:'PALETES PESÁVEIS' },
-      { key:'prateleiras', label:'SETORES' },
-      { key:'gancheiras', label:'PRATELEIRAS / ILHAS' },
-      { key:'caixarias', label:'BALANÇAS' }
-    ],
-    autoAreaMap:{
-      paletesMix:[1,2,3,4],
-      paletesFull:[5],
-      par:[6],
-      prateleiras:[7],
-      gancheiras:[8,9,10],
-      caixarias:[11]
-    },
+    usesStreetCounts:false,
+    autoAreaMap:{},
     items:[
-      { description:'Necessidade de agrupamento por código.', section:'deposito' },
-      { description:'Diversas caixas abertas, incompletas e com diversos itens.', section:'deposito' },
-      { description:'Deixar espaço entre os paletes no chão.', section:'deposito' },
-      { description:'Agrupar por categoria.', section:'deposito' },
-      { description:'Paletes Full sem placa contendo código consigno do produto.', section:'deposito' },
-      { description:'Itens sem identificação de código consigno.', section:'deposito' },
-      { description:'Listagem não impressa.', section:'deposito' },
-      { description:'Trazer produtos para a frente da prateleira / reduzir fileiras de empilhamento.', section:'venda' },
-      { description:'Agrupar itens por código.', section:'venda' },
-      { description:'Deixar espaço entre os itens similares.', section:'venda' },
-      { description:'Balanças insuficientes.', section:'venda' }
-    ]
+  "Foi impressa a lista de códigos internos para contagem dos produtos da Peixaria, Frios & Laticínios, Açougue e FLV?",
+  "Depósito / Área de Venda: Colocar código interno em todos os produtos que deverão ser pesados.",
+  "Depósito/Aéreo: Para o aéreo Palete Full foram organizados com amarração única e colocadas placas contendo código interno do produto, quantidade de embalagem e amarração?",
+  "Depósito/Aéreo: Os paletes com itens pesáveis foram organizados separando por códigos e identificados com placas contendo a descrição de cada código de produto que há no palete?",
+  "Depósito/Aéreo: Foi realizado o agrupamento por categoria?",
+  "Os produtos armazenados nas câmaras estão sendo agrupados por código?",
+  "Depósito: Organização de itens em paletes no chão deve existir espaço adequado para realização da contagem.",
+  "Depósito: Foram eliminadas caixas abertas (incompletas) e/ou contendo diversos itens mesclados.",
+  "Área de Vendas: Separadas balança e caçapas para pesagem de itens?",
+  "Área de Venda: Organizar produtos em ilhas do FLV não deixando produtos similares próximos?",
+  "Área de Venda: Foi deixado 1 cm de separação entre os grupos de produtos na exposição nas prateleiras?",
+  "Área de Venda: Todos os produtos estão agrupados por códigos nas prateleiras e ilhas frias?",
+  "Área de Venda: As mercadorias foram empurradas para trás das prateleiras e reduzido uma fileira do empilhamento?",
+  "Área de Venda: Foi reduzido o abastecimento dos produtos em D-1?",
+  "Câmaras / Depósito: Fluxo de movimentação e identificação dos agrupamentos está adequado para a contagem?",
+  "Área de Venda / FLV: Organização geral do setor está adequada para o inventário?"
+]
   },
   patio_gourmet_pereciveis: {
     key:'patio_gourmet_pereciveis',
     label:'Pátio Gourmet — Perecíveis',
     reportLabel:'Formulário de Validação de Pré-Inventário - Pátio Gourmet Perecíveis',
-    usesStreetCounts:true,
-    countFields:[
-      { key:'paletesMix', label:'PALETES / RACKS' },
-      { key:'par', label:'ÁREAS PESÁVEIS' },
-      { key:'gancheiras', label:'PRATELEIRAS / ILHAS' },
-      { key:'caixarias', label:'BALANÇAS' },
-      { key:'prateleiras', label:'SETORES' }
-    ],
-    autoAreaMap:{
-      paletesMix:[1,2,3,4,5,6],
-      par:[7],
-      gancheiras:[8,9,10],
-      caixarias:[11],
-      prateleiras:[12]
-    },
+    usesStreetCounts:false,
+    autoAreaMap:{},
     items:[
-      { description:'Necessidade de agrupamento por código.', section:'deposito' },
-      { description:'Diversas caixas abertas, incompletas e com diversos itens.', section:'deposito' },
-      { description:'Deixar espaço entre os paletes no chão.', section:'deposito' },
-      { description:'Agrupar por categoria.', section:'deposito' },
-      { description:'Necessidade de agrupamento por código em câmaras / áreas frias.', section:'deposito' },
-      { description:'Itens pesáveis junto aos itens em unidade.', section:'deposito' },
-      { description:'Produtos pesáveis sem identificação de código.', section:'deposito' },
-      { description:'Trazer produtos para a frente da prateleira.', section:'venda' },
-      { description:'Agrupar itens por código.', section:'venda' },
-      { description:'Deixar espaço entre os itens similares.', section:'venda' },
-      { description:'Balanças insuficientes.', section:'venda' },
-      { description:'Setores com necessidade de organização para a contagem.', section:'venda' }
-    ]
+  "Foi impressa a lista de códigos internos para contagem dos produtos da Peixaria, Frios & Laticínios, Açougue e FLV?",
+  "Depósito / Área de Venda: Colocar código interno em todos os produtos que deverão ser pesados.",
+  "Depósito: Separar itens pesados de itens que deverão ser contados por unidades.",
+  "Deposito: Os Paletes Mix foram organizados os produtos separando por agrupamento de códigos?",
+  "Deposito: Nos Paletes Mix e Prateleiras foi armazenado produtos de uma mesma categoria?",
+  "Os produtos armazenados nas câmaras estão sendo agrupadas por código?",
+  "Deposito: Organização de itens em paletes no chão: deve existir um espaçamento entre os itens diferentes.",
+  "Deposito: Foram eliminadas caixas abertas (incompletas) e/ou contendo diversos itens mesclados.",
+  "Área de Vendas: Separadas 1 balança para cada setor e caçapas para pesagem de itens?",
+  "Área de Venda: Organizar produtos em ilhas do FLV não deixando produtos similares próximos?",
+  "Área de Venda: Foi deixado 1 cm de separação entre os grupos de produtos na exposição nas prateleiras?",
+  "Área de Venda: Todos os produtos estão agrupados por códigos nas prateleiras e ilhas frias?",
+  "Área de Venda: As mercadorias foram empurradas para trás das prateleiras e reduzindo, se necessário, camadas do empilhamento?",
+  "Área de Venda: Foi reduzido o abastecimento dos produtos em D-1?",
+  "Depósito / Câmaras: Fluxo de movimentação e identificação dos agrupamentos está adequado para a contagem?",
+  "Área de Venda / FLV: Organização geral do setor está adequada para o inventário?"
+]
   }
 };
 const DEFAULT_MODEL_KEY = 'nova_era_secos';
@@ -499,23 +457,12 @@ function getAutoAreaItemIds(modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY)
 function isStreetCountEnabled(modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY) {
   return !!getModelConfig(modelKey).usesStreetCounts;
 }
-function getCountFieldsForModel(modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY) {
-  const fields = getModelConfig(modelKey).countFields;
-  return Array.isArray(fields) && fields.length ? fields : [
-    { key:'paletesFull', label:'Paletes Full' },
-    { key:'paletesMix', label:'Paletes Mix' },
-    { key:'caixarias', label:'Caixarias' },
-    { key:'prateleiras', label:'Prateleiras' }
-  ];
-}
 function buildItemsFromModel(modelKey = DEFAULT_MODEL_KEY) {
   const config = getModelConfig(modelKey);
-  return (config.items || []).map((entry, index) => ({
+  return (config.items || []).map((description, index) => ({
     id: index + 1,
-    description: typeof entry === 'string' ? entry : String(entry?.description || `Item ${index + 1}`),
-    section: typeof entry === 'string'
-      ? (index < Math.ceil((config.items || []).length / 2) ? 'deposito' : 'venda')
-      : (entry?.section === 'venda' ? 'venda' : 'deposito'),
+    description,
+    section: index < Math.ceil((config.items || []).length / 2) ? 'deposito' : 'venda',
     areaAvaliada:'',
     naoConformes:'',
     observacao:'',
@@ -527,7 +474,8 @@ function makeDefaultItems(modelKey = DEFAULT_MODEL_KEY) {
 }
 function makeDefaultStreetCounts() {
   return [
-    { id: `${Date.now()}-0`, rua:'Rua 1', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', gancheiras:'', par:'', pontas:'', vitrine:'', photos:[] }
+    { id: `${Date.now()}-0`, rua:'Depósito', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', gancheiras:'', par:'', pontas:'', vitrine:'', photos:[] },
+    { id: `${Date.now()}-1`, rua:'Área de Venda', paletesFull:'', paletesMix:'', caixarias:'', prateleiras:'', gancheiras:'', par:'', pontas:'', vitrine:'', photos:[] }
   ];
 }
 function normalizeStreetCount(row, index) {
@@ -603,11 +551,8 @@ function applyAutomaticNonConformities(targetState = state) {
       if (!qty) return;
       const selected = Array.isArray(photo?.nonConformities) ? [...new Set(photo.nonConformities)] : [];
       selected.forEach(option => {
-        const itemIds = optionMap[option];
-        const normalizedIds = Array.isArray(itemIds) ? itemIds : (itemIds ? [itemIds] : []);
-        normalizedIds.forEach(itemId => {
-          if (itemId) totalsByItem[itemId] = (totalsByItem[itemId] || 0) + qty;
-        });
+        const itemId = optionMap[option];
+        if (itemId) totalsByItem[itemId] = (totalsByItem[itemId] || 0) + qty;
       });
     });
   });
@@ -837,108 +782,26 @@ const PHOTO_NONCONFORMITY_OPTIONS_BY_MODEL = {
     'Peg board com necessidade de organização',
     'PAR Garrafas de bebidas em embalagens incorretas',
     'PAR Vitrines com necessidade de organização'
-  ],
-  patio_gourmet_secos: [
-    'Produtos com necessidade de agrupamento por código',
-    'Não existem espaços entre os itens alocados em um mesmo porta palete',
-    'Caixas abertas e incompletas de um mesmo',
-    'Em uma mesma área foi armazenado produtos de duas ou mais categorias',
-    'Não foram organizados os produtos destacando um produto e fixando-o à caixa',
-    'Paletes Full sem placa contendo código consinco do produto',
-    'PRA com necessidade de organização por agrupamento de código',
-    'Necessidade de reduzir fileiras de empilhamento',
-    'Necessário agrupamento por código',
-    'Necessário espaço entre os itens',
-    'Necessário organizar gancheiras',
-    'Necessário organizar produtos armazenados nas vitrines',
-    'Imprimir códigos dos produtos em cestas'
-  ],
-  nova_era_pereciveis: [
-    'Necessidade de agrupamento por código',
-    'Diversas caixas abertas, incompletas e com diversos itens',
-    'Deixar espaço entre os paletes no chão',
-    'Agrupar por categoria',
-    'Paletes Full sem placa contendo código consinco do produto',
-    'Itens sem identificação de código consinco',
-    'Listagem não impressa',
-    'trazer produtos para a frente da prateleira',
-    'Reduzir fileiras de empilhamento',
-    'Agrupar itens por código',
-    'Deixar espaço entre os itens similares',
-    'Balanças insuficientes'
-  ],
-  patio_gourmet_pereciveis: [
-    'Necessidade de agrupamento por código',
-    'Diversas caixas abertas, incompletas e com diversos itens',
-    'Deixar espaço entre os paletes no chão',
-    'Agrupar por categoria',
-    'Itens pesáveis junto aos itens em unidade',
-    'Produtos pesáveis sem identificação de código',
-    'trazer produtos para a frente da prateleira',
-    'Agrupar itens por código',
-    'Deixar espaço entre os itens similares',
-    'Balanças insuficientes'
   ]
 };
 const PHOTO_NONCONFORMITY_ITEM_MAP = {
   nova_era_secos: {
-    'Paletes Mix com produtos de mais de uma categoria': [1],
-    'Caixas abertas (incompletas) e/ou contendo diversos itens mesclados': [2],
-    'Paletes de uma mesma categoria em vários corredores?': [3],
-    'Paletes Full sem placa de identificação': [4],
-    'PAR não foi organizada respeitando agrupamento por códigos': [5],
-    'Paletes Mix não foram organizados separando por códigos': [6],
-    'Caixas nas gôndolas atrás dos produtos expostos': [7],
-    'Caixarias desorganizadas': [8],
-    'Mercadorias não foram puxadas para frente': [9],
-    'Produtos não agrupados por código': [10],
-    'Produtos sem espaço entre os itens': [11],
-    'Produtos organizados com posições diferentes (deitado/de pé)': [12],
-    'Pontas de Gôndola com necessidade de organização': [13],
-    'Peg board com necessidade de organização': [14],
-    'PAR Garrafas de bebidas em embalagens incorretas': [15],
-    'PAR Vitrines com necessidade de organização': [16]
-  },
-  patio_gourmet_secos: {
-    'Produtos com necessidade de agrupamento por código': [1],
-    'Não existem espaços entre os itens alocados em um mesmo porta palete': [2],
-    'Caixas abertas e incompletas de um mesmo': [3],
-    'Em uma mesma área foi armazenado produtos de duas ou mais categorias': [4],
-    'Não foram organizados os produtos destacando um produto e fixando-o à caixa': [5],
-    'Paletes Full sem placa contendo código consinco do produto': [6],
-    'PRA com necessidade de organização por agrupamento de código': [7],
-    'Necessidade de reduzir fileiras de empilhamento': [8],
-    'Necessário agrupamento por código': [9],
-    'Necessário espaço entre os itens': [10],
-    'Necessário organizar gancheiras': [11],
-    'Necessário organizar produtos armazenados nas vitrines': [12],
-    'Imprimir códigos dos produtos em cestas': [14]
-  },
-  nova_era_pereciveis: {
-    'Necessidade de agrupamento por código': [1],
-    'Diversas caixas abertas, incompletas e com diversos itens': [2],
-    'Deixar espaço entre os paletes no chão': [3],
-    'Agrupar por categoria': [4],
-    'Paletes Full sem placa contendo código consinco do produto': [5],
-    'Itens sem identificação de código consinco': [6],
-    'Listagem não impressa': [7],
-    'trazer produtos para a frente da prateleira': [8],
-    'Reduzir fileiras de empilhamento': [8],
-    'Agrupar itens por código': [9],
-    'Deixar espaço entre os itens similares': [10],
-    'Balanças insuficientes': [11]
-  },
-  patio_gourmet_pereciveis: {
-    'Necessidade de agrupamento por código': [1,5],
-    'Diversas caixas abertas, incompletas e com diversos itens': [2],
-    'Deixar espaço entre os paletes no chão': [3],
-    'Agrupar por categoria': [4],
-    'Itens pesáveis junto aos itens em unidade': [6],
-    'Produtos pesáveis sem identificação de código': [7],
-    'trazer produtos para a frente da prateleira': [8],
-    'Agrupar itens por código': [9],
-    'Deixar espaço entre os itens similares': [10],
-    'Balanças insuficientes': [11]
+    'Paletes Mix com produtos de mais de uma categoria': 1,
+    'Caixas abertas (incompletas) e/ou contendo diversos itens mesclados': 2,
+    'Paletes de uma mesma categoria em vários corredores?': 3,
+    'Paletes Full sem placa de identificação': 4,
+    'PAR não foi organizada respeitando agrupamento por códigos': 5,
+    'Paletes Mix não foram organizados separando por códigos': 6,
+    'Caixas nas gôndolas atrás dos produtos expostos': 7,
+    'Caixarias desorganizadas': 8,
+    'Mercadorias não foram puxadas para frente': 9,
+    'Produtos não agrupados por código': 10,
+    'Produtos sem espaço entre os itens': 11,
+    'Produtos organizados com posições diferentes (deitado/de pé)': 12,
+    'Pontas de Gôndola com necessidade de organização': 13,
+    'Peg board com necessidade de organização': 14,
+    'PAR Garrafas de bebidas em embalagens incorretas': 15,
+    'PAR Vitrines com necessidade de organização': 16
   }
 };
 function getPhotoOptionsForModel(modelKey) {
@@ -1521,15 +1384,19 @@ function renderStreetCounts() {
             `;
           }).join('')}
         </div>` : '<div class="manage-empty">Nenhuma foto registrada nesta área.</div>';
-      const countFieldsHtml = getCountFieldsForModel(state.form.modelo).map(field => `
-            <div class="field"><label>${escapeHtml(field.label)}</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="${escapeHtml(field.key)}" value="${row[field.key] ?? ''}" /></div>
-          `).join('');
       wrap.innerHTML = `
         <div>
-          <div class="count-stage-title">1. Informe as quantidades avaliadas</div>
+          <div class="count-stage-title">1. Escolha a área e informe as quantidades avaliadas</div>
           <div class="count-fields-grid">
-            <div class="field"><label>Rua</label><input type="text" data-count-index="${index}" data-count-field="rua" value="${escapeHtml(row.rua || `Rua ${index + 1}`)}" placeholder="Ex.: Rua Biscoitos" /></div>
-            ${countFieldsHtml}
+            <div class="field"><label>Área Avaliada</label><select data-count-index="${index}" data-count-field="rua"><option value="Depósito" ${String(row.rua||'')==='Depósito'?'selected':''}>Depósito</option><option value="Área de Venda" ${String(row.rua||'')==='Área de Venda'?'selected':''}>Área de Venda</option></select></div>
+            <div class="field"><label>Paletes Full</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="paletesFull" value="${row.paletesFull ?? ''}" /></div>
+            <div class="field"><label>Paletes Mix</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="paletesMix" value="${row.paletesMix ?? ''}" /></div>
+            <div class="field"><label>Caixarias</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="caixarias" value="${row.caixarias ?? ''}" /></div>
+            <div class="field"><label>Prateleiras</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="prateleiras" value="${row.prateleiras ?? ''}" /></div>
+            <div class="field"><label>Gancheiras</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="gancheiras" value="${row.gancheiras ?? ''}" /></div>
+            <div class="field"><label>PAR</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="par" value="${row.par ?? ''}" /></div>
+            <div class="field"><label>Pontas</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="pontas" value="${row.pontas ?? ''}" /></div>
+            <div class="field"><label>Vitrine</label><input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-field="vitrine" value="${row.vitrine ?? ''}" /></div>
           </div>
         </div>
         <div>
@@ -1599,6 +1466,8 @@ function renderStreetCounts() {
         const draft = getDraftPhotoForRow(row);
         if (!draft.setor) draft.setor = value;
         if (Array.isArray(row.photos)) row.photos = row.photos.map(photo => ({ ...photo, setor: photo.setor || value }));
+        renderStreetCounts();
+        return;
       }
       updateStreetCountsSummary();
     });
@@ -1691,20 +1560,20 @@ function updateStreetCountsSummary() {
   const summary = document.getElementById('streetCountsSummary');
   if (!summary) return;
   const totals = getStreetCountTotals(Array.isArray(manageStreetCounts) ? manageStreetCounts : state.streetCounts);
-  const tiles = getCountFieldsForModel(state.form.modelo).map(field => `
-    <div class="count-summary-tile"><div class="count-summary-label">${escapeHtml(field.label)}</div><div class="count-summary-value">${totals[field.key] || 0}</div></div>
-  `).join('');
-  summary.innerHTML = `${tiles}
+  summary.innerHTML = `
+    <div class="count-summary-tile"><div class="count-summary-label">Paletes Full</div><div class="count-summary-value">${totals.paletesFull}</div></div>
+    <div class="count-summary-tile"><div class="count-summary-label">Paletes Mix</div><div class="count-summary-value">${totals.paletesMix}</div></div>
+    <div class="count-summary-tile"><div class="count-summary-label">Caixarias</div><div class="count-summary-value">${totals.caixarias}</div></div>
+    <div class="count-summary-tile"><div class="count-summary-label">Prateleiras</div><div class="count-summary-value">${totals.prateleiras}</div></div>
+    <div class="count-summary-tile"><div class="count-summary-label">Gancheiras</div><div class="count-summary-value">${totals.gancheiras}</div></div>
+    <div class="count-summary-tile"><div class="count-summary-label">PAR</div><div class="count-summary-value">${totals.par}</div></div>
+    <div class="count-summary-tile"><div class="count-summary-label">Pontas</div><div class="count-summary-value">${totals.pontas}</div></div>
+    <div class="count-summary-tile"><div class="count-summary-label">Vitrine</div><div class="count-summary-value">${totals.vitrine}</div></div>
     <div class="count-summary-tile"><div class="count-summary-label">Fotos registradas</div><div class="count-summary-value">${totals.photos}</div></div>
   `;
 }
 function openStreetCountsModal() {
   manageStreetCounts = clone(state.streetCounts || makeDefaultStreetCounts());
-  const modelLabel = getModelConfig(state.form.modelo).label;
-  const titleEl = document.getElementById('streetCountsTitle');
-  const helpEl = document.getElementById('streetCountsHelp');
-  if (titleEl) titleEl.textContent = `Avaliar — ${modelLabel}`;
-  if (helpEl) helpEl.innerHTML = 'Digite livremente as quantidades por rua. O app soma automaticamente os totais e preenche <strong>Áreas avaliadas</strong> e <strong>não conformidades</strong> conforme as regras do modelo selecionado.';
   renderStreetCounts();
   const modal = document.getElementById('streetCountsModal');
   modal.classList.add('open');
@@ -1718,7 +1587,7 @@ function closeStreetCountsModal() {
 }
 function addStreetCountRow() {
   if (!Array.isArray(manageStreetCounts)) manageStreetCounts = clone(state.streetCounts || makeDefaultStreetCounts());
-  manageStreetCounts.push(normalizeStreetCount({ rua: `Rua ${manageStreetCounts.length + 1}` }, manageStreetCounts.length));
+  manageStreetCounts.push(normalizeStreetCount({ rua: manageStreetCounts.length % 2 === 0 ? 'Depósito' : 'Área de Venda' }, manageStreetCounts.length));
   renderStreetCounts();
 }
 function saveStreetCounts() {
@@ -2241,5 +2110,899 @@ function init() {
 }
 init();
 </script>
+
+<script>
+/* === Configuração personalizável de modelos, áreas avaliadas e não conformidades === */
+const CONFIG_MODEL_STORAGE_NOTE = 'As configurações ficam salvas e sincronizadas junto com o rascunho atual.';
+
+function slugifyConfigKey(value){
+  return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
+    .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,48) || `modelo_${Date.now()}`;
+}
+function uniqueSortedNumbers(values){
+  return Array.from(new Set((Array.isArray(values)?values:[]).map(v=>Number(v)).filter(v=>Number.isFinite(v)&&v>0))).sort((a,b)=>a-b);
+}
+function parseCsvNumbers(text){
+  return uniqueSortedNumbers(String(text||'').split(',').map(v=>Number(String(v).trim())));
+}
+function buildInitialConfigurableModels(){
+  const initial = {
+    nova_era_secos: {
+      key:'nova_era_secos',
+      label:'Nova Era — Secos',
+      reportLabel:'Formulário de Validação de Pré-Inventário',
+      usesStreetCounts:true,
+      items:(MODEL_CONFIGS.nova_era_secos.items||[]).map((desc, idx)=>({ description:desc, section: idx < 6 ? 'deposito' : 'venda'})),
+      areaDefinitions:[
+        { key:'paletesMix', label:'PLT MIX', itemIds:[1,2,3,6] },
+        { key:'paletesFull', label:'PLT FULL', itemIds:[3,4] },
+        { key:'par', label:'PAR', itemIds:[5] },
+        { key:'prateleiras', label:'PRATELEIRAS', itemIds:[7,9,10,11,12] },
+        { key:'caixarias', label:'CAIXARIA', itemIds:[8] },
+        { key:'pontas', label:'PONTAS', itemIds:[13] },
+        { key:'gancheiras', label:'GANCHEIRAS', itemIds:[14] },
+        { key:'vitrine', label:'VITRINE', itemIds:[15,16] }
+      ],
+      ncDefinitions:[
+        { label:'Paletes Mix com produtos de mais de uma categoria', itemIds:[1] },
+        { label:'Caixas abertas (incompletas) e/ou contendo diversos itens mesclados', itemIds:[2] },
+        { label:'Paletes de uma mesma categoria em vários corredores?', itemIds:[3] },
+        { label:'Paletes Full sem placa de identificação', itemIds:[4] },
+        { label:'PAR não foi organizada respeitando agrupamento por códigos', itemIds:[5] },
+        { label:'Paletes Mix não foram organizados separando por códigos', itemIds:[6] },
+        { label:'Caixas nas gôndolas atrás dos produtos expostos', itemIds:[7] },
+        { label:'Caixarias desorganizadas', itemIds:[8] },
+        { label:'Mercadorias não foram puxadas para frente', itemIds:[9] },
+        { label:'Produtos não agrupados por código', itemIds:[10] },
+        { label:'Produtos sem espaço entre os itens', itemIds:[11] },
+        { label:'Produtos organizados com posições diferentes (deitado/de pé)', itemIds:[12] },
+        { label:'Pontas de Gôndola com necessidade de organização', itemIds:[13] },
+        { label:'Peg board com necessidade de organização', itemIds:[14] },
+        { label:'PAR Garrafas de bebidas em embalagens incorretas', itemIds:[15] },
+        { label:'PAR Vitrines com necessidade de organização', itemIds:[16] }
+      ]
+    },
+    patio_gourmet_secos: {
+      key:'patio_gourmet_secos',
+      label:'Pátio Gourmet — Secos',
+      reportLabel:'Formulário de Validação de Pré-Inventário - Pátio Gourmet Secos',
+      usesStreetCounts:true,
+      items:(MODEL_CONFIGS.patio_gourmet_secos.items||[]).map((desc, idx)=>({ description:desc, section: idx < 8 ? 'deposito' : 'venda'})),
+      areaDefinitions:[
+        { key:'paletesRacks', label:'PALETES/RACKS', itemIds:[1,2,3,4,5] },
+        { key:'paletesFull', label:'PALETES FULL', itemIds:[6] },
+        { key:'par', label:'PAR', itemIds:[7] },
+        { key:'prateleiras', label:'PRATELEIRAS', itemIds:[8,9,10] },
+        { key:'gancheiras', label:'GANCHEIRAS', itemIds:[11] },
+        { key:'vitrines', label:'VITRINES', itemIds:[12,13] },
+        { key:'cestas', label:'CESTAS', itemIds:[14] }
+      ],
+      ncDefinitions:[
+        { label:'Produtos com necessidade de agrupamento por código', itemIds:[1] },
+        { label:'Não existem espaços entre os itens alocados em um mesmo porta palete', itemIds:[2] },
+        { label:'Caixas abertas e incompletas de um mesmo', itemIds:[3] },
+        { label:'Em uma mesma área foi armazenado produtos de duas ou mais categorias', itemIds:[4] },
+        { label:'Não foram organizados os produtos destacando um produto e fixando-o à caixa', itemIds:[5] },
+        { label:'Paletes Full sem placa contendo código consinco do produto', itemIds:[6] },
+        { label:'PRA com necessidade de organização por agrupamento de código', itemIds:[7] },
+        { label:'Necessidade de reduzir fileiras de empilhamento', itemIds:[8] },
+        { label:'Necessário agrupamento por código', itemIds:[9] },
+        { label:'Necessário espaço entre os itens', itemIds:[10] },
+        { label:'Necessário organizar gancheiras', itemIds:[11] },
+        { label:'Necessário organizar produtos armazenados nas vitrines', itemIds:[12] },
+        { label:'Imprimir códigos dos produtos em cestas', itemIds:[13] }
+      ]
+    },
+    nova_era_pereciveis: {
+      key:'nova_era_pereciveis',
+      label:'Nova Era — Perecíveis',
+      reportLabel:'Formulário de Validação de Pré-Inventário - Nova Era Perecíveis',
+      usesStreetCounts:true,
+      items:(MODEL_CONFIGS.nova_era_pereciveis.items||[]).map((desc, idx)=>({ description:desc, section: idx < 7 ? 'deposito' : 'venda'})),
+      areaDefinitions:[
+        { key:'paletesRacks', label:'PALETES/RACKS', itemIds:[1,2,3,4] },
+        { key:'paletesFull', label:'PALETES FULL', itemIds:[5] },
+        { key:'paletesPesaveis', label:'PALETES PESÁVEIS', itemIds:[6] },
+        { key:'setores', label:'SETORES', itemIds:[7] },
+        { key:'prateleirasIlhas', label:'PRATELEIRAS/ILHAS', itemIds:[8,9,10] },
+        { key:'balancas', label:'BALANÇAS', itemIds:[11] }
+      ],
+      ncDefinitions:[
+        { label:'Necessidade de agrupamento por código', itemIds:[1] },
+        { label:'Diversas caixas abertas, incompletas e com diversos itens', itemIds:[2] },
+        { label:'Deixar espaço entre os paletes no chão', itemIds:[3] },
+        { label:'Agrupar por categoria', itemIds:[4] },
+        { label:'Paletes Full sem placa contendo código consinco do produto', itemIds:[5] },
+        { label:'Itens sem identificação de código consinco', itemIds:[6] },
+        { label:'Listagem não impressa', itemIds:[7] },
+        { label:'Trazer produtos para a frente da prateleira', itemIds:[8] },
+        { label:'Reduzir fileiras de empilhamento', itemIds:[8] },
+        { label:'Agrupar itens por código', itemIds:[9] },
+        { label:'Deixar espaço entre os itens similares', itemIds:[10] },
+        { label:'Balanças insuficientes', itemIds:[11] }
+      ]
+    },
+    patio_gourmet_pereciveis: {
+      key:'patio_gourmet_pereciveis',
+      label:'Pátio Gourmet — Perecíveis',
+      reportLabel:'Formulário de Validação de Pré-Inventário - Pátio Gourmet Perecíveis',
+      usesStreetCounts:true,
+      items:(MODEL_CONFIGS.patio_gourmet_pereciveis.items||[]).map((desc, idx)=>({ description:desc, section: idx < 7 ? 'deposito' : 'venda'})),
+      areaDefinitions:[
+        { key:'paletesRacks', label:'PALETES/RACKS', itemIds:[1,2,3,4,5,6] },
+        { key:'areasPesaveis', label:'ÁREAS PESÁVEIS', itemIds:[7] },
+        { key:'prateleirasIlhas', label:'PRATELEIRAS/ILHAS', itemIds:[8,9,10] },
+        { key:'balancas', label:'BALANÇAS', itemIds:[11] },
+        { key:'setores', label:'SETORES', itemIds:[12] }
+      ],
+      ncDefinitions:[
+        { label:'Necessidade de agrupamento por código', itemIds:[1,5] },
+        { label:'Diversas caixas abertas, incompletas e com diversos itens', itemIds:[2] },
+        { label:'Deixar espaço entre os paletes no chão', itemIds:[3] },
+        { label:'Agrupar por categoria', itemIds:[4] },
+        { label:'Itens pesáveis junto aos itens em unidade', itemIds:[6] },
+        { label:'Produtos pesáveis sem identificação de código', itemIds:[7] },
+        { label:'Trazer produtos para a frente da prateleira', itemIds:[8] },
+        { label:'Agrupar itens por código', itemIds:[9] },
+        { label:'Deixar espaço entre os itens similares', itemIds:[10] },
+        { label:'Balanças insuficientes', itemIds:[11] }
+      ]
+    }
+  };
+  return migrateConfigurableModels(initial);
+}
+function migrateConfigurableModels(raw){
+  const base = raw && typeof raw === 'object' ? raw : {};
+  const next = {};
+  Object.entries(base).forEach(([rawKey, value])=>{
+    const key = String(value?.key || rawKey || '').trim() || slugifyConfigKey(rawKey);
+    const fallback = MODEL_CONFIGS[key];
+    const itemSource = Array.isArray(value?.items) && value.items.length ? value.items : (fallback?.items || []);
+    const items = itemSource.map((entry, idx)=>{
+      if (typeof entry === 'string') return { description: entry, section: idx < Math.ceil(itemSource.length/2) ? 'deposito' : 'venda' };
+      return { description: String(entry?.description || `Item ${idx+1}`), section: entry?.section === 'venda' ? 'venda' : 'deposito' };
+    });
+    const areaDefinitions = Array.isArray(value?.areaDefinitions) ? value.areaDefinitions : Object.entries(value?.autoAreaMap || {}).map(([areaKey, itemIds])=>({
+      key: areaKey, label: areaKey, itemIds
+    }));
+    const ncDefinitions = Array.isArray(value?.ncDefinitions) ? value.ncDefinitions : [];
+    next[key] = {
+      key,
+      label: String(value?.label || fallback?.label || key),
+      reportLabel: String(value?.reportLabel || fallback?.reportLabel || 'Formulário de Avaliação'),
+      usesStreetCounts: value?.usesStreetCounts !== undefined ? !!value.usesStreetCounts : true,
+      items,
+      areaDefinitions: areaDefinitions.map((area, idx)=>({
+        key: slugifyConfigKey(area?.key || area?.label || `area_${idx+1}`),
+        label: String(area?.label || `Área ${idx+1}`),
+        itemIds: uniqueSortedNumbers(area?.itemIds)
+      })),
+      ncDefinitions: ncDefinitions.map((nc, idx)=>({
+        label: String(nc?.label || `Não conformidade ${idx+1}`),
+        itemIds: uniqueSortedNumbers(nc?.itemIds)
+      }))
+    };
+  });
+  if (!next[DEFAULT_MODEL_KEY]) {
+    const initial = buildInitialConfigurableModels();
+    next[DEFAULT_MODEL_KEY] = initial[DEFAULT_MODEL_KEY];
+  }
+  return next;
+}
+function getAllModelConfigs(){
+  return migrateConfigurableModels(state?.modelConfigs || buildInitialConfigurableModels());
+}
+function getCurrentModelConfigsSnapshot(){
+  state.modelConfigs = getAllModelConfigs();
+  return state.modelConfigs;
+}
+function getModelConfig(modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY){
+  const all = getAllModelConfigs();
+  return all[modelKey] || all[DEFAULT_MODEL_KEY];
+}
+function getAreaDefinitions(modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY){
+  return clone(getModelConfig(modelKey).areaDefinitions || []);
+}
+function getNcDefinitions(modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY){
+  return clone(getModelConfig(modelKey).ncDefinitions || []);
+}
+function getAutoAreaMap(modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY){
+  const result = {};
+  getAreaDefinitions(modelKey).forEach(area=>{ result[area.key] = uniqueSortedNumbers(area.itemIds); });
+  return result;
+}
+function getAutoAreaItemIds(modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY){
+  return Array.from(new Set(getAreaDefinitions(modelKey).flatMap(area=>uniqueSortedNumbers(area.itemIds))));
+}
+function isStreetCountEnabled(modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY){
+  return !!getModelConfig(modelKey).usesStreetCounts;
+}
+function buildItemsFromModel(modelKey = DEFAULT_MODEL_KEY){
+  const config = getModelConfig(modelKey);
+  return (config.items || []).map((entry, index) => ({
+    id: index + 1,
+    description: typeof entry === 'string' ? entry : String(entry?.description || `Item ${index+1}`),
+    section: (typeof entry === 'object' && entry?.section === 'venda') ? 'venda' : 'deposito',
+    areaAvaliada:'',
+    naoConformes:'',
+    observacao:'',
+    naoAvaliar:false
+  }));
+}
+function makeDefaultItems(modelKey = DEFAULT_MODEL_KEY){ return buildItemsFromModel(modelKey); }
+function getEmptyCountsForModel(modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY){
+  const counts = {};
+  getAreaDefinitions(modelKey).forEach(area=>{ counts[area.key] = ''; });
+  return counts;
+}
+function legacyCountMapForModel(modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY){
+  const defs = getAreaDefinitions(modelKey);
+  const result = {};
+  defs.forEach(def=>{ result[def.key] = def.key; });
+  ['paletesFull','paletesMix','caixarias','prateleiras','gancheiras','par','pontas','vitrine'].forEach(k=>{ result[k]=k; });
+  return result;
+}
+function makeDefaultStreetCounts(modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY){
+  return [
+    { id: `${Date.now()}-0`, rua:'Área 1', counts:getEmptyCountsForModel(modelKey), photos:[] }
+  ];
+}
+function normalizeStreetCount(row, index, modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY){
+  const counts = getEmptyCountsForModel(modelKey);
+  const legacyMap = legacyCountMapForModel(modelKey);
+  if (row?.counts && typeof row.counts === 'object') {
+    Object.entries(row.counts).forEach(([k,v])=>{ if (k in counts) counts[k] = String(v ?? ''); });
+  }
+  Object.keys(legacyMap).forEach(k=>{
+    if (row && row[k] !== undefined && k in counts) counts[k] = String(row[k] ?? '');
+  });
+  return {
+    id: row?.id || `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`,
+    rua: String(row?.rua || `Área ${index + 1}`).trim() || `Área ${index + 1}`,
+    counts,
+    photos: Array.isArray(row?.photos) ? row.photos.map((photo, photoIndex) => ({
+      ...makeDefaultPhoto(String(row?.rua || `Área ${index + 1}`)),
+      ...photo,
+      id: photo?.id || `photo-${Date.now()}-${index}-${photoIndex}`,
+      nonConformities: Array.isArray(photo?.nonConformities) ? photo.nonConformities.filter(Boolean) : [],
+      areasNaoConformes: String(photo?.areasNaoConformes ?? ''),
+      setor: String(photo?.setor || row?.rua || `Área ${index + 1}`),
+      observacao: String(photo?.observacao ?? ''),
+      dataUrl: String(photo?.dataUrl || '')
+    })) : []
+  };
+}
+function getStreetCountTotals(rows = state.streetCounts || [], modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY){
+  const totals = { photos:0 };
+  getAreaDefinitions(modelKey).forEach(area=>{ totals[area.key] = 0; });
+  rows.forEach(row=>{
+    const counts = row?.counts || {};
+    Object.keys(totals).forEach(key=>{
+      if (key === 'photos') return;
+      totals[key] += toNumber(counts[key]);
+    });
+    totals.photos += Array.isArray(row?.photos) ? row.photos.length : 0;
+  });
+  return totals;
+}
+function getPhotoOptionsForModel(modelKey){
+  return getNcDefinitions(modelKey).map(nc=>nc.label);
+}
+function getPhotoItemMap(modelKey){
+  const result = {};
+  getNcDefinitions(modelKey).forEach(nc=>{ result[nc.label] = uniqueSortedNumbers(nc.itemIds); });
+  return result;
+}
+function applyAutomaticAreas(targetState = state) {
+  if (!targetState || !Array.isArray(targetState.items)) return targetState;
+  if (!isStreetCountEnabled(targetState?.form?.modelo)) return targetState;
+  const totals = getStreetCountTotals(targetState.streetCounts || [], targetState?.form?.modelo);
+  const totalsByItem = {};
+  getAreaDefinitions(targetState?.form?.modelo).forEach(area => {
+    const qty = toNumber(totals[area.key]);
+    uniqueSortedNumbers(area.itemIds).forEach(itemId => {
+      totalsByItem[itemId] = (totalsByItem[itemId] || 0) + qty;
+    });
+  });
+  targetState.items.forEach(item => {
+    const itemId = Number(item.id);
+    if (!(itemId in totalsByItem)) return;
+    item.areaAvaliada = item.naoAvaliar ? '' : String(totalsByItem[itemId] || '');
+    if (toNumber(item.naoConformes) > toNumber(item.areaAvaliada)) item.naoConformes = item.areaAvaliada;
+  });
+  return targetState;
+}
+function applyAutomaticNonConformities(targetState = state) {
+  if (!targetState || !Array.isArray(targetState.items)) return targetState;
+  const optionMap = getPhotoItemMap(targetState?.form?.modelo || DEFAULT_MODEL_KEY);
+  const totalsByItem = {};
+  Object.values(optionMap).flat().forEach(itemId => { totalsByItem[itemId] = 0; });
+  (targetState.streetCounts || []).forEach(row => {
+    (Array.isArray(row.photos) ? row.photos : []).forEach(photo => {
+      const qty = toNumber(photo?.areasNaoConformes);
+      if (!qty) return;
+      const selected = Array.isArray(photo?.nonConformities) ? [...new Set(photo.nonConformities)] : [];
+      selected.forEach(option => {
+        const itemIds = uniqueSortedNumbers(optionMap[option]);
+        itemIds.forEach(itemId => { totalsByItem[itemId] = (totalsByItem[itemId] || 0) + qty; });
+      });
+    });
+  });
+  targetState.items.forEach(item => {
+    const itemId = Number(item.id);
+    if (!(itemId in totalsByItem)) return;
+    item.naoConformes = item.naoAvaliar ? '' : String(totalsByItem[itemId] || '');
+    if (toNumber(item.naoConformes) > toNumber(item.areaAvaliada)) item.naoConformes = item.areaAvaliada ? String(item.areaAvaliada) : '';
+  });
+  return targetState;
+}
+function makeStreetCountsFromTemplateRows(rows, modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY){
+  const source = Array.isArray(rows) && rows.length ? rows : makeDefaultStreetCounts(modelKey);
+  return source.map((row, index) => normalizeStreetCount({ rua: row?.rua || `Área ${index + 1}`, counts:getEmptyCountsForModel(modelKey), photos:[] }, index, modelKey));
+}
+function normalizeModelItemTemplates(templates) {
+  const next = {};
+  const all = getAllModelConfigs();
+  if (!templates || typeof templates !== 'object') return next;
+  Object.entries(templates).forEach(([modelKey, items]) => {
+    const normalizedModel = all[modelKey] ? modelKey : DEFAULT_MODEL_KEY;
+    const defaultItems = buildItemsFromModel(normalizedModel);
+    next[normalizedModel] = Array.isArray(items) && items.length
+      ? reindexItems(defaultItems.map((defaultItem, index) => normalizeItem(items[index] || defaultItem, index, normalizedModel)), normalizedModel)
+      : defaultItems;
+  });
+  return next;
+}
+function clearEvaluationValuesFromItems(items, modelKey = DEFAULT_MODEL_KEY) {
+  const all = getAllModelConfigs();
+  const normalizedModel = all[modelKey] ? modelKey : DEFAULT_MODEL_KEY;
+  const source = Array.isArray(items) && items.length ? items : buildItemsFromModel(normalizedModel);
+  return reindexItems(source.map((item, index) => ({
+    ...normalizeItem(item, index, normalizedModel),
+    areaAvaliada:'',
+    naoConformes:'',
+    observacao:'',
+    naoAvaliar:false
+  })), normalizedModel);
+}
+function buildDefaultState(storeStreetTemplates = {}, modelItemTemplates = {}, modelKey = DEFAULT_MODEL_KEY, modelConfigs = null) {
+  const configs = migrateConfigurableModels(modelConfigs || buildInitialConfigurableModels());
+  const normalizedTemplates = normalizeModelItemTemplates(modelItemTemplates || {});
+  return {
+    form: {
+      modelo:modelKey, nomeLoja:'', visita:'1° Visita', coordArko:'', setor:'', gerenteLoja:'', gerenteAcompanhou:true,
+      data:new Date().toISOString().slice(0,10), horaVisita:'', produtosIdentificados:'', impactoMercadoria:''
+    },
+    items: clone(normalizedTemplates[modelKey] || buildItemsFromModel(modelKey)),
+    streetCounts: isStreetCountEnabled(modelKey) ? makeDefaultStreetCounts(modelKey) : [],
+    storeStreetTemplates: normalizeStoreStreetTemplates(storeStreetTemplates),
+    modelItemTemplates: normalizedTemplates,
+    modelConfigs: configs
+  };
+}
+function normalizeState(candidate) {
+  const configs = migrateConfigurableModels(candidate?.modelConfigs || state?.modelConfigs || buildInitialConfigurableModels());
+  state.modelConfigs = configs;
+  const selectedModel = candidate?.form?.modelo && configs[candidate.form.modelo] ? candidate.form.modelo : DEFAULT_MODEL_KEY;
+  const defaults = buildDefaultState(candidate?.storeStreetTemplates || {}, candidate?.modelItemTemplates || {}, selectedModel, configs);
+  if (!candidate || typeof candidate !== 'object') return defaults;
+  const items = Array.isArray(candidate.items) && candidate.items.length
+    ? defaults.items.map((defaultItem, index) => normalizeItem(candidate.items[index] || defaultItem, index, selectedModel))
+    : clone(defaults.items);
+  items.forEach((item, index) => { item.id = index + 1; });
+  const storeStreetTemplates = normalizeStoreStreetTemplates(candidate.storeStreetTemplates || {});
+  const streetCounts = Array.isArray(candidate.streetCounts) && candidate.streetCounts.length
+    ? candidate.streetCounts.map((row, index) => normalizeStreetCount(row, index, selectedModel))
+    : clone(defaults.streetCounts);
+  const modelItemTemplates = normalizeModelItemTemplates(candidate.modelItemTemplates || defaults.modelItemTemplates || {});
+  return applyAutomaticNonConformities(applyAutomaticAreas({
+    form: { ...defaults.form, ...(candidate.form || {}), modelo:selectedModel, data: formatDateForInput(candidate?.form?.data || defaults.form.data) },
+    items,
+    streetCounts,
+    storeStreetTemplates,
+    modelItemTemplates,
+    modelConfigs: configs
+  }));
+}
+function populateModelOptions() {
+  const select = document.getElementById('modeloAvaliacao');
+  if (!select) return;
+  const all = getAllModelConfigs();
+  select.innerHTML = Object.values(all).map(config => `<option value="${config.key}">${escapeHtml(config.label)}</option>`).join('');
+  select.value = state.form.modelo || DEFAULT_MODEL_KEY;
+}
+function onModelChange(nextModel) {
+  const all = getAllModelConfigs();
+  const modelKey = all[nextModel] ? nextModel : DEFAULT_MODEL_KEY;
+  const previousModel = state.form.modelo;
+  if (previousModel === modelKey) return;
+  state.form.modelo = modelKey;
+  const templateItems = state.modelItemTemplates?.[modelKey] || buildItemsFromModel(modelKey);
+  state.items = clearEvaluationValuesFromItems(templateItems, modelKey);
+  state.form.produtosIdentificados = '';
+  state.form.impactoMercadoria = '';
+  state.streetCounts = isStreetCountEnabled(modelKey) ? makeDefaultStreetCounts(modelKey) : [];
+  if (state.form.nomeLoja) loadStreetCountsForStore(state.form.nomeLoja, modelKey);
+  applyAutomaticAreas(state); applyAutomaticNonConformities(state);
+  persistState(); renderApp(); scheduleAutosave();
+}
+function remapItemIdsInModelConfig(modelKey, idMap){
+  const all = getCurrentModelConfigsSnapshot();
+  const model = all[modelKey];
+  if (!model) return;
+  ['areaDefinitions','ncDefinitions'].forEach(bucket=>{
+    (model[bucket] || []).forEach(entry=>{
+      entry.itemIds = uniqueSortedNumbers((entry.itemIds||[]).map(oldId => idMap[oldId]).filter(Boolean));
+    });
+  });
+  state.modelConfigs = all;
+}
+function saveManageItems() {
+  if (!Array.isArray(manageDraftItems) || !manageDraftItems.length) manageDraftItems = makeDefaultItems(state.form.modelo);
+  const idMap = {};
+  manageDraftItems.forEach((item, index)=>{ idMap[Number(item.id)||index+1] = index + 1; });
+  remapItemIdsInModelConfig(state.form.modelo, idMap);
+  state.items = reindexItems(clone(manageDraftItems), state.form.modelo);
+  state.modelItemTemplates = normalizeModelItemTemplates({ ...(state.modelItemTemplates || {}), [state.form.modelo]: clone(state.items) });
+  const all = getCurrentModelConfigsSnapshot();
+  if (all[state.form.modelo]) {
+    all[state.form.modelo].items = state.items.map(item=>({ description:item.description, section:item.section }));
+  }
+  state.modelConfigs = all;
+  applyAutomaticAreas(state); applyAutomaticNonConformities(state); persistState(); renderApp(); closeManageItemsModal(); scheduleAutosave(); showToast('Itens salvos com sucesso.');
+}
+function renderStreetCounts() {
+  const list = document.getElementById('streetCountsList');
+  const summary = document.getElementById('streetCountsSummary');
+  if (!list || !summary) return;
+  const rows = Array.isArray(manageStreetCounts) ? manageStreetCounts : state.streetCounts;
+  const areaDefs = getAreaDefinitions(state.form.modelo);
+  list.innerHTML = '';
+  if (!rows.length) {
+    list.innerHTML = '<div class="manage-empty">Nenhuma área cadastrada.</div>';
+  } else {
+    rows.forEach((row, index) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'count-row';
+      const areaName = escapeHtml(row.rua || `Área ${index+1}`);
+      const draftPhoto = getDraftPhotoForRow(row);
+      const fieldsHtml = areaDefs.map(def => `
+        <div class="field">
+          <label>${escapeHtml(def.label)}</label>
+          <input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-key="${escapeHtml(def.key)}" value="${escapeHtml(row.counts?.[def.key] ?? '')}" />
+        </div>`).join('');
+      const savedPhotosHtml = Array.isArray(row.photos) && row.photos.length ? `
+        <div class="saved-photo-grid">
+          ${row.photos.map((photo, photoIndex) => {
+            const ncText = Array.isArray(photo.nonConformities) && photo.nonConformities.length ? photo.nonConformities.join('; ') : '-';
+            return `
+              <div class="saved-photo-card">
+                <img class="saved-photo-thumb" src="${photo.dataUrl}" alt="Foto ${photoIndex + 1} da ${areaName}" />
+                <div class="saved-photo-meta"><strong>Foto ${photoIndex + 1}</strong></div>
+                <div class="saved-photo-meta"><strong>NC:</strong> ${escapeHtml(ncText)}</div>
+                <div class="saved-photo-meta"><strong>Áreas NC:</strong> ${escapeHtml(photo.areasNaoConformes || '-')}</div>
+                ${photo.observacao ? `<div class="saved-photo-meta"><strong>Obs.:</strong> ${escapeHtml(photo.observacao)}</div>` : ''}
+                <div class="photo-card-actions"><button class="btn danger" type="button" data-remove-photo="${index}" data-photo-index="${photoIndex}">Excluir foto</button></div>
+              </div>`;
+          }).join('')}
+        </div>` : '<div class="manage-empty">Nenhuma foto registrada nesta área.</div>';
+      wrap.innerHTML = `
+        <div>
+          <div class="count-stage-title">1. Informe as quantidades avaliadas</div>
+          <div class="count-fields-grid">
+            <div class="field"><label>Rua / Área</label><input type="text" data-count-index="${index}" data-count-field="rua" value="${areaName}" placeholder="Ex.: Rua Biscoitos" /></div>
+            ${fieldsHtml}
+          </div>
+        </div>
+        <div>
+          <div class="count-stage-title">2. Registre a foto atual</div>
+          <div class="photo-draft-panel">
+            <div class="photo-draft-top">
+              <div class="muted-note">Área: <strong>${areaName}</strong> · Fotos registradas: <strong>${(Array.isArray(row.photos) ? row.photos.length : 0)}</strong></div>
+              <div class="actions" style="margin-top:0;">
+                <button class="btn secondary" type="button" data-open-camera="${index}">Tirar foto</button>
+                <button class="btn secondary" type="button" data-clear-draft="${index}">Nova foto</button>
+                <button class="btn" type="button" data-save-draft="${index}" ${draftPhoto.dataUrl ? '' : 'disabled'}>Salvar foto</button>
+                <input class="camera-input" type="file" accept="image/*" capture="environment" data-camera-input="${index}" />
+              </div>
+            </div>
+            ${draftPhoto.dataUrl ? `<img class="photo-draft-preview" src="${draftPhoto.dataUrl}" alt="Prévia da foto atual da ${areaName}" />` : '<div class="photo-draft-empty">Tire uma foto para registrar a não conformidade desta área.</div>'}
+            <div class="photo-fields-grid">
+              <div class="field" style="grid-column:1 / -1;">
+                <label>Não conformidades</label>
+                <div class="check-chip-group">
+                  ${getPhotoOptionsForModel(state.form.modelo).map(option => `
+                    <label class="check-chip">
+                      <input type="checkbox" data-draft-check="${escapeHtml(option)}" data-count-index="${index}" ${Array.isArray(draftPhoto.nonConformities) && draftPhoto.nonConformities.includes(option) ? 'checked' : ''} />
+                      <span>${escapeHtml(option)}</span>
+                    </label>`).join('')}
+                </div>
+              </div>
+              <div class="field">
+                <label>Áreas não conformes</label>
+                <input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-draft-field="areasNaoConformes" value="${escapeHtml(draftPhoto.areasNaoConformes ?? '')}" />
+              </div>
+              <div class="field" style="grid-column:1 / -1;">
+                <label>Observação complementar</label>
+                <textarea data-count-index="${index}" data-draft-field="observacao" placeholder="Detalhe complementar da não conformidade">${escapeHtml(draftPhoto.observacao || '')}</textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="photo-bank">
+          <div class="count-stage-title">3. Fotos já registradas nesta área</div>
+          ${savedPhotosHtml}
+        </div>
+        <div class="count-row-actions"><button class="btn danger remove-count-row" type="button" data-remove-count-row="${index}">Excluir área</button></div>`;
+      list.appendChild(wrap);
+    });
+  }
+  list.querySelectorAll('[data-count-field]').forEach(el => {
+    el.addEventListener('input', e => {
+      const index = Number(e.target.dataset.countIndex);
+      const field = e.target.dataset.countField;
+      const row = manageStreetCounts?.[index];
+      if (!row) return;
+      row[field] = e.target.value ?? '';
+    });
+  });
+  list.querySelectorAll('[data-count-key]').forEach(el => {
+    el.addEventListener('input', e => {
+      const index = Number(e.target.dataset.countIndex);
+      const key = e.target.dataset.countKey;
+      const row = manageStreetCounts?.[index];
+      if (!row) return;
+      const value = String(e.target.value ?? '').replace(/[^\d]/g, '');
+      if (e.target.value !== value) e.target.value = value;
+      row.counts[key] = value;
+      updateStreetCountsSummary();
+    });
+  });
+  list.querySelectorAll('[data-open-camera]').forEach(btn => btn.onclick = () => list.querySelector(`[data-camera-input="${Number(btn.dataset.openCamera)}"]`)?.click());
+  list.querySelectorAll('[data-camera-input]').forEach(input => {
+    input.onchange = e => {
+      const index = Number(e.target.dataset.cameraInput);
+      const row = manageStreetCounts?.[index];
+      const file = e.target.files && e.target.files[0];
+      if (!row || !file) return;
+      const reader = new FileReader();
+      reader.onload = () => { const draft = getDraftPhotoForRow(row); draft.dataUrl = String(reader.result || ''); renderStreetCounts(); };
+      reader.readAsDataURL(file); e.target.value = '';
+    };
+  });
+  list.querySelectorAll('[data-draft-field]').forEach(el => {
+    el.addEventListener('input', e => {
+      const index = Number(e.target.dataset.countIndex);
+      const field = e.target.dataset.draftField;
+      const row = manageStreetCounts?.[index]; const draft = getDraftPhotoForRow(row);
+      let value = e.target.value ?? '';
+      if (field === 'areasNaoConformes') { value = String(value).replace(/[^\d]/g, ''); if (e.target.value !== value) e.target.value = value; }
+      draft[field] = value;
+    });
+  });
+  list.querySelectorAll('[data-draft-check]').forEach(el => {
+    el.onchange = e => {
+      const index = Number(e.target.dataset.countIndex); const option = e.target.dataset.draftCheck;
+      const draft = getDraftPhotoForRow(manageStreetCounts?.[index]); const current = new Set(Array.isArray(draft.nonConformities) ? draft.nonConformities : []);
+      if (e.target.checked) current.add(option); else current.delete(option); draft.nonConformities = Array.from(current);
+    };
+  });
+  list.querySelectorAll('[data-clear-draft]').forEach(btn => btn.onclick = () => {
+    const index = Number(btn.dataset.clearDraft); const row = manageStreetCounts?.[index]; if (!row) return; row.draftPhoto = makeDefaultPhoto(row.rua || ''); renderStreetCounts();
+  });
+  list.querySelectorAll('[data-save-draft]').forEach(btn => btn.onclick = () => {
+    const index = Number(btn.dataset.saveDraft); const row = manageStreetCounts?.[index]; if (!row) return;
+    const draft = getDraftPhotoForRow(row); if (!draft.dataUrl) { showToast('Tire uma foto antes de salvar.'); return; }
+    row.photos = Array.isArray(row.photos) ? row.photos : []; row.photos.push({ ...draft, id: `photo-${Date.now()}-${Math.random().toString(36).slice(2,7)}` });
+    row.draftPhoto = makeDefaultPhoto(row.rua || ''); renderStreetCounts(); showToast('Foto salva nesta área.');
+  });
+  list.querySelectorAll('[data-remove-photo]').forEach(btn => btn.onclick = () => {
+    const row = manageStreetCounts?.[Number(btn.dataset.removePhoto)]; if (!row?.photos) return; row.photos.splice(Number(btn.dataset.photoIndex),1); renderStreetCounts();
+  });
+  list.querySelectorAll('[data-remove-count-row]').forEach(btn => btn.onclick = () => {
+    manageStreetCounts.splice(Number(btn.dataset.removeCountRow), 1); if (!manageStreetCounts.length) manageStreetCounts = makeDefaultStreetCounts(state.form.modelo); renderStreetCounts();
+  });
+  updateStreetCountsSummary();
+}
+function updateStreetCountsSummary() {
+  const summary = document.getElementById('streetCountsSummary');
+  if (!summary) return;
+  const totals = getStreetCountTotals(Array.isArray(manageStreetCounts) ? manageStreetCounts : state.streetCounts, state.form.modelo);
+  const tiles = getAreaDefinitions(state.form.modelo).map(area => `
+    <div class="count-summary-tile"><div class="count-summary-label">${escapeHtml(area.label)}</div><div class="count-summary-value">${totals[area.key] || 0}</div></div>`).join('');
+  summary.innerHTML = `${tiles}<div class="count-summary-tile"><div class="count-summary-label">Fotos registradas</div><div class="count-summary-value">${totals.photos || 0}</div></div>`;
+}
+function addStreetCountRow() {
+  if (!Array.isArray(manageStreetCounts)) manageStreetCounts = clone(state.streetCounts || makeDefaultStreetCounts(state.form.modelo));
+  manageStreetCounts.push(normalizeStreetCount({ rua: `Área ${manageStreetCounts.length + 1}`, counts:getEmptyCountsForModel(state.form.modelo) }, manageStreetCounts.length, state.form.modelo));
+  renderStreetCounts();
+}
+function openStreetCountsModal() {
+  manageStreetCounts = clone(state.streetCounts || makeDefaultStreetCounts(state.form.modelo));
+  renderStreetCounts();
+  const modal = document.getElementById('streetCountsModal');
+  modal.classList.add('open');
+  modal.setAttribute('aria-hidden', 'false');
+}
+function saveStreetCounts() {
+  if (!Array.isArray(manageStreetCounts) || !manageStreetCounts.length) manageStreetCounts = makeDefaultStreetCounts(state.form.modelo);
+  state.streetCounts = manageStreetCounts.map((row, index) => normalizeStreetCount(row, index, state.form.modelo));
+  saveStreetTemplateForCurrentStore(state.streetCounts);
+  applyAutomaticAreas(state); applyAutomaticNonConformities(state); persistState(); renderApp(); closeStreetCountsModal(); scheduleAutosave();
+  showToast('Avaliação automática salva e aplicada aos itens.');
+}
+
+/* ---------- Painel de configuração ---------- */
+let configDraft = null;
+let configEditorModelKey = DEFAULT_MODEL_KEY;
+function injectConfigButtonAndModal(){
+  if (!document.getElementById('configureModelsBtn')) {
+    const anchor = document.getElementById('streetCountsBtn') || document.querySelector('.top-actions');
+    const btn = document.createElement('button');
+    btn.id = 'configureModelsBtn';
+    btn.className = 'btn secondary';
+    btn.type = 'button';
+    btn.textContent = 'Configurar avaliação';
+    anchor?.parentNode?.insertBefore(btn, anchor.nextSibling);
+  }
+  if (document.getElementById('configModelsModal')) return;
+  const modal = document.createElement('div');
+  modal.id = 'configModelsModal';
+  modal.className = 'manage-modal';
+  modal.setAttribute('aria-hidden','true');
+  modal.innerHTML = `
+    <div class="manage-panel" style="max-width:1200px;">
+      <div class="manage-header">
+        <div>
+          <div class="manage-title">Configurar avaliação</div>
+          <div class="manage-help">${CONFIG_MODEL_STORAGE_NOTE}</div>
+        </div>
+        <button id="closeConfigModelsBtn" class="btn secondary" type="button">Fechar</button>
+      </div>
+      <div class="manage-body">
+        <div class="grid-2" style="margin-bottom:12px;">
+          <div class="field"><label>Modelo</label><select id="configModelSelect"></select></div>
+          <div class="actions" style="margin:0;align-self:end;">
+            <button id="newConfigModelBtn" class="btn secondary" type="button">Novo modelo</button>
+            <button id="duplicateConfigModelBtn" class="btn secondary" type="button">Duplicar atual</button>
+          </div>
+          <div class="field"><label>Nome do modelo</label><input id="configModelLabel" type="text" /></div>
+          <div class="field"><label>Título do relatório</label><input id="configReportLabel" type="text" /></div>
+        </div>
+        <div class="grid-2">
+          <div class="card" style="box-shadow:none;">
+            <div class="card-header"><h3 class="card-title" style="font-size:18px;">Áreas avaliadas</h3></div>
+            <div class="card-content">
+              <div id="configAreasList" class="manage-list"></div>
+              <div class="actions"><button id="addConfigAreaBtn" class="btn secondary" type="button">+ Nova área avaliada</button></div>
+            </div>
+          </div>
+          <div class="card" style="box-shadow:none;">
+            <div class="card-header"><h3 class="card-title" style="font-size:18px;">Não conformidades</h3></div>
+            <div class="card-content">
+              <div id="configNcList" class="manage-list"></div>
+              <div class="actions"><button id="addConfigNcBtn" class="btn secondary" type="button">+ Nova não conformidade</button></div>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="box-shadow:none; margin-top:16px;">
+          <div class="card-header"><h3 class="card-title" style="font-size:18px;">Novo item</h3></div>
+          <div class="card-content">
+            <div class="grid-2">
+              <div class="field"><label>Descrição do item</label><input id="newConfigItemDescription" type="text" /></div>
+              <div class="field"><label>Seção</label><select id="newConfigItemSection"><option value="deposito">Depósito / Aéreo</option><option value="venda">Área de Venda</option></select></div>
+            </div>
+            <div class="field" style="margin-top:12px;">
+              <label>Áreas avaliadas que alimentam este item</label>
+              <div id="newConfigItemAreas" class="check-chip-group"></div>
+            </div>
+            <div class="field" style="margin-top:12px;">
+              <label>Não conformidades que alimentam este item</label>
+              <div id="newConfigItemNcs" class="check-chip-group"></div>
+            </div>
+            <div class="grid-2" style="margin-top:12px;">
+              <div class="field"><label>Criar nova área e já vincular</label><input id="newConfigInlineArea" type="text" placeholder="Ex.: Backlight" /></div>
+              <div class="field"><label>Criar nova NC e já vincular</label><input id="newConfigInlineNc" type="text" placeholder="Ex.: Produto sem etiqueta" /></div>
+            </div>
+            <div class="actions"><button id="addConfiguredItemBtn" class="btn" type="button">Adicionar item configurado</button></div>
+          </div>
+        </div>
+        <div class="manage-footer">
+          <button id="saveConfigModelsBtn" class="btn" type="button">Salvar configuração</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+function openConfigModal(){
+  configDraft = { models: clone(getCurrentModelConfigsSnapshot()), templates: clone(state.modelItemTemplates || {}) };
+  configEditorModelKey = state.form.modelo || DEFAULT_MODEL_KEY;
+  renderConfigModal();
+  const modal = document.getElementById('configModelsModal');
+  modal.classList.add('open'); modal.setAttribute('aria-hidden','false');
+}
+function closeConfigModal(){
+  document.getElementById('configModelsModal')?.classList.remove('open');
+  document.getElementById('configModelsModal')?.setAttribute('aria-hidden','true');
+  configDraft = null;
+}
+function ensureConfigDraftModel(modelKey){
+  if (!configDraft) openConfigModal();
+  if (!configDraft.models[modelKey]) {
+    configDraft.models[modelKey] = migrateConfigurableModels({
+      [modelKey]: { key:modelKey, label:modelKey, reportLabel:'Formulário de Avaliação', usesStreetCounts:true, items:[], areaDefinitions:[], ncDefinitions:[] }
+    })[modelKey];
+  }
+  if (!configDraft.templates[modelKey]) configDraft.templates[modelKey] = buildItemsFromModel(modelKey);
+  return configDraft.models[modelKey];
+}
+function renderConfigModal(){
+  injectConfigButtonAndModal();
+  const select = document.getElementById('configModelSelect');
+  if (!select || !configDraft) return;
+  const models = configDraft.models;
+  if (!models[configEditorModelKey]) configEditorModelKey = Object.keys(models)[0] || DEFAULT_MODEL_KEY;
+  select.innerHTML = Object.values(models).map(model=>`<option value="${model.key}">${escapeHtml(model.label)}</option>`).join('');
+  select.value = configEditorModelKey;
+  const model = ensureConfigDraftModel(configEditorModelKey);
+  document.getElementById('configModelLabel').value = model.label || '';
+  document.getElementById('configReportLabel').value = model.reportLabel || '';
+  const areasList = document.getElementById('configAreasList');
+  areasList.innerHTML = (model.areaDefinitions || []).map((area, index)=>`
+    <div class="manage-item">
+      <div class="manage-grid">
+        <div class="field"><label>Nome</label><input data-config-area-index="${index}" data-config-area-field="label" value="${escapeHtml(area.label)}" /></div>
+        <div class="field"><label>Itens (ex: 1,2,3)</label><input data-config-area-index="${index}" data-config-area-field="itemIds" value="${escapeHtml((area.itemIds||[]).join(','))}" /></div>
+      </div>
+      <div class="history-actions"><button class="icon-btn danger" type="button" data-remove-config-area="${index}">Excluir área</button></div>
+    </div>`).join('') || '<div class="manage-empty">Nenhuma área avaliada cadastrada.</div>';
+  const ncList = document.getElementById('configNcList');
+  ncList.innerHTML = (model.ncDefinitions || []).map((nc, index)=>`
+    <div class="manage-item">
+      <div class="manage-grid">
+        <div class="field"><label>Descrição</label><input data-config-nc-index="${index}" data-config-nc-field="label" value="${escapeHtml(nc.label)}" /></div>
+        <div class="field"><label>Itens (ex: 1,5)</label><input data-config-nc-index="${index}" data-config-nc-field="itemIds" value="${escapeHtml((nc.itemIds||[]).join(','))}" /></div>
+      </div>
+      <div class="history-actions"><button class="icon-btn danger" type="button" data-remove-config-nc="${index}">Excluir não conformidade</button></div>
+    </div>`).join('') || '<div class="manage-empty">Nenhuma não conformidade cadastrada.</div>';
+  const areasChecks = document.getElementById('newConfigItemAreas');
+  areasChecks.innerHTML = (model.areaDefinitions || []).map(area=>`<label class="check-chip"><input type="checkbox" value="${escapeHtml(area.key)}" data-config-new-item-area /> <span>${escapeHtml(area.label)}</span></label>`).join('') || '<span class="muted-note">Cadastre primeiro uma área avaliada.</span>';
+  const ncChecks = document.getElementById('newConfigItemNcs');
+  ncChecks.innerHTML = (model.ncDefinitions || []).map((nc, idx)=>`<label class="check-chip"><input type="checkbox" value="${idx}" data-config-new-item-nc /> <span>${escapeHtml(nc.label)}</span></label>`).join('') || '<span class="muted-note">Cadastre primeiro uma não conformidade.</span>';
+
+  select.onchange = (e)=>{ configEditorModelKey = e.target.value; renderConfigModal(); };
+  document.getElementById('configModelLabel').oninput = (e)=>{ model.label = e.target.value; select.querySelector(`option[value="${model.key}"]`).textContent = model.label || model.key; };
+  document.getElementById('configReportLabel').oninput = (e)=>{ model.reportLabel = e.target.value; };
+  areasList.querySelectorAll('[data-config-area-field]').forEach(input=>{
+    input.oninput = (e)=>{
+      const idx = Number(e.target.dataset.configAreaIndex); const field = e.target.dataset.configAreaField;
+      if (field === 'label') model.areaDefinitions[idx].label = e.target.value;
+      else model.areaDefinitions[idx].itemIds = parseCsvNumbers(e.target.value);
+    };
+  });
+  areasList.querySelectorAll('[data-remove-config-area]').forEach(btn=>btn.onclick = ()=>{
+    model.areaDefinitions.splice(Number(btn.dataset.removeConfigArea),1); renderConfigModal();
+  });
+  ncList.querySelectorAll('[data-config-nc-field]').forEach(input=>{
+    input.oninput = (e)=>{
+      const idx = Number(e.target.dataset.configNcIndex); const field = e.target.dataset.configNcField;
+      if (field === 'label') model.ncDefinitions[idx].label = e.target.value;
+      else model.ncDefinitions[idx].itemIds = parseCsvNumbers(e.target.value);
+    };
+  });
+  ncList.querySelectorAll('[data-remove-config-nc]').forEach(btn=>btn.onclick = ()=>{
+    model.ncDefinitions.splice(Number(btn.dataset.removeConfigNc),1); renderConfigModal();
+  });
+}
+function addConfigArea(){
+  const model = ensureConfigDraftModel(configEditorModelKey);
+  const nextLabel = `Nova área ${model.areaDefinitions.length + 1}`;
+  model.areaDefinitions.push({ key: slugifyConfigKey(nextLabel), label: nextLabel, itemIds: [] });
+  renderConfigModal();
+}
+function addConfigNc(){
+  const model = ensureConfigDraftModel(configEditorModelKey);
+  model.ncDefinitions.push({ label:`Nova não conformidade ${model.ncDefinitions.length + 1}`, itemIds: [] });
+  renderConfigModal();
+}
+function createNewConfigModel(duplicateCurrent){
+  const source = ensureConfigDraftModel(configEditorModelKey);
+  const label = prompt('Nome do novo modelo de avaliação:');
+  if (!label) return;
+  const keyBase = slugifyConfigKey(label);
+  let key = keyBase, counter = 2;
+  while (configDraft.models[key]) { key = `${keyBase}_${counter++}`; }
+  configDraft.models[key] = duplicateCurrent ? clone(source) : { key, label, reportLabel:'Formulário de Avaliação', usesStreetCounts:true, items:[], areaDefinitions:[], ncDefinitions:[] };
+  configDraft.models[key].key = key;
+  configDraft.models[key].label = label;
+  configDraft.models[key].reportLabel = duplicateCurrent ? `${label}` : 'Formulário de Avaliação';
+  configDraft.templates[key] = duplicateCurrent ? clone(configDraft.templates[configEditorModelKey] || []) : [];
+  configEditorModelKey = key;
+  renderConfigModal();
+}
+function addConfiguredItem(){
+  const model = ensureConfigDraftModel(configEditorModelKey);
+  const templates = configDraft.templates[configEditorModelKey] = clone(configDraft.templates[configEditorModelKey] || buildItemsFromModel(configEditorModelKey));
+  const description = document.getElementById('newConfigItemDescription').value.trim();
+  if (!description) { showToast('Informe a descrição do item.'); return; }
+  const section = document.getElementById('newConfigItemSection').value === 'venda' ? 'venda' : 'deposito';
+  const selectedAreas = Array.from(document.querySelectorAll('[data-config-new-item-area]:checked')).map(el=>el.value);
+  const selectedNcs = Array.from(document.querySelectorAll('[data-config-new-item-nc]:checked')).map(el=>Number(el.value));
+  const inlineArea = document.getElementById('newConfigInlineArea').value.trim();
+  const inlineNc = document.getElementById('newConfigInlineNc').value.trim();
+  const nextId = templates.length + 1;
+  templates.push({ id: nextId, description, section, areaAvaliada:'', naoConformes:'', observacao:'', naoAvaliar:false });
+  model.items = templates.map(item=>({ description:item.description, section:item.section }));
+  if (inlineArea) {
+    const key = slugifyConfigKey(inlineArea);
+    if (!model.areaDefinitions.find(area=>area.key===key)) model.areaDefinitions.push({ key, label:inlineArea, itemIds:[nextId] });
+    else model.areaDefinitions.find(area=>area.key===key).itemIds = uniqueSortedNumbers([...(model.areaDefinitions.find(area=>area.key===key).itemIds||[]), nextId]);
+  }
+  selectedAreas.forEach(key=>{
+    const area = model.areaDefinitions.find(entry=>entry.key===key);
+    if (area) area.itemIds = uniqueSortedNumbers([...(area.itemIds||[]), nextId]);
+  });
+  if (inlineNc) model.ncDefinitions.push({ label:inlineNc, itemIds:[nextId] });
+  selectedNcs.forEach(idx=>{
+    const nc = model.ncDefinitions[idx];
+    if (nc) nc.itemIds = uniqueSortedNumbers([...(nc.itemIds||[]), nextId]);
+  });
+  document.getElementById('newConfigItemDescription').value = '';
+  document.getElementById('newConfigInlineArea').value = '';
+  document.getElementById('newConfigInlineNc').value = '';
+  renderConfigModal();
+  showToast('Item configurado adicionado ao modelo.');
+}
+function saveConfigModels(){
+  state.modelConfigs = migrateConfigurableModels(configDraft.models);
+  state.modelItemTemplates = normalizeModelItemTemplates(configDraft.templates);
+  Object.values(state.modelConfigs).forEach(model=>{
+    const templates = state.modelItemTemplates[model.key] || [];
+    model.items = templates.map(item=>({ description:item.description, section:item.section }));
+  });
+  if (!state.modelConfigs[state.form.modelo]) {
+    state.form.modelo = Object.keys(state.modelConfigs)[0] || DEFAULT_MODEL_KEY;
+  }
+  const currentTemplates = state.modelItemTemplates[state.form.modelo] || buildItemsFromModel(state.form.modelo);
+  state.items = clearEvaluationValuesFromItems(currentTemplates, state.form.modelo);
+  state.streetCounts = isStreetCountEnabled(state.form.modelo) ? makeDefaultStreetCounts(state.form.modelo) : [];
+  if (state.form.nomeLoja && isStreetCountEnabled(state.form.modelo)) loadStreetCountsForStore(state.form.nomeLoja, state.form.modelo);
+  applyAutomaticAreas(state); applyAutomaticNonConformities(state);
+  persistState(); renderApp(); scheduleAutosave(); closeConfigModal(); showToast('Configuração da avaliação salva.');
+}
+
+function bindNewConfigEvents(){
+  injectConfigButtonAndModal();
+  document.getElementById('configureModelsBtn').onclick = openConfigModal;
+  document.getElementById('closeConfigModelsBtn').onclick = closeConfigModal;
+  document.getElementById('configModelsModal').onclick = (e)=>{ if (e.target.id === 'configModelsModal') closeConfigModal(); };
+  document.getElementById('addConfigAreaBtn').onclick = addConfigArea;
+  document.getElementById('addConfigNcBtn').onclick = addConfigNc;
+  document.getElementById('newConfigModelBtn').onclick = ()=>createNewConfigModel(false);
+  document.getElementById('duplicateConfigModelBtn').onclick = ()=>createNewConfigModel(true);
+  document.getElementById('addConfiguredItemBtn').onclick = addConfiguredItem;
+  document.getElementById('saveConfigModelsBtn').onclick = saveConfigModels;
+}
+
+/* rehidrata estado e reata handlers com as novas funções */
+(function applyCustomizationPatch(){
+  injectConfigButtonAndModal();
+  state = normalizeState(state);
+  if (!state.modelConfigs) state.modelConfigs = buildInitialConfigurableModels();
+  renderApp();
+  const modelSelect = document.getElementById('modeloAvaliacao');
+  if (modelSelect) modelSelect.onchange = (e)=>onModelChange(e.target.value);
+  const streetBtn = document.getElementById('streetCountsBtn');
+  if (streetBtn) streetBtn.onclick = openStreetCountsModal;
+  const saveManageBtn = document.getElementById('saveManageItemsBtn');
+  if (saveManageBtn) saveManageBtn.onclick = saveManageItems;
+  const addStreetBtn = document.getElementById('addStreetCountRowBtn');
+  if (addStreetBtn) addStreetBtn.onclick = addStreetCountRow;
+  const saveStreetBtn = document.getElementById('saveStreetCountsBtn');
+  if (saveStreetBtn) saveStreetBtn.onclick = saveStreetCounts;
+  bindNewConfigEvents();
+})();
+</script>
+
 </body>
 </html>

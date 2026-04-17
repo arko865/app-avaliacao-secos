@@ -3345,5 +3345,136 @@ function bindNewConfigEvents(){
 })();
 </script>
 
+
+<script>
+/* === Patch v7: prioridade ao estado local salvo e persistência forte de configurações === */
+(function(){
+  const LOCAL_STATE_UPDATED_AT_KEY = 'arko_avaliacao_local_updated_at_v1';
+
+  function getLocalUpdatedAt(){
+    try { return Number(localStorage.getItem(LOCAL_STATE_UPDATED_AT_KEY) || '0') || 0; } catch (err) { return 0; }
+  }
+  function setLocalUpdatedAt(value){
+    try { localStorage.setItem(LOCAL_STATE_UPDATED_AT_KEY, String(Number(value) || Date.now())); } catch (err) {}
+  }
+
+  const originalPersistState = persistState;
+  persistState = function(){
+    state = normalizeState(state);
+    const updatedAt = Date.now();
+    setLocalUpdatedAt(updatedAt);
+    saveFailSafeCheckpoint('autosave');
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (err) {
+      console.warn('Não foi possível salvar o rascunho.', err);
+    }
+    queueCloudDraftSync(false, updatedAt);
+  };
+
+  const originalRestoreFailSafeCheckpoint = restoreFailSafeCheckpoint;
+  restoreFailSafeCheckpoint = function(){
+    const restored = originalRestoreFailSafeCheckpoint();
+    if (restored) setLocalUpdatedAt(Date.now());
+    return restored;
+  };
+
+  startCloudListeners = function() {
+    if (!firebaseReady || !firestore) return;
+    firestore.doc(CLOUD_DRAFT_DOC_PATH).onSnapshot(snapshot => {
+      const data = snapshot.data();
+      if (!data || !data.payload) return;
+      const incomingAt = parseMillis(data.updatedAt);
+      const localAt = getLocalUpdatedAt();
+      if (data.deviceId === deviceId) {
+        lastCloudDraftAt = Math.max(lastCloudDraftAt, incomingAt, localAt);
+        cloudDraftInitialized = true;
+        return;
+      }
+      if (incomingAt && incomingAt < Math.max(lastCloudDraftAt || 0, localAt || 0)) {
+        cloudDraftInitialized = true;
+        return;
+      }
+      const incoming = normalizeState(data.payload);
+      const incomingJson = safeJson(incoming, '{}');
+      const currentJson = safeJson(normalizeState(state), '{}');
+      if (incomingJson === currentJson) {
+        lastCloudDraftAt = Math.max(lastCloudDraftAt, incomingAt, localAt);
+        cloudDraftInitialized = true;
+        return;
+      }
+      state = incoming;
+      lastCloudDraftAt = incomingAt || Date.now();
+      setLocalUpdatedAt(lastCloudDraftAt);
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (err) {}
+      renderApp();
+      if (cloudDraftInitialized) showToast('Avaliação sincronizada de outro dispositivo.');
+      cloudDraftInitialized = true;
+    }, err => console.warn('Falha ao escutar avaliação na nuvem.', err));
+
+    firestore.collection(CLOUD_HISTORY_COLLECTION).orderBy('createdAt', 'desc').limit(50).onSnapshot(snapshot => {
+      const next = [];
+      snapshot.forEach(doc => next.push({ ...doc.data(), id: doc.id }));
+      historyCache = next;
+      setLocalHistory(historyCache);
+      renderHistory();
+      if (cloudHistoryInitialized) showToast('Histórico sincronizado.');
+      cloudHistoryInitialized = true;
+    }, err => console.warn('Falha ao escutar histórico na nuvem.', err));
+  };
+
+  initializeFirebaseSync = async function() {
+    if (!(window.firebase && window.firebase.apps)) return;
+    try {
+      if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+      firestore = firebase.firestore();
+      firebaseReady = true;
+
+      const localRaw = localStorage.getItem(STORAGE_KEY);
+      const localState = localRaw ? normalizeState(JSON.parse(localRaw)) : normalizeState(state);
+      const localAt = getLocalUpdatedAt() || Date.now();
+      lastCloudDraftAt = Math.max(lastCloudDraftAt || 0, localAt);
+
+      try {
+        const draftRef = firestore.doc(CLOUD_DRAFT_DOC_PATH);
+        const draftSnap = await draftRef.get();
+        const cloudData = draftSnap.exists ? draftSnap.data() : null;
+        const cloudAt = cloudData ? parseMillis(cloudData.updatedAt) : 0;
+
+        if (!draftSnap.exists || localAt >= cloudAt) {
+          await draftRef.set({ payload: localState, updatedAt: localAt, deviceId }, { merge: true });
+          lastCloudDraftAt = Math.max(lastCloudDraftAt, localAt);
+        } else if (cloudData && cloudData.payload) {
+          state = normalizeState(cloudData.payload);
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (err) {}
+          setLocalUpdatedAt(cloudAt);
+          lastCloudDraftAt = Math.max(lastCloudDraftAt, cloudAt);
+          renderApp();
+        }
+      } catch (err) {
+        console.warn('Falha ao conciliar rascunho local com a nuvem.', err);
+      }
+
+      await seedCloudFromLocal();
+      startCloudListeners();
+    } catch (err) {
+      console.warn('Firebase indisponível.', err);
+    }
+  };
+
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      state = normalizeState(JSON.parse(raw));
+      setLocalUpdatedAt(getLocalUpdatedAt() || Date.now());
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      renderApp();
+    }
+  } catch (err) {
+    console.warn('Falha ao reforçar leitura do armazenamento local.', err);
+  }
+})();
+</script>
+
 </body>
 </html>

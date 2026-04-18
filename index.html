@@ -1289,8 +1289,25 @@ function startCloudListeners() {
     if (!data || !data.payload) return;
     const incomingAt = parseMillis(data.updatedAt);
     const localAt = getCurrentConfigUpdatedAt();
+    const localPayload = loadLocalConfigSnapshot();
+    const incomingPayload = {
+      modelConfigs: migrateConfigurableModels(data.payload?.modelConfigs || {}),
+      modelItemTemplates: normalizeModelItemTemplates(
+        data.payload?.modelItemTemplates || {},
+        data.payload?.modelConfigs || state?.modelConfigs || buildInitialConfigurableModels()
+      )
+    };
+    const incomingJson = safeJson(incomingPayload, '{}');
+    const localJson = safeJson(localPayload?.payload || getConfigPayloadFromState(state), '{}');
+    const localIsNewerOrEqual = localAt && incomingAt && localAt >= incomingAt;
+    const guardUntil = Number(window.__arkoLocalConfigGuardUntil || 0);
+
     if (data.deviceId === deviceId) {
       lastCloudConfigAt = Math.max(lastCloudConfigAt || 0, incomingAt || 0, localAt || 0);
+      cloudConfigInitialized = true;
+      return;
+    }
+    if (guardUntil && Date.now() < guardUntil && localAt >= incomingAt) {
       cloudConfigInitialized = true;
       return;
     }
@@ -1298,7 +1315,15 @@ function startCloudListeners() {
       cloudConfigInitialized = true;
       return;
     }
-    applyConfigPayload(data.payload);
+    if (incomingJson === localJson && localIsNewerOrEqual) {
+      cloudConfigInitialized = true;
+      return;
+    }
+    if (localJson !== incomingJson && localIsNewerOrEqual) {
+      cloudConfigInitialized = true;
+      return;
+    }
+    applyConfigPayload(incomingPayload);
     writeLocalConfigSnapshot(getConfigPayloadFromState(state), incomingAt || Date.now());
     writeLocalDraft(state, Math.max(getCurrentStateUpdatedAt(), incomingAt || Date.now()));
     lastCloudConfigAt = Math.max(lastCloudConfigAt || 0, incomingAt || 0);
@@ -4524,6 +4549,284 @@ function bindNewConfigEvents(){ removeConfigUi(); }
   document.addEventListener('DOMContentLoaded', rebind);
   setTimeout(rebind, 200);
   setTimeout(rebind, 1000);
+})();
+</script>
+
+
+<script>
+/* === Patch final: persistência reforçada de não conformidades === */
+(function(){
+  function deepCloneSafe(value){
+    try { return JSON.parse(JSON.stringify(value)); } catch (e) { return value; }
+  }
+
+  function normalizePositiveIds(values){
+    return Array.from(new Set((values || []).map(function(v){ return Number(v); }).filter(function(v){ return Number.isFinite(v) && v > 0; }))).sort(function(a,b){ return a-b; });
+  }
+
+  function preserveNcKeysInConfigs(raw){
+    var source = raw && typeof raw === 'object' ? raw : {};
+    var next = {};
+    Object.keys(source).forEach(function(rawKey){
+      var value = source[rawKey] || {};
+      var key = String(value.key || rawKey || '').trim() || rawKey || 'modelo';
+      var items = Array.isArray(value.items) ? value.items.map(function(item, idx){
+        if (typeof item === 'string') {
+          return { description: item, section: idx < Math.ceil(value.items.length/2) ? 'deposito' : 'venda' };
+        }
+        return {
+          description: String((item && item.description) || ('Item ' + (idx + 1))).trim() || ('Item ' + (idx + 1)),
+          section: item && item.section === 'venda' ? 'venda' : 'deposito'
+        };
+      }) : [];
+      var areas = Array.isArray(value.areaDefinitions) ? value.areaDefinitions.map(function(area, idx){
+        return {
+          key: String((area && (area.key || area.label)) || ('area_' + (idx + 1))).trim() || ('area_' + (idx + 1)),
+          label: String((area && area.label) || ('Área ' + (idx + 1))).trim() || ('Área ' + (idx + 1)),
+          itemIds: normalizePositiveIds(area && area.itemIds)
+        };
+      }) : [];
+      var ncs = Array.isArray(value.ncDefinitions) ? value.ncDefinitions.map(function(nc, idx){
+        return {
+          key: String((nc && (nc.key || nc.label)) || ('nc_' + (idx + 1))).trim() || ('nc_' + (idx + 1)),
+          label: String((nc && nc.label) || ('Não conformidade ' + (idx + 1))).trim() || ('Não conformidade ' + (idx + 1)),
+          itemIds: normalizePositiveIds(nc && nc.itemIds)
+        };
+      }) : [];
+      next[key] = {
+        key: key,
+        label: String(value.label || key).trim() || key,
+        reportLabel: String(value.reportLabel || 'Formulário de Avaliação').trim() || 'Formulário de Avaliação',
+        usesStreetCounts: !!value.usesStreetCounts,
+        items: items,
+        areaDefinitions: areas,
+        ncDefinitions: ncs
+      };
+    });
+    return next;
+  }
+
+  function pullNcLabelsFromDomIntoDraft(){
+    if (!window.configEditorDraft || typeof window.configEditorDraft !== 'object') return;
+    var modelKey = window.configEditorModelKeyV2 || (window.state && state.form && state.form.modelo) || Object.keys(window.configEditorDraft)[0];
+    var model = window.configEditorDraft[modelKey];
+    if (!model) return;
+    model.ncs = Array.isArray(model.ncs) ? model.ncs : [];
+    document.querySelectorAll('[data-config-nc-index]').forEach(function(el){
+      var idx = Number(el.dataset.configNcIndex);
+      if (!Number.isFinite(idx) || !model.ncs[idx]) return;
+      model.ncs[idx].label = String(el.value || '').trim() || ('Não conformidade ' + (idx + 1));
+    });
+  }
+
+  function hardPersistCurrentConfig(){
+    try {
+      if (typeof pullDraftFromDOM === 'function') pullDraftFromDOM();
+    } catch(e) {}
+    pullNcLabelsFromDomIntoDraft();
+
+    var compiled = null;
+    try {
+      if (typeof compileDraftFromWindow === 'function') compiled = compileDraftFromWindow();
+      else if (typeof compileEditorDraft === 'function') compiled = compileEditorDraft();
+    } catch (e) {
+      console.warn('Falha ao compilar rascunho para persistência de NC.', e);
+    }
+    if (!compiled || typeof compiled !== 'object' || !Object.keys(compiled).length) return false;
+
+    compiled = preserveNcKeysInConfigs(compiled);
+
+    if (window.state) {
+      state.modelConfigs = deepCloneSafe(compiled);
+      if (typeof normalizeModelItemTemplates === 'function') {
+        state.modelItemTemplates = normalizeModelItemTemplates(state.modelItemTemplates || {}, state.modelConfigs);
+      }
+    }
+
+    var payload = {
+      modelConfigs: deepCloneSafe(compiled),
+      modelItemTemplates: deepCloneSafe((window.state && state.modelItemTemplates) || {})
+    };
+
+    var savedAt = Date.now();
+    try {
+      localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(payload));
+      if (typeof setConfigStateMeta === 'function') setConfigStateMeta({ updatedAt: savedAt, deviceId: (typeof deviceId !== 'undefined' ? deviceId : '') });
+    } catch (e) {
+      console.warn('Falha ao gravar CONFIG_STORAGE_KEY com NCs.', e);
+    }
+
+    try {
+      var rawState = localStorage.getItem(STORAGE_KEY);
+      var parsedState = rawState ? JSON.parse(rawState) : {};
+      parsedState = parsedState && typeof parsedState === 'object' ? parsedState : {};
+      parsedState.modelConfigs = deepCloneSafe(compiled);
+      parsedState.modelItemTemplates = deepCloneSafe((window.state && state.modelItemTemplates) || parsedState.modelItemTemplates || {});
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(parsedState));
+      if (typeof setLocalStateMeta === 'function') setLocalStateMeta({ updatedAt: savedAt, deviceId: (typeof deviceId !== 'undefined' ? deviceId : '') });
+    } catch (e) {
+      console.warn('Falha ao espelhar configuração no STORAGE_KEY.', e);
+    }
+
+    try {
+      if (typeof applyConfigPayload === 'function') applyConfigPayload(payload);
+    } catch (e) {
+      console.warn('Falha ao reaplicar payload local.', e);
+    }
+
+    try {
+      window.__arkoLocalConfigGuardUntil = savedAt + 8000;
+      if (typeof queueCloudConfigSync === 'function') queueCloudConfigSync(true, savedAt);
+      if (typeof queueCloudDraftSync === 'function') queueCloudDraftSync(true, savedAt);
+    } catch (e) {
+      console.warn('Falha ao sincronizar configuração corrigida na nuvem.', e);
+    }
+    return true;
+  }
+
+  var previousSave = window.saveManageItems;
+  window.saveManageItems = function(){
+    var result = true;
+    if (typeof previousSave === 'function') {
+      result = previousSave.apply(this, arguments);
+    }
+    hardPersistCurrentConfig();
+    return result;
+  };
+
+  document.addEventListener('click', function(ev){
+    var btn = ev.target && ev.target.closest ? ev.target.closest('#saveManageItemsBtn') : null;
+    if (!btn) return;
+    setTimeout(function(){
+      hardPersistCurrentConfig();
+    }, 0);
+  }, true);
+
+  try {
+    var localRaw = localStorage.getItem(CONFIG_STORAGE_KEY);
+    if (localRaw) {
+      var localPayload = JSON.parse(localRaw);
+      if (localPayload && localPayload.modelConfigs) {
+        localPayload.modelConfigs = preserveNcKeysInConfigs(localPayload.modelConfigs);
+        localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(localPayload));
+      }
+    }
+  } catch (e) {}
+})();
+</script>
+
+
+<script>
+(function(){
+  function patchedBuildDefaultState(storeStreetTemplates, modelItemTemplates, modelKey, modelConfigs){
+    var resolvedConfigs = (typeof migrateConfigurableModels === 'function')
+      ? migrateConfigurableModels(modelConfigs || (window.state && state.modelConfigs) || buildInitialConfigurableModels())
+      : (modelConfigs || (window.state && state.modelConfigs) || buildInitialConfigurableModels());
+    var keys = Object.keys(resolvedConfigs || {});
+    var safeModelKey = (modelKey && resolvedConfigs && resolvedConfigs[modelKey]) ? modelKey : ((resolvedConfigs && resolvedConfigs[DEFAULT_MODEL_KEY]) ? DEFAULT_MODEL_KEY : (keys[0] || DEFAULT_MODEL_KEY));
+    var normalizedTemplates = typeof normalizeModelItemTemplates === 'function'
+      ? normalizeModelItemTemplates(modelItemTemplates || {}, resolvedConfigs)
+      : (modelItemTemplates || {});
+    return {
+      form: {
+        modelo:safeModelKey, nomeLoja:'', visita:'1° Visita', coordArko:'', setor:'', gerenteLoja:'', gerenteAcompanhou:true,
+        data:new Date().toISOString().slice(0,10), horaVisita:'', produtosIdentificados:'', impactoMercadoria:''
+      },
+      items: JSON.parse(JSON.stringify((normalizedTemplates && normalizedTemplates[safeModelKey]) || buildItemsFromModel(safeModelKey))),
+      streetCounts: typeof isStreetCountEnabled === 'function' && isStreetCountEnabled(safeModelKey) ? makeDefaultStreetCounts(safeModelKey) : [],
+      storeStreetTemplates: typeof normalizeStoreStreetTemplates === 'function' ? normalizeStoreStreetTemplates(storeStreetTemplates || {}) : (storeStreetTemplates || {}),
+      modelItemTemplates: normalizedTemplates,
+      modelConfigs: resolvedConfigs
+    };
+  }
+
+  function patchedNormalizeState(candidate){
+    var localConfig = null;
+    try {
+      localConfig = typeof loadLocalConfigSnapshot === 'function' ? loadLocalConfigSnapshot() : null;
+    } catch (e) {}
+
+    var resolvedConfigs = (typeof migrateConfigurableModels === 'function')
+      ? migrateConfigurableModels((candidate && candidate.modelConfigs) || (window.state && state.modelConfigs) || (localConfig && localConfig.payload && localConfig.payload.modelConfigs) || buildInitialConfigurableModels())
+      : (((candidate && candidate.modelConfigs) || (window.state && state.modelConfigs) || (localConfig && localConfig.payload && localConfig.payload.modelConfigs) || buildInitialConfigurableModels()));
+
+    var configKeys = Object.keys(resolvedConfigs || {});
+    var selectedModel = (candidate && candidate.form && candidate.form.modelo && resolvedConfigs[candidate.form.modelo])
+      ? candidate.form.modelo
+      : ((resolvedConfigs && resolvedConfigs[DEFAULT_MODEL_KEY]) ? DEFAULT_MODEL_KEY : (configKeys[0] || DEFAULT_MODEL_KEY));
+
+    var defaults = patchedBuildDefaultState(
+      candidate && candidate.storeStreetTemplates,
+      candidate && candidate.modelItemTemplates,
+      selectedModel,
+      resolvedConfigs
+    );
+
+    if (!candidate || typeof candidate !== 'object') return defaults;
+
+    var items = Array.isArray(candidate.items) && candidate.items.length
+      ? defaults.items.map(function(defaultItem, index){ return normalizeItem(candidate.items[index] || defaultItem, index, selectedModel); })
+      : JSON.parse(JSON.stringify(defaults.items));
+    items.forEach(function(item, index){ item.id = index + 1; });
+
+    var storeStreetTemplates = typeof normalizeStoreStreetTemplates === 'function'
+      ? normalizeStoreStreetTemplates(candidate.storeStreetTemplates || {})
+      : (candidate.storeStreetTemplates || {});
+
+    var streetCounts = Array.isArray(candidate.streetCounts) && candidate.streetCounts.length
+      ? candidate.streetCounts.map(function(row, index){ return normalizeStreetCount(row, index, selectedModel); })
+      : JSON.parse(JSON.stringify(defaults.streetCounts));
+
+    var modelItemTemplates = typeof normalizeModelItemTemplates === 'function'
+      ? normalizeModelItemTemplates(candidate.modelItemTemplates || defaults.modelItemTemplates || {}, resolvedConfigs)
+      : (candidate.modelItemTemplates || defaults.modelItemTemplates || {});
+
+    var next = {
+      form: Object.assign({}, defaults.form, (candidate.form || {}), { modelo:selectedModel, data: formatDateForInput((candidate && candidate.form && candidate.form.data) || defaults.form.data) }),
+      items: items,
+      streetCounts: streetCounts,
+      storeStreetTemplates: storeStreetTemplates,
+      modelItemTemplates: modelItemTemplates,
+      modelConfigs: resolvedConfigs
+    };
+
+    if (typeof applyAutomaticAreas === 'function') next = applyAutomaticAreas(next);
+    if (typeof applyAutomaticNonConformities === 'function') next = applyAutomaticNonConformities(next);
+    return next;
+  }
+
+  buildDefaultState = patchedBuildDefaultState;
+  normalizeState = patchedNormalizeState;
+  window.buildDefaultState = patchedBuildDefaultState;
+  window.normalizeState = patchedNormalizeState;
+
+  loadDraft = function() {
+    try {
+      var localConfig = typeof loadLocalConfigSnapshot === 'function' ? loadLocalConfigSnapshot() : null;
+      var resolvedConfigs = (localConfig && localConfig.payload && localConfig.payload.modelConfigs) ? localConfig.payload.modelConfigs : ((window.state && state.modelConfigs) || buildInitialConfigurableModels());
+      var local = typeof getLocalDraftSnapshot === 'function' ? getLocalDraftSnapshot() : {};
+      if (local && local.state && local.state.form && Array.isArray(local.state.items)) {
+        local.state.modelConfigs = local.state.modelConfigs || resolvedConfigs;
+        state = normalizeState(local.state);
+      } else {
+        state = normalizeState({ modelConfigs: resolvedConfigs, modelItemTemplates: (localConfig && localConfig.payload && localConfig.payload.modelItemTemplates) || {} });
+      }
+      if (localConfig && localConfig.payload) {
+        applyConfigPayload(localConfig.payload);
+        state = normalizeState({
+          modelConfigs: (localConfig.payload && localConfig.payload.modelConfigs) || state.modelConfigs,
+          modelItemTemplates: (localConfig.payload && localConfig.payload.modelItemTemplates) || state.modelItemTemplates,
+          form: state.form,
+          items: state.items,
+          streetCounts: state.streetCounts,
+          storeStreetTemplates: state.storeStreetTemplates
+        });
+      }
+    } catch (err) {
+      console.warn('Não foi possível carregar rascunho (patch NC).', err);
+    }
+  };
+  window.loadDraft = loadDraft;
 })();
 </script>
 

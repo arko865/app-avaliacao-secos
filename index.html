@@ -3298,6 +3298,8 @@ function bindNewConfigEvents(){ removeConfigUi(); }
 (function(){
   let configEditorDraft = null;
   let configEditorModelKeyV2 = DEFAULT_MODEL_KEY;
+  window.configEditorDraft = null;
+  window.configEditorModelKeyV2 = DEFAULT_MODEL_KEY;
 
   function getConfigsForEditor(){
     return clone(getAllModelConfigs());
@@ -3687,6 +3689,8 @@ function bindNewConfigEvents(){ removeConfigUi(); }
         items: [{ id: 1, description: 'Novo item de avaliação', section: 'deposito', areaKey: 'area_1', ncKey: 'nc_1' }]
       };
       configEditorModelKeyV2 = baseKey;
+      window.configEditorDraft = configEditorDraft;
+      window.configEditorModelKeyV2 = configEditorModelKeyV2;
       renderManageItems();
       showToast('Novo documento criado. Salve para torná-lo oficial.');
     };
@@ -3696,6 +3700,8 @@ function bindNewConfigEvents(){ removeConfigUi(); }
       const toDelete = configEditorModelKeyV2;
       delete configEditorDraft[toDelete];
       configEditorModelKeyV2 = Object.keys(configEditorDraft)[0] || DEFAULT_MODEL_KEY;
+      window.configEditorDraft = configEditorDraft;
+      window.configEditorModelKeyV2 = configEditorModelKeyV2;
       renderManageItems();
       showToast('Documento removido do rascunho. Salve para confirmar.');
     };
@@ -3739,6 +3745,8 @@ function bindNewConfigEvents(){ removeConfigUi(); }
   function openManageItemsModal(){
     configEditorDraft = buildEditorDraftFromConfigs();
     configEditorModelKeyV2 = state.form?.modelo && configEditorDraft[state.form.modelo] ? state.form.modelo : (Object.keys(configEditorDraft)[0] || DEFAULT_MODEL_KEY);
+    window.configEditorDraft = configEditorDraft;
+    window.configEditorModelKeyV2 = configEditorModelKeyV2;
     const modal = document.getElementById('manageItemsModal');
     if (!modal) return;
     renderManageItems();
@@ -3752,10 +3760,13 @@ function bindNewConfigEvents(){ removeConfigUi(); }
     modal.classList.remove('open');
     modal.setAttribute('aria-hidden', 'true');
     configEditorDraft = null;
+    window.configEditorDraft = null;
   }
 
   function saveManageItems(){
     if (!configEditorDraft) return;
+    window.configEditorDraft = configEditorDraft;
+    window.configEditorModelKeyV2 = configEditorModelKeyV2;
     const compiled = compileEditorDraft();
     const availableKeys = Object.keys(compiled);
     if (!availableKeys.length) {
@@ -3826,6 +3837,9 @@ function bindNewConfigEvents(){ removeConfigUi(); }
     renderApp();
   }
 
+  window.configEditorDraft = configEditorDraft;
+  window.configEditorModelKeyV2 = configEditorModelKeyV2;
+  window.compileEditorDraft = compileEditorDraft;
   window.renderManageItems = renderManageItems;
   window.openManageItemsModal = openManageItemsModal;
   window.closeManageItemsModal = closeManageItemsModal;

@@ -1345,7 +1345,37 @@ function buildDropdownOptions(options, selectedValues, inputAttrsBuilder){
     </label>
   `).join('');
 }
+function captureManageViewState(){
+  const panel = document.querySelector('#manageItemsModal .manage-panel');
+  const list = document.getElementById('manageItemsList');
+  return {
+    panelScrollTop: panel ? panel.scrollTop : 0,
+    listScrollTop: list ? list.scrollTop : 0,
+    openDropdownIds: Array.from(document.querySelectorAll('#manageItemsModal .dropdown-panel.open')).map(panel => panel.id),
+    openSections: Array.from(document.querySelectorAll('#manageItemsModal [data-manage-section].open')).map(section => section.dataset.manageSection)
+  };
+}
+function restoreManageViewState(viewState){
+  if (!viewState) return;
+  requestAnimationFrame(() => {
+    const panel = document.querySelector('#manageItemsModal .manage-panel');
+    const list = document.getElementById('manageItemsList');
+    if (panel) panel.scrollTop = Number(viewState.panelScrollTop || 0);
+    if (list) list.scrollTop = Number(viewState.listScrollTop || 0);
+    (viewState.openSections || []).forEach(key => {
+      const block = document.querySelector(`#manageItemsModal [data-manage-section="${key}"]`);
+      const btn = document.querySelector(`#manageItemsModal [data-manage-toggle="${key}"]`);
+      if (block) block.classList.add('open');
+      if (btn) btn.setAttribute('aria-expanded', 'true');
+    });
+    (viewState.openDropdownIds || []).forEach(id => {
+      const dropdown = document.getElementById(id);
+      if (dropdown) dropdown.classList.add('open');
+    });
+  });
+}
 function renderManageItems() {
+  const viewState = captureManageViewState();
   const list = document.getElementById('manageItemsList');
   const areasBox = document.getElementById('manageAreasList');
   const ncBox = document.getElementById('manageNcList');
@@ -1584,6 +1614,7 @@ function renderManageItems() {
     renderManageItems();
   });
   setupDropdowns(list);
+  restoreManageViewState(viewState);
 }
 
 function reindexItems(targetItems = state.items, modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY) {

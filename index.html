@@ -113,7 +113,15 @@
     .manage-grid { display:grid; grid-template-columns:170px 140px 1fr; gap:12px; }
     .manage-footer { display:flex; justify-content:space-between; gap:12px; margin-top:16px; flex-wrap:wrap; }
     .manage-empty { color:var(--muted); font-size:14px; border:1px dashed var(--border); padding:16px; border-radius:14px; text-align:center; }
-    .manage-section-block { margin-top:18px; border:1px solid var(--border); border-radius:18px; padding:14px; background:#f8fafc; }
+    .manage-section-block { margin-top:18px; border:1px solid var(--border); border-radius:18px; background:#f8fafc; overflow:hidden; }
+    .manage-section-header { width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 18px; background:#f8fafc; border:none; cursor:pointer; text-align:left; }
+    .manage-section-title { margin:0; font-size:20px; font-weight:900; }
+    .manage-section-icon { flex:0 0 auto; width:34px; height:34px; border-radius:999px; display:grid; place-items:center; border:1px solid var(--border); background:#fff; font-size:22px; font-weight:900; line-height:1; }
+    .manage-section-content { display:none; padding:0 18px 18px; }
+    .manage-section-block.open .manage-section-content { display:block; }
+    .manage-section-block.open .manage-section-icon { background:#0f172a; color:#fff; }
+    .manage-section-actions { margin-top:14px; }
+
     .manage-section-title { margin:0 0 12px; font-size:16px; font-weight:900; }
     .linked-tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
     .linked-tag { display:inline-flex; align-items:center; border:1px solid #d8e0ea; background:#fff; border-radius:999px; padding:6px 10px; font-size:12px; font-weight:800; }
@@ -368,16 +376,34 @@
         <button id="closeManageItemsBtn" class="btn secondary" type="button">Fechar</button>
       </div>
       <div class="manage-body">
-        <div id="manageItemsList" class="manage-list"></div>
-        <div class="manage-section-block">
-          <h3 class="manage-section-title">Áreas avaliadas</h3>
-          <div id="manageAreasList"></div>
-          <button id="addAreaDefinitionBtn" class="btn secondary" type="button">+ Adicionar área avaliada</button>
+        <div class="manage-section-block open" data-manage-section="items">
+          <button class="manage-section-header" type="button" data-manage-toggle="items" aria-expanded="true">
+            <h3 class="manage-section-title">Itens</h3>
+            <span class="manage-section-icon">+</span>
+          </button>
+          <div class="manage-section-content">
+            <div id="manageItemsList" class="manage-list"></div>
+          </div>
         </div>
-        <div class="manage-section-block">
-          <h3 class="manage-section-title">Não conformidades</h3>
-          <div id="manageNcList"></div>
-          <button id="addNcDefinitionBtn" class="btn secondary" type="button">+ Adicionar área não conforme</button>
+        <div class="manage-section-block" data-manage-section="areas">
+          <button class="manage-section-header" type="button" data-manage-toggle="areas" aria-expanded="false">
+            <h3 class="manage-section-title">Áreas avaliadas</h3>
+            <span class="manage-section-icon">+</span>
+          </button>
+          <div class="manage-section-content">
+            <div id="manageAreasList"></div>
+            <div class="manage-section-actions"><button id="addAreaDefinitionBtn" class="btn secondary" type="button">+ Adicionar área avaliada</button></div>
+          </div>
+        </div>
+        <div class="manage-section-block" data-manage-section="ncs">
+          <button class="manage-section-header" type="button" data-manage-toggle="ncs" aria-expanded="false">
+            <h3 class="manage-section-title">Não conformidades</h3>
+            <span class="manage-section-icon">+</span>
+          </button>
+          <div class="manage-section-content">
+            <div id="manageNcList"></div>
+            <div class="manage-section-actions"><button id="addNcDefinitionBtn" class="btn secondary" type="button">+ Adicionar área não conforme</button></div>
+          </div>
         </div>
         <div class="manage-footer">
           <button id="addDepositoItemBtn" class="btn secondary" type="button">+ Adicionar em Depósito / Aéreo</button>
@@ -813,7 +839,8 @@ function normalizeState(candidate) {
     items,
     streetCounts,
     storeStreetTemplates,
-    modelItemTemplates
+    modelItemTemplates,
+    modelConfigs: candidate?.modelConfigs ? clone(candidate.modelConfigs) : undefined
   });
 }
 function buildDefaultState(storeStreetTemplates = {}, modelItemTemplates = {}, modelKey = DEFAULT_MODEL_KEY) {
@@ -1407,6 +1434,8 @@ function renderManageItems() {
       </div>
     </div>`).join('') : '<div class="manage-empty">Nenhuma área avaliada cadastrada.</div>';
 
+  bindManageSectionAccordions();
+
   const ncs = modelDraft.ncDefinitions || [];
   ncBox.innerHTML = ncs.length ? ncs.map((nc, index) => `
     <div class="definition-card">
@@ -1545,6 +1574,18 @@ function renderManageItems() {
 function reindexItems(targetItems = state.items, modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY) {
   return targetItems.map((item, index) => normalizeItem({ ...item, id: index + 1 }, index, modelKey));
 }
+function bindManageSectionAccordions(){
+  document.querySelectorAll('#manageItemsModal [data-manage-toggle]').forEach(btn => {
+    btn.onclick = () => {
+      const key = btn.dataset.manageToggle;
+      const block = document.querySelector(`#manageItemsModal [data-manage-section="${key}"]`);
+      if (!block) return;
+      block.classList.toggle('open');
+      btn.setAttribute('aria-expanded', block.classList.contains('open') ? 'true' : 'false');
+    };
+  });
+}
+
 function openManageItemsModal() {
   manageDraftItems = clone(state.items);
   state.modelConfigs = getCurrentModelConfigsSnapshot();
@@ -2380,6 +2421,7 @@ function init() {
     if (document.visibilityState !== 'visible') { persistState(); }
   });
 }
+document.getElementById('configureModelsBtn')?.remove();
 init();
 </script>
 
@@ -2561,6 +2603,52 @@ function migrateConfigurableModels(raw){
   }
   return next;
 }
+
+function prettifyRecoveredLabel(value){
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  return raw
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\b\w/g, chr => chr.toUpperCase());
+}
+function recoverLegacyDefinitionsFromItems(candidate, configs){
+  if (!candidate || typeof candidate !== 'object') return configs;
+  const modelKey = candidate?.form?.modelo && configs[candidate.form.modelo] ? candidate.form.modelo : DEFAULT_MODEL_KEY;
+  const model = configs[modelKey];
+  if (!model) return configs;
+  const items = Array.isArray(candidate.items) ? candidate.items : [];
+  const recoveredAreas = {};
+  const recoveredNcs = {};
+  items.forEach((item, index) => {
+    const itemId = index + 1;
+    const areaKeys = Array.isArray(item?.areaKeys) ? item.areaKeys : [];
+    areaKeys.forEach(key => {
+      const normalizedKey = slugifyConfigKey(key || `area_${itemId}`);
+      if (!recoveredAreas[normalizedKey]) recoveredAreas[normalizedKey] = { key: normalizedKey, label: prettifyRecoveredLabel(key) || `Área ${itemId}`, itemIds: [] };
+      recoveredAreas[normalizedKey].itemIds.push(itemId);
+    });
+    const ncLabels = Array.isArray(item?.ncLabels) ? item.ncLabels : [];
+    ncLabels.forEach(label => {
+      const normalizedLabel = String(label || '').trim();
+      if (!normalizedLabel) return;
+      if (!recoveredNcs[normalizedLabel]) recoveredNcs[normalizedLabel] = { label: normalizedLabel, itemIds: [] };
+      recoveredNcs[normalizedLabel].itemIds.push(itemId);
+    });
+  });
+  const existingAreaKeys = new Set((model.areaDefinitions || []).map(area => area.key));
+  const existingNcLabels = new Set((model.ncDefinitions || []).map(nc => nc.label));
+  Object.values(recoveredAreas).forEach(area => {
+    if (!existingAreaKeys.has(area.key)) (model.areaDefinitions = Array.isArray(model.areaDefinitions) ? model.areaDefinitions : []).push({ key: area.key, label: area.label, itemIds: uniqueSortedNumbers(area.itemIds) });
+  });
+  Object.values(recoveredNcs).forEach(nc => {
+    if (!existingNcLabels.has(nc.label)) (model.ncDefinitions = Array.isArray(model.ncDefinitions) ? model.ncDefinitions : []).push({ label: nc.label, itemIds: uniqueSortedNumbers(nc.itemIds) });
+  });
+  (model.areaDefinitions || []).forEach(area => { area.itemIds = uniqueSortedNumbers(area.itemIds); });
+  (model.ncDefinitions || []).forEach(nc => { nc.itemIds = uniqueSortedNumbers(nc.itemIds); });
+  return configs;
+}
+
 function getAllModelConfigs(){
   return migrateConfigurableModels(state?.modelConfigs || buildInitialConfigurableModels());
 }
@@ -2753,7 +2841,7 @@ function buildDefaultState(storeStreetTemplates = {}, modelItemTemplates = {}, m
   };
 }
 function normalizeState(candidate) {
-  const configs = migrateConfigurableModels(candidate?.modelConfigs || state?.modelConfigs || buildInitialConfigurableModels());
+  const configs = recoverLegacyDefinitionsFromItems(candidate, migrateConfigurableModels(candidate?.modelConfigs || state?.modelConfigs || buildInitialConfigurableModels()));
   state.modelConfigs = configs;
   const selectedModel = candidate?.form?.modelo && configs[candidate.form.modelo] ? candidate.form.modelo : DEFAULT_MODEL_KEY;
   const defaults = buildDefaultState(candidate?.storeStreetTemplates || {}, candidate?.modelItemTemplates || {}, selectedModel, configs);
@@ -3046,15 +3134,9 @@ function saveStreetCounts() {
 let configDraft = null;
 let configEditorModelKey = DEFAULT_MODEL_KEY;
 function injectConfigButtonAndModal(){
-  if (!document.getElementById('configureModelsBtn')) {
-    const anchor = document.getElementById('streetCountsBtn') || document.querySelector('.top-actions');
-    const btn = document.createElement('button');
-    btn.id = 'configureModelsBtn';
-    btn.className = 'btn secondary';
-    btn.type = 'button';
-    btn.textContent = 'Configurar avaliação';
-    anchor?.parentNode?.insertBefore(btn, anchor.nextSibling);
-  }
+  document.getElementById('configureModelsBtn')?.remove();
+  document.getElementById('configModelsModal')?.remove();
+  return;
   if (document.getElementById('configModelsModal')) return;
   const modal = document.createElement('div');
   modal.id = 'configModelsModal';
@@ -3417,65 +3499,7 @@ function bindNewConfigEvents(){
   function debounceManageCommit(){ clearTimeout(managePersistTimer); managePersistTimer = setTimeout(()=>{ try { syncManageDraftToState(); } catch (e) {} }, 60); }
   function debounceStreetCommit(){ clearTimeout(streetPersistTimer); streetPersistTimer = setTimeout(()=>{ try { syncStreetDraftToState(); } catch (e) {} }, 60); }
 
-  function setupManageAccordionLayout(){
-    const body = document.querySelector('#manageItemsModal .manage-body');
-    const itemList = document.getElementById('manageItemsList');
-    const areasBlock = document.querySelector('#manageItemsModal .manage-section-block:nth-of-type(1)');
-    const ncBlock = document.querySelector('#manageItemsModal .manage-section-block:nth-of-type(2)');
-    const addDep = document.getElementById('addDepositoItemBtn');
-    const addVenda = document.getElementById('addVendaItemBtn');
-    const saveBtn = document.getElementById('saveManageItemsBtn');
-    if (!body || !itemList || !areasBlock || !ncBlock || !addDep || !addVenda || !saveBtn) return;
-    if (body.dataset.accordionReady === '1') return;
-    const saveWrap = document.createElement('div');
-    saveWrap.className = 'manage-save-wrap';
-    saveWrap.appendChild(saveBtn);
-
-    const itemsDetails = document.createElement('details');
-    itemsDetails.className = 'manage-accordion';
-    itemsDetails.open = true;
-    itemsDetails.innerHTML = '<summary><span>Itens</span><span class="manage-accordion-plus">+</span></summary><div class="manage-accordion-body"></div>';
-    const itemsBody = itemsDetails.querySelector('.manage-accordion-body');
-    itemsBody.appendChild(itemList);
-    const itemBtns = document.createElement('div');
-    itemBtns.className = 'actions';
-    itemBtns.style.margin = '0';
-    itemBtns.appendChild(addDep);
-    itemBtns.appendChild(addVenda);
-    itemsBody.appendChild(itemBtns);
-
-    function convertBlockToAccordion(block, title){
-      const details = document.createElement('details');
-      details.className = 'manage-accordion';
-      details.innerHTML = `<summary><span>${title}</span><span class="manage-accordion-plus">+</span></summary><div class="manage-accordion-body"></div>`;
-      const content = details.querySelector('.manage-accordion-body');
-      Array.from(block.childNodes).forEach(node => {
-        if (node.nodeType === 1 && node.tagName.toLowerCase() === 'h3') return;
-        content.appendChild(node);
-      });
-      return details;
-    }
-    const areaDetails = convertBlockToAccordion(areasBlock, 'Áreas avaliadas');
-    const ncDetails = convertBlockToAccordion(ncBlock, 'Não conformidades');
-
-    body.innerHTML = '';
-    body.appendChild(itemsDetails);
-    body.appendChild(areaDetails);
-    body.appendChild(ncDetails);
-    body.appendChild(saveWrap);
-    body.dataset.accordionReady = '1';
-  }
-
-  const originalOpenManage = window.openManageItemsModal;
-  window.openManageItemsModal = function patchedOpenManageItemsModal(){
-    originalOpenManage();
-    setupManageAccordionLayout();
-  };
-  const originalRenderManage = window.renderManageItems;
-  window.renderManageItems = function patchedRenderManageItems(){
-    originalRenderManage();
-    setupManageAccordionLayout();
-  };
+  function setupManageAccordionLayout(){ return; }
 
   function removeConfigureUi(){
     document.getElementById('configureModelsBtn')?.remove();

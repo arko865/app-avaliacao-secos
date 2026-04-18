@@ -3851,5 +3851,130 @@ function bindNewConfigEvents(){ removeConfigUi(); }
 })();
 </script>
 
+
+<script>
+/* === Patch: revisão geral dos menus e botões === */
+(function(){
+  function safeCall(fnName){
+    try {
+      const fn = window[fnName];
+      if (typeof fn === 'function') fn();
+    } catch (err) {
+      console.error('Erro ao executar', fnName, err);
+      if (typeof showToast === 'function') showToast('Ocorreu um erro ao executar esta ação.');
+    }
+  }
+
+  function bindClick(id, handler){
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.onclick = handler;
+  }
+
+  function rebindPrimaryButtons(){
+    bindClick('manageItemsBtn', () => safeCall('openManageItemsModal'));
+    bindClick('streetCountsBtn', () => safeCall('openStreetCountsModal'));
+    bindClick('closeManageItemsBtn', () => safeCall('closeManageItemsModal'));
+    bindClick('closeManageItemsFooterBtn', () => safeCall('closeManageItemsModal'));
+    bindClick('closeStreetCountsBtn', () => safeCall('closeStreetCountsModal'));
+    bindClick('saveManageItemsBtn', () => safeCall('saveManageItems'));
+    bindClick('saveStreetCountsBtn', () => safeCall('saveStreetCounts'));
+    bindClick('addStreetCountRowBtn', () => safeCall('addStreetCountRow'));
+  }
+
+  function ensureModalOverlayClose(modalId, closeFnName){
+    const modal = document.getElementById(modalId);
+    if (!modal) return;
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) safeCall(closeFnName);
+    });
+  }
+
+  function improveModalAccessibility(){
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      const manage = document.getElementById('manageItemsModal');
+      const street = document.getElementById('streetCountsModal');
+      if (manage && manage.classList.contains('open')) safeCall('closeManageItemsModal');
+      if (street && street.classList.contains('open')) safeCall('closeStreetCountsModal');
+    });
+  }
+
+  function keepButtonsBound(){
+    rebindPrimaryButtons();
+    requestAnimationFrame(rebindPrimaryButtons);
+    setTimeout(rebindPrimaryButtons, 50);
+    setTimeout(rebindPrimaryButtons, 250);
+  }
+
+  const originalRenderAppForButtons = window.renderApp;
+  if (typeof originalRenderAppForButtons === 'function') {
+    window.renderApp = function(){
+      const result = originalRenderAppForButtons.apply(this, arguments);
+      keepButtonsBound();
+      return result;
+    };
+  }
+
+  const originalRenderManageItems = window.renderManageItems;
+  if (typeof originalRenderManageItems === 'function') {
+    window.renderManageItems = function(){
+      const result = originalRenderManageItems.apply(this, arguments);
+      keepButtonsBound();
+      return result;
+    };
+  }
+
+  const originalRenderStreetCounts = window.renderStreetCounts;
+  if (typeof originalRenderStreetCounts === 'function') {
+    window.renderStreetCounts = function(){
+      const result = originalRenderStreetCounts.apply(this, arguments);
+      keepButtonsBound();
+      return result;
+    };
+  }
+
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+
+    if (btn.id === 'closeManageItemsBtn' || btn.id === 'closeManageItemsFooterBtn') {
+      e.preventDefault();
+      safeCall('closeManageItemsModal');
+    }
+    if (btn.id === 'closeStreetCountsBtn') {
+      e.preventDefault();
+      safeCall('closeStreetCountsModal');
+    }
+    if (btn.id === 'saveManageItemsBtn') {
+      e.preventDefault();
+      safeCall('saveManageItems');
+    }
+    if (btn.id === 'saveStreetCountsBtn') {
+      e.preventDefault();
+      safeCall('saveStreetCounts');
+    }
+    if (btn.id === 'addStreetCountRowBtn') {
+      e.preventDefault();
+      safeCall('addStreetCountRow');
+    }
+  });
+
+  document.addEventListener('DOMContentLoaded', () => {
+    ensureModalOverlayClose('manageItemsModal', 'closeManageItemsModal');
+    ensureModalOverlayClose('streetCountsModal', 'closeStreetCountsModal');
+    improveModalAccessibility();
+    keepButtonsBound();
+  });
+
+  setTimeout(() => {
+    ensureModalOverlayClose('manageItemsModal', 'closeManageItemsModal');
+    ensureModalOverlayClose('streetCountsModal', 'closeStreetCountsModal');
+    improveModalAccessibility();
+    keepButtonsBound();
+  }, 0);
+})();
+</script>
+
 </body>
 </html>

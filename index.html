@@ -1255,6 +1255,11 @@ function loadDraft() {
     if (local.state && local.state.form && Array.isArray(local.state.items)) {
       state = normalizeState(local.state);
     }
+    const localConfig = loadLocalConfigSnapshot();
+    if (localConfig.payload) {
+      applyConfigPayload(localConfig.payload);
+      state = normalizeState(state);
+    }
   } catch (err) { console.warn('Não foi possível carregar rascunho.', err); }
 }
 
@@ -2333,6 +2338,7 @@ function init() {
   const localConfig = loadLocalConfigSnapshot();
   if (localConfig.payload) applyConfigPayload(localConfig.payload);
   loadDraft();
+  if (localConfig.payload) applyConfigPayload(localConfig.payload);
   state = normalizeState(state);
   if (!getLocalDraftSnapshot().state) restoreFailSafeCheckpoint();
   renderApp();
@@ -3120,6 +3126,12 @@ function injectConfigButtonAndModal(){
           </div>
         </div>
         <div class="card" style="box-shadow:none; margin-top:16px;">
+          <div class="card-header"><h3 class="card-title" style="font-size:18px;">Itens do modelo</h3></div>
+          <div class="card-content">
+            <div id="configItemsList" class="manage-list"></div>
+          </div>
+        </div>
+        <div class="card" style="box-shadow:none; margin-top:16px;">
           <div class="card-header"><h3 class="card-title" style="font-size:18px;">Novo item</h3></div>
           <div class="card-content">
             <div class="grid-2">
@@ -3170,6 +3182,31 @@ function ensureConfigDraftModel(modelKey){
   if (!configDraft.templates[modelKey]) configDraft.templates[modelKey] = buildItemsFromModel(modelKey);
   return configDraft.models[modelKey];
 }
+function getConfigDraftTemplates(modelKey = configEditorModelKey){
+  const normalizedModelKey = modelKey || configEditorModelKey || DEFAULT_MODEL_KEY;
+  const existing = Array.isArray(configDraft?.templates?.[normalizedModelKey]) ? configDraft.templates[normalizedModelKey] : [];
+  const base = existing.length ? existing : buildItemsFromModel(normalizedModelKey);
+  return reindexItems(clone(base), normalizedModelKey);
+}
+function applyConfigTemplates(modelKey, templates, oldIds = []){
+  const normalizedModelKey = modelKey || configEditorModelKey || DEFAULT_MODEL_KEY;
+  const model = ensureConfigDraftModel(normalizedModelKey);
+  const nextTemplates = reindexItems(clone(Array.isArray(templates) ? templates : []), normalizedModelKey).map((item, index) => normalizeItem(item, index, normalizedModelKey));
+  configDraft.templates[normalizedModelKey] = nextTemplates;
+  model.items = nextTemplates.map(item => ({ description:item.description, section:item.section }));
+  if (Array.isArray(oldIds) && oldIds.length) {
+    const idMap = {};
+    oldIds.forEach((oldId, index) => {
+      if (index < nextTemplates.length) idMap[Number(oldId) || (index + 1)] = index + 1;
+    });
+    ['areaDefinitions','ncDefinitions'].forEach(bucket => {
+      (model[bucket] || []).forEach(entry => {
+        entry.itemIds = uniqueSortedNumbers((entry.itemIds || []).map(itemId => idMap[itemId]).filter(Boolean));
+      });
+    });
+  }
+  return nextTemplates;
+}
 function renderConfigModal(){
   injectConfigButtonAndModal();
   const select = document.getElementById('configModelSelect');
@@ -3203,6 +3240,24 @@ function renderConfigModal(){
   areasChecks.innerHTML = (model.areaDefinitions || []).map(area=>`<label class="check-chip"><input type="checkbox" value="${escapeHtml(area.key)}" data-config-new-item-area /> <span>${escapeHtml(area.label)}</span></label>`).join('') || '<span class="muted-note">Cadastre primeiro uma área avaliada.</span>';
   const ncChecks = document.getElementById('newConfigItemNcs');
   ncChecks.innerHTML = (model.ncDefinitions || []).map((nc, idx)=>`<label class="check-chip"><input type="checkbox" value="${idx}" data-config-new-item-nc /> <span>${escapeHtml(nc.label)}</span></label>`).join('') || '<span class="muted-note">Cadastre primeiro uma não conformidade.</span>';
+  const templates = getConfigDraftTemplates(configEditorModelKey);
+  const itemsList = document.getElementById('configItemsList');
+  itemsList.innerHTML = templates.map((item, index)=>`
+    <div class="manage-item config-item-row" data-config-item-row="${index}" data-config-item-old-id="${item.id}">
+      <div class="manage-item-top">
+        <div class="manage-item-id">Item ${index + 1}</div>
+      </div>
+      <div class="manage-grid" style="grid-template-columns:minmax(0,1fr) 220px;">
+        <div class="field"><label>Descrição</label><input data-config-item-index="${index}" data-config-item-old-id="${item.id}" data-config-item-field="description" value="${escapeHtml(item.description || '')}" /></div>
+        <div class="field"><label>Seção</label>
+          <select data-config-item-index="${index}" data-config-item-old-id="${item.id}" data-config-item-field="section">
+            <option value="deposito" ${item.section === 'venda' ? '' : 'selected'}>Depósito / Aéreo</option>
+            <option value="venda" ${item.section === 'venda' ? 'selected' : ''}>Área de Venda</option>
+          </select>
+        </div>
+      </div>
+      <div class="history-actions"><button class="icon-btn danger" type="button" data-remove-config-item="${index}" data-config-item-old-id="${item.id}">Excluir item</button></div>
+    </div>`).join('') || '<div class="manage-empty">Nenhum item cadastrado neste modelo.</div>';
 
   select.onchange = (e)=>{ syncConfigDraftFromDom(); configEditorModelKey = e.target.value; renderConfigModal(); };
   document.getElementById('configModelLabel').oninput = (e)=>{ model.label = e.target.value; select.querySelector(`option[value="${model.key}"]`).textContent = model.label || model.key; };
@@ -3227,6 +3282,14 @@ function renderConfigModal(){
   ncList.querySelectorAll('[data-remove-config-nc]').forEach(btn=>btn.onclick = ()=>{
     syncConfigDraftFromDom(); model.ncDefinitions.splice(Number(btn.dataset.removeConfigNc),1); renderConfigModal();
   });
+  itemsList.querySelectorAll('[data-remove-config-item]').forEach(btn=>btn.onclick = ()=>{
+    syncConfigDraftFromDom();
+    const oldTemplates = getConfigDraftTemplates(configEditorModelKey);
+    const oldIds = oldTemplates.map(item => Number(item.id));
+    oldTemplates.splice(Number(btn.dataset.removeConfigItem), 1);
+    applyConfigTemplates(configEditorModelKey, oldTemplates, oldIds);
+    renderConfigModal();
+  });
 }
 
 function syncConfigDraftFromDom(){
@@ -3238,6 +3301,27 @@ function syncConfigDraftFromDom(){
   const reportInput = scope.querySelector('#configReportLabel');
   if (labelInput) model.label = labelInput.value.trim() || model.label || model.key;
   if (reportInput) model.reportLabel = reportInput.value.trim() || model.reportLabel || 'Formulário de Avaliação';
+
+  const currentTemplates = getConfigDraftTemplates(configEditorModelKey);
+  const currentIds = currentTemplates.map(item => Number(item.id));
+  const itemRows = Array.from(scope.querySelectorAll('[data-config-item-row]'));
+  if (itemRows.length) {
+    const nextTemplates = itemRows.map((row, index) => {
+      const oldId = Number(row.dataset.configItemOldId) || (index + 1);
+      const descriptionInput = row.querySelector('[data-config-item-field="description"]');
+      const sectionInput = row.querySelector('[data-config-item-field="section"]');
+      const fallback = currentTemplates.find(item => Number(item.id) === oldId) || currentTemplates[index] || normalizeItem({}, index, configEditorModelKey);
+      return {
+        ...fallback,
+        id: oldId,
+        description: descriptionInput ? descriptionInput.value.trim() : (fallback.description || ''),
+        section: sectionInput && sectionInput.value === 'venda' ? 'venda' : 'deposito'
+      };
+    });
+    applyConfigTemplates(configEditorModelKey, nextTemplates, currentIds);
+  } else {
+    applyConfigTemplates(configEditorModelKey, currentTemplates, currentIds);
+  }
 
   const areaMap = new Map();
   scope.querySelectorAll('[data-config-area-index]').forEach(input=>{
@@ -3321,7 +3405,7 @@ function createNewConfigModel(duplicateCurrent){
 function addConfiguredItem(){
   syncConfigDraftFromDom();
   const model = ensureConfigDraftModel(configEditorModelKey);
-  const templates = configDraft.templates[configEditorModelKey] = clone(configDraft.templates[configEditorModelKey] || buildItemsFromModel(configEditorModelKey));
+  const templates = getConfigDraftTemplates(configEditorModelKey);
   const description = document.getElementById('newConfigItemDescription').value.trim();
   if (!description) { showToast('Informe a descrição do item.'); return; }
   const section = document.getElementById('newConfigItemSection').value === 'venda' ? 'venda' : 'deposito';
@@ -3331,7 +3415,7 @@ function addConfiguredItem(){
   const inlineNc = document.getElementById('newConfigInlineNc').value.trim();
   const nextId = templates.length + 1;
   templates.push({ id: nextId, description, section, areaAvaliada:'', naoConformes:'', observacao:'', naoAvaliar:false });
-  model.items = templates.map(item=>({ description:item.description, section:item.section }));
+  applyConfigTemplates(configEditorModelKey, templates);
   if (inlineArea) {
     const key = slugifyConfigKey(inlineArea);
     if (!model.areaDefinitions.find(area=>area.key===key)) model.areaDefinitions.push({ key, label:inlineArea, itemIds:[nextId] });
@@ -3370,27 +3454,35 @@ function deleteConfigModel(){
 }
 
 function saveConfigModels(){
-  syncConfigDraftFromDom();
-  state.modelConfigs = migrateConfigurableModels(configDraft.models);
-  state.modelItemTemplates = normalizeModelItemTemplates(configDraft.templates, state.modelConfigs);
-  Object.values(state.modelConfigs).forEach(model=>{
-    const templates = state.modelItemTemplates[model.key] || [];
-    model.items = templates.map(item=>({ description:item.description, section:item.section }));
-  });
-  if (!state.modelConfigs[state.form.modelo]) {
-    state.form.modelo = Object.keys(state.modelConfigs)[0] || DEFAULT_MODEL_KEY;
+  try {
+    if (!configDraft) { showToast('Abra a configuração antes de salvar.'); return; }
+    syncConfigDraftFromDom();
+    state.modelConfigs = migrateConfigurableModels(clone(configDraft.models || {}));
+    state.modelItemTemplates = normalizeModelItemTemplates(clone(configDraft.templates || {}));
+    Object.values(state.modelConfigs).forEach(model=>{
+      const templates = state.modelItemTemplates[model.key] || [];
+      model.items = templates.map(item=>({ description:item.description, section:item.section }));
+    });
+    if (!state.modelConfigs[state.form.modelo]) {
+      state.form.modelo = Object.keys(state.modelConfigs)[0] || DEFAULT_MODEL_KEY;
+    }
+    const currentTemplates = state.modelItemTemplates[state.form.modelo] || buildItemsFromModel(state.form.modelo);
+    state.items = clearEvaluationValuesFromItems(currentTemplates, state.form.modelo);
+    state.streetCounts = isStreetCountEnabled(state.form.modelo) ? makeDefaultStreetCounts(state.form.modelo) : [];
+    if (state.form.nomeLoja && isStreetCountEnabled(state.form.modelo)) loadStreetCountsForStore(state.form.nomeLoja, state.form.modelo);
+    applyAutomaticAreas(state); applyAutomaticNonConformities(state);
+    const savedAt = Date.now();
+    writeLocalConfigSnapshot(getConfigPayloadFromState(state), savedAt);
+    writeLocalDraft(state, savedAt);
+    queueCloudConfigSync(true, savedAt);
+    queueCloudDraftSync(true, savedAt);
+    renderApp();
+    closeConfigModal();
+    showToast('Configuração da avaliação salva.');
+  } catch (err) {
+    console.error('Falha ao salvar configuração.', err);
+    showToast('Não foi possível salvar a configuração.');
   }
-  const currentTemplates = state.modelItemTemplates[state.form.modelo] || buildItemsFromModel(state.form.modelo);
-  state.items = clearEvaluationValuesFromItems(currentTemplates, state.form.modelo);
-  state.streetCounts = isStreetCountEnabled(state.form.modelo) ? makeDefaultStreetCounts(state.form.modelo) : [];
-  if (state.form.nomeLoja && isStreetCountEnabled(state.form.modelo)) loadStreetCountsForStore(state.form.nomeLoja, state.form.modelo);
-  applyAutomaticAreas(state); applyAutomaticNonConformities(state);
-  const configSavedAt = persistConfigState(true);
-  persistState(true);
-  writeLocalDraft(state, Math.max(getCurrentStateUpdatedAt(), configSavedAt));
-  renderApp();
-  closeConfigModal();
-  showToast('Configuração da avaliação salva.');
 }
 
 function bindNewConfigEvents(){

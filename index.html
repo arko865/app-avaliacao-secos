@@ -238,6 +238,94 @@
       }
     }
 
+    .editor-stack { gap:16px; }
+    .editor-doc-grid {
+      grid-template-columns:minmax(280px,1.15fr) minmax(260px,1fr) 200px;
+      align-items:end;
+    }
+    .editor-doc-actions { margin-top:12px; }
+    .editor-item-grid {
+      grid-template-columns:180px 220px 220px minmax(320px,1fr);
+      align-items:start;
+    }
+    .editor-item-grid textarea {
+      min-height:112px;
+      resize:vertical;
+      font-size:18px;
+      line-height:1.45;
+    }
+    .editor-simple-grid {
+      grid-template-columns:minmax(0,1fr) 160px;
+      align-items:end;
+    }
+
+    @media (min-width: 769px) and (max-width: 1180px) {
+      .manage-panel {
+        width:min(1100px, 96vw);
+        max-height:min(92vh, 980px);
+      }
+      .manage-header {
+        padding:18px 20px 0;
+      }
+      .manage-body {
+        padding:16px 20px 20px;
+      }
+      .editor-doc-grid {
+        grid-template-columns:1fr 1fr;
+      }
+      .editor-doc-grid > .field:last-child {
+        grid-column:1 / -1;
+        max-width:280px;
+      }
+      .editor-item-grid {
+        grid-template-columns:1fr 1fr;
+      }
+      .editor-item-grid > .field:last-child {
+        grid-column:1 / -1;
+      }
+      .manage-actions {
+        flex-wrap:wrap;
+      }
+    }
+
+    @media (min-width: 1181px) {
+      .manage-panel {
+        width:min(1320px, 94vw);
+        max-height:min(90vh, 980px);
+      }
+      .manage-header {
+        padding:20px 22px 0;
+      }
+      .manage-body {
+        padding:16px 22px 22px;
+      }
+      .manage-item {
+        padding:18px;
+      }
+      .manage-item-top {
+        align-items:flex-start;
+      }
+      .manage-actions .btn,
+      .manage-actions .icon-btn {
+        min-height:44px;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .editor-doc-grid,
+      .editor-item-grid,
+      .editor-simple-grid {
+        grid-template-columns:1fr;
+      }
+      .editor-item-grid textarea {
+        min-height:130px;
+        font-size:16px;
+      }
+      .editor-doc-actions {
+        margin-top:0;
+      }
+    }
+
   </style>
 </head>
 <body>
@@ -3344,9 +3432,9 @@ function bindNewConfigEvents(){ removeConfigUi(); }
     const ncOptions = editorNcOptions(model);
 
     body.innerHTML = `
-      <div class="manage-list" style="gap:16px;">
+      <div class="manage-list editor-stack">
         <div class="manage-item">
-          <div class="manage-grid" style="grid-template-columns:1.1fr 1fr 180px;">
+          <div class="manage-grid editor-doc-grid">
             <div class="field" style="margin:0;">
               <label>Documento em edição</label>
               <select id="configEditorModelSelect">${modelOptions}</select>
@@ -3367,7 +3455,7 @@ function bindNewConfigEvents(){ removeConfigUi(); }
             <label>Título do relatório em PDF</label>
             <input id="configEditorReportLabel" type="text" value="${escapeHtml(model.reportLabel)}" />
           </div>
-          <div class="manage-actions" style="margin-top:12px;">
+          <div class="manage-actions editor-doc-actions">
             <button id="createNewDocumentBtn" class="btn secondary" type="button">+ Nova avaliação</button>
             <button id="deleteCurrentDocumentBtn" class="btn danger" type="button" ${Object.keys(configEditorDraft).length <= 1 ? 'disabled' : ''}>Excluir documento</button>
           </div>
@@ -3392,7 +3480,7 @@ function bindNewConfigEvents(){ removeConfigUi(); }
                     <button class="icon-btn danger" type="button" data-config-delete-item="${index}">Excluir</button>
                   </div>
                 </div>
-                <div class="manage-grid" style="grid-template-columns:170px 200px 200px 1fr;">
+                <div class="manage-grid editor-item-grid">
                   <div class="field" style="margin:0;">
                     <label>Seção</label>
                     <select data-config-item-field="section" data-config-item-index="${index}">
@@ -3434,7 +3522,7 @@ function bindNewConfigEvents(){ removeConfigUi(); }
           <div class="manage-list">
             ${(model.areas || []).map((area, index) => `
               <div class="manage-item">
-                <div class="manage-grid" style="grid-template-columns:1fr 140px;">
+                <div class="manage-grid editor-simple-grid">
                   <div class="field" style="margin:0;">
                     <label>Nome da área</label>
                     <input type="text" data-config-area-index="${index}" value="${escapeHtml(area.label)}" />
@@ -3459,7 +3547,7 @@ function bindNewConfigEvents(){ removeConfigUi(); }
           <div class="manage-list">
             ${(model.ncs || []).map((nc, index) => `
               <div class="manage-item">
-                <div class="manage-grid" style="grid-template-columns:1fr 140px;">
+                <div class="manage-grid editor-simple-grid">
                   <div class="field" style="margin:0;">
                     <label>Nome da NC</label>
                     <input type="text" data-config-nc-index="${index}" value="${escapeHtml(nc.label)}" />

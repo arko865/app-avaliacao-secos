@@ -17,7 +17,7 @@
     * { box-sizing:border-box; }
     body { margin:0; font-family:Arial,Helvetica,sans-serif; background:var(--bg); color:var(--text); }
     .page { min-height:100vh; padding:16px; }
-    .layout { max-width:1440px; margin:0 auto; display:grid; gap:24px; grid-template-columns:minmax(0,1.35fr) minmax(340px,.65fr); align-items:start; }
+    .layout { max-width:1800px; margin:0 auto; display:grid; gap:24px; grid-template-columns:minmax(0,1.8fr) minmax(380px,.5fr); align-items:start; }
     .card { background:var(--card); border:1px solid var(--border); border-radius:20px; box-shadow:var(--shadow); overflow:hidden; }
     .card-header { padding:20px 22px 0; }
     .card-title { margin:0 0 14px; font-size:28px; font-weight:800; }
@@ -46,7 +46,7 @@
     .btn.secondary { background:#fff; color:#0f172a; border:1px solid #cbd5e1; }
     .btn.danger { background:var(--danger); }
     .muted-note { margin-top:12px; color:var(--muted); font-size:13px; line-height:1.45; }
-    .item-card { border:1px solid var(--border); border-radius:18px; padding:16px; margin-bottom:14px; background:#fff; transition:.2s ease; }
+    .item-card { border:1px solid var(--border); border-radius:18px; padding:22px; margin-bottom:18px; background:#fff; transition:.2s ease; font-size:18px; line-height:1.5; }
     .item-card.not-evaluated { background:#f8fafc; opacity:.76; }
     .item-top { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:12px; }
     .item-top-left { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
@@ -56,7 +56,7 @@
     .score-text { min-width:86px; text-align:center; padding:10px 14px; border-radius:14px; background:var(--red-2); color:#fff; font-size:22px; font-weight:800; line-height:1; }
     .score-text.good { background:#166534; }
     .score-text.na { background:#cbd5e1; color:#475569; }
-    .item-description { margin:0 0 14px; font-size:17px; line-height:1.4; }
+    .item-description { margin:0 0 16px; font-size:20px; line-height:1.6; font-weight:600; }
     .sticky-col { position:sticky; top:16px; display:grid; gap:24px; max-height:calc(100vh - 32px); overflow:auto; padding-right:4px; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; }
     .status-box { border-radius:18px; padding:18px; color:#fff; text-align:center; margin-bottom:14px; }
     .status-bad { background:var(--red-2); }
@@ -259,7 +259,7 @@
           <div class="manage-title">Gerenciar Itens</div>
           <div class="manage-help">Você pode editar descrições, mover o item entre Depósito / Aéreo e Área de Venda, excluir itens e adicionar novos. Ao mudar a posição, a numeração é recalculada automaticamente (o item movido assume a nova posição e os demais avançam em sequência). As alterações ficam salvas neste aparelho.</div>
         </div>
-        <button id="closeManageItemsBtn" class="btn secondary" type="button">Fechar</button>
+        <button id="closeManageItemsFooterBtn" class="btn secondary" type="button">Fechar</button>
       </div>
       <div class="manage-body">
         <div id="manageItemsList" class="manage-list"></div>
@@ -3112,6 +3112,565 @@ function bindNewConfigEvents(){ removeConfigUi(); }
 })();
 </script>
 
+
+
+<script>
+/* === Patch: Criar Documento com persistência oficial === */
+(function(){
+  let configEditorDraft = null;
+  let configEditorModelKeyV2 = DEFAULT_MODEL_KEY;
+
+  function getConfigsForEditor(){
+    return clone(getAllModelConfigs());
+  }
+  function ensureEditorModelDraft(modelKey){
+    if (!configEditorDraft || !configEditorDraft[modelKey]) return null;
+    const model = configEditorDraft[modelKey];
+    model.items = Array.isArray(model.items) ? model.items : [];
+    model.areas = Array.isArray(model.areas) ? model.areas : [];
+    model.ncs = Array.isArray(model.ncs) ? model.ncs : [];
+    model.items.forEach((item, idx)=>{
+      item.id = idx + 1;
+      item.description = String(item.description || `Item ${idx + 1}`);
+      item.section = item.section === 'venda' ? 'venda' : 'deposito';
+      item.areaKey = item.areaKey || '';
+      item.ncKey = item.ncKey || '';
+    });
+    return model;
+  }
+  function editorAreaOptions(model){
+    return (model?.areas || []).map(area => `<option value="${escapeHtml(area.key)}">${escapeHtml(area.label)}</option>`).join('');
+  }
+  function editorNcOptions(model){
+    return (model?.ncs || []).map(nc => `<option value="${escapeHtml(nc.key)}">${escapeHtml(nc.label)}</option>`).join('');
+  }
+  function buildEditorDraftFromConfigs(){
+    const configs = getConfigsForEditor();
+    const result = {};
+    Object.values(configs).forEach((config) => {
+      const areas = (config.areaDefinitions || []).map((area, idx) => ({
+        key: String(area.key || `area_${idx + 1}`),
+        label: String(area.label || `Área ${idx + 1}`)
+      }));
+      const ncs = (config.ncDefinitions || []).map((nc, idx) => ({
+        key: String(nc.key || `nc_${idx + 1}`),
+        label: String(nc.label || `Não conformidade ${idx + 1}`)
+      }));
+      const items = (config.items || []).map((item, idx) => {
+        const itemId = idx + 1;
+        const matchedArea = (config.areaDefinitions || []).find(area => uniqueSortedNumbers(area.itemIds).includes(itemId));
+        const matchedNc = (config.ncDefinitions || []).find(nc => uniqueSortedNumbers(nc.itemIds).includes(itemId));
+        return {
+          id: itemId,
+          description: String(item.description || `Item ${itemId}`),
+          section: item.section === 'venda' ? 'venda' : 'deposito',
+          areaKey: matchedArea?.key || '',
+          ncKey: matchedNc?.key || ''
+        };
+      });
+      result[config.key] = {
+        key: config.key,
+        label: String(config.label || config.key),
+        reportLabel: String(config.reportLabel || 'Formulário de Avaliação'),
+        usesStreetCounts: !!config.usesStreetCounts,
+        items,
+        areas,
+        ncs
+      };
+    });
+    return result;
+  }
+  function compileEditorDraft(){
+    const compiled = {};
+    Object.entries(configEditorDraft || {}).forEach(([key, model]) => {
+      const normalizedKey = String(model?.key || key || '').trim() || slugifyConfigKey(model?.label || key || 'modelo');
+      const areas = (model?.areas || []).map((area, idx) => ({
+        key: String(area.key || `area_${idx + 1}`),
+        label: String(area.label || `Área ${idx + 1}`).trim() || `Área ${idx + 1}`,
+        itemIds: []
+      }));
+      const ncs = (model?.ncs || []).map((nc, idx) => ({
+        key: String(nc.key || `nc_${idx + 1}`),
+        label: String(nc.label || `Não conformidade ${idx + 1}`).trim() || `Não conformidade ${idx + 1}`,
+        itemIds: []
+      }));
+      const areaMap = Object.fromEntries(areas.map(a => [a.key, a]));
+      const ncMap = Object.fromEntries(ncs.map(n => [n.key, n]));
+      const items = (model?.items || []).map((item, idx) => {
+        const itemId = idx + 1;
+        if (item.areaKey && areaMap[item.areaKey]) areaMap[item.areaKey].itemIds.push(itemId);
+        if (item.ncKey && ncMap[item.ncKey]) ncMap[item.ncKey].itemIds.push(itemId);
+        return {
+          description: String(item.description || `Item ${itemId}`).trim() || `Item ${itemId}`,
+          section: item.section === 'venda' ? 'venda' : 'deposito'
+        };
+      });
+      compiled[normalizedKey] = {
+        key: normalizedKey,
+        label: String(model?.label || normalizedKey).trim() || normalizedKey,
+        reportLabel: String(model?.reportLabel || 'Formulário de Avaliação').trim() || 'Formulário de Avaliação',
+        usesStreetCounts: !!model?.usesStreetCounts,
+        items,
+        areaDefinitions: areas.map(area => ({ key: area.key, label: area.label, itemIds: uniqueSortedNumbers(area.itemIds) })),
+        ncDefinitions: ncs.map(nc => ({ key: nc.key, label: nc.label, itemIds: uniqueSortedNumbers(nc.itemIds) }))
+      };
+    });
+    return migrateConfigurableModels(compiled);
+  }
+  function mergeEvaluationItemsForModel(existingItems, modelKey){
+    const defaults = buildItemsFromModel(modelKey);
+    return defaults.map((baseItem, index) => {
+      const current = Array.isArray(existingItems) ? existingItems[index] : null;
+      return normalizeItem({
+        ...baseItem,
+        areaAvaliada: current?.areaAvaliada ?? '',
+        naoConformes: current?.naoConformes ?? '',
+        observacao: current?.observacao ?? '',
+        naoAvaliar: !!current?.naoAvaliar
+      }, index, modelKey);
+    });
+  }
+  function normalizeStreetCountsForModel(rows, modelKey){
+    return isStreetCountEnabled(modelKey)
+      ? (Array.isArray(rows) && rows.length ? rows : makeDefaultStreetCounts(modelKey)).map((row, index) => normalizeStreetCount(row, index, modelKey))
+      : [];
+  }
+  function renderManageItems(){
+    const modal = document.getElementById('manageItemsModal');
+    const body = modal?.querySelector('.manage-body');
+    const title = modal?.querySelector('.manage-title');
+    const help = modal?.querySelector('.manage-help');
+    if (!body || !configEditorDraft) return;
+
+    const model = ensureEditorModelDraft(configEditorModelKeyV2);
+    if (!model) return;
+
+    if (title) title.textContent = 'Criar Documento';
+    if (help) help.textContent = 'Crie novas avaliações, edite itens, áreas avaliadas e não conformidades. Ao salvar, esta configuração passa a ser a oficial do modelo e permanece após atualizar a página, inclusive para sincronização entre dispositivos.';
+
+    const modelOptions = Object.values(configEditorDraft).map(entry => `<option value="${escapeHtml(entry.key)}">${escapeHtml(entry.label)}</option>`).join('');
+    const areaOptions = editorAreaOptions(model);
+    const ncOptions = editorNcOptions(model);
+
+    body.innerHTML = `
+      <div class="manage-list" style="gap:16px;">
+        <div class="manage-item">
+          <div class="manage-grid" style="grid-template-columns:1.1fr 1fr 180px;">
+            <div class="field" style="margin:0;">
+              <label>Documento em edição</label>
+              <select id="configEditorModelSelect">${modelOptions}</select>
+            </div>
+            <div class="field" style="margin:0;">
+              <label>Nome do documento</label>
+              <input id="configEditorModelLabel" type="text" value="${escapeHtml(model.label)}" />
+            </div>
+            <div class="field" style="margin:0;">
+              <label>Contagem automática</label>
+              <select id="configEditorUsesStreetCounts">
+                <option value="sim" ${model.usesStreetCounts ? 'selected' : ''}>Sim</option>
+                <option value="nao" ${!model.usesStreetCounts ? 'selected' : ''}>Não</option>
+              </select>
+            </div>
+          </div>
+          <div class="field" style="margin-top:12px;">
+            <label>Título do relatório em PDF</label>
+            <input id="configEditorReportLabel" type="text" value="${escapeHtml(model.reportLabel)}" />
+          </div>
+          <div class="manage-actions" style="margin-top:12px;">
+            <button id="createNewDocumentBtn" class="btn secondary" type="button">+ Nova avaliação</button>
+            <button id="deleteCurrentDocumentBtn" class="btn danger" type="button" ${Object.keys(configEditorDraft).length <= 1 ? 'disabled' : ''}>Excluir documento</button>
+          </div>
+        </div>
+
+        <div class="manage-item">
+          <div class="manage-item-top">
+            <div class="manage-item-id">Itens de avaliação</div>
+            <div class="manage-actions">
+              <button id="addDepositoItemBtn" class="btn secondary" type="button">+ Item Depósito / Aéreo</button>
+              <button id="addVendaItemBtn" class="btn secondary" type="button">+ Item Área de Venda</button>
+            </div>
+          </div>
+          <div id="configItemsList" class="manage-list">
+            ${(model.items || []).map((item, index) => `
+              <div class="manage-item">
+                <div class="manage-item-top">
+                  <div class="manage-item-id">Item ${index + 1}</div>
+                  <div class="manage-actions">
+                    <button class="icon-btn" type="button" data-config-move-up="${index}" ${index === 0 ? 'disabled' : ''}>↑ Subir</button>
+                    <button class="icon-btn" type="button" data-config-move-down="${index}" ${index === model.items.length - 1 ? 'disabled' : ''}>↓ Descer</button>
+                    <button class="icon-btn danger" type="button" data-config-delete-item="${index}">Excluir</button>
+                  </div>
+                </div>
+                <div class="manage-grid" style="grid-template-columns:170px 200px 200px 1fr;">
+                  <div class="field" style="margin:0;">
+                    <label>Seção</label>
+                    <select data-config-item-field="section" data-config-item-index="${index}">
+                      <option value="deposito" ${item.section === 'deposito' ? 'selected' : ''}>Depósito / Aéreo</option>
+                      <option value="venda" ${item.section === 'venda' ? 'selected' : ''}>Área de Venda</option>
+                    </select>
+                  </div>
+                  <div class="field" style="margin:0;">
+                    <label>Área avaliada</label>
+                    <select data-config-item-field="areaKey" data-config-item-index="${index}">
+                      <option value="">Sem vínculo</option>
+                      ${areaOptions.replace(`value="${escapeHtml(item.areaKey)}"`, `value="${escapeHtml(item.areaKey)}" selected`)}
+                    </select>
+                  </div>
+                  <div class="field" style="margin:0;">
+                    <label>NC vinculada</label>
+                    <select data-config-item-field="ncKey" data-config-item-index="${index}">
+                      <option value="">Sem vínculo</option>
+                      ${ncOptions.replace(`value="${escapeHtml(item.ncKey)}"`, `value="${escapeHtml(item.ncKey)}" selected`)}
+                    </select>
+                  </div>
+                  <div class="field" style="margin:0;">
+                    <label>Descrição do item</label>
+                    <textarea rows="3" data-config-item-field="description" data-config-item-index="${index}">${escapeHtml(item.description)}</textarea>
+                  </div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="manage-item">
+          <div class="manage-item-top">
+            <div class="manage-item-id">Áreas avaliadas</div>
+            <div class="manage-actions">
+              <button id="addAreaBtn" class="btn secondary" type="button">+ Adicionar área</button>
+            </div>
+          </div>
+          <div class="manage-list">
+            ${(model.areas || []).map((area, index) => `
+              <div class="manage-item">
+                <div class="manage-grid" style="grid-template-columns:1fr 140px;">
+                  <div class="field" style="margin:0;">
+                    <label>Nome da área</label>
+                    <input type="text" data-config-area-index="${index}" value="${escapeHtml(area.label)}" />
+                  </div>
+                  <div class="field" style="margin:0; justify-content:flex-end;">
+                    <label>&nbsp;</label>
+                    <button class="btn danger" type="button" data-config-delete-area="${index}">Excluir</button>
+                  </div>
+                </div>
+              </div>
+            `).join('') || '<div class="manage-empty">Nenhuma área cadastrada.</div>'}
+          </div>
+        </div>
+
+        <div class="manage-item">
+          <div class="manage-item-top">
+            <div class="manage-item-id">Não conformidades</div>
+            <div class="manage-actions">
+              <button id="addNcBtn" class="btn secondary" type="button">+ Adicionar NC</button>
+            </div>
+          </div>
+          <div class="manage-list">
+            ${(model.ncs || []).map((nc, index) => `
+              <div class="manage-item">
+                <div class="manage-grid" style="grid-template-columns:1fr 140px;">
+                  <div class="field" style="margin:0;">
+                    <label>Nome da NC</label>
+                    <input type="text" data-config-nc-index="${index}" value="${escapeHtml(nc.label)}" />
+                  </div>
+                  <div class="field" style="margin:0; justify-content:flex-end;">
+                    <label>&nbsp;</label>
+                    <button class="btn danger" type="button" data-config-delete-nc="${index}">Excluir</button>
+                  </div>
+                </div>
+              </div>
+            `).join('') || '<div class="manage-empty">Nenhuma não conformidade cadastrada.</div>'}
+          </div>
+        </div>
+
+        <div class="manage-footer">
+          <button id="closeManageItemsFooterBtn" class="btn secondary" type="button">Fechar</button>
+          <button id="saveManageItemsBtn" class="btn" type="button">Salvar e substituir oficial</button>
+        </div>
+      </div>
+    `;
+
+    const selectModel = document.getElementById('configEditorModelSelect');
+    if (selectModel) {
+      selectModel.value = model.key;
+      selectModel.onchange = (e) => {
+        configEditorModelKeyV2 = e.target.value;
+        renderManageItems();
+      };
+    }
+
+    const labelInput = document.getElementById('configEditorModelLabel');
+    if (labelInput) labelInput.oninput = (e) => {
+      const current = ensureEditorModelDraft(configEditorModelKeyV2);
+      if (!current) return;
+      current.label = e.target.value;
+    };
+
+    const reportInput = document.getElementById('configEditorReportLabel');
+    if (reportInput) reportInput.oninput = (e) => {
+      const current = ensureEditorModelDraft(configEditorModelKeyV2);
+      if (!current) return;
+      current.reportLabel = e.target.value;
+    };
+
+    const usesStreet = document.getElementById('configEditorUsesStreetCounts');
+    if (usesStreet) usesStreet.onchange = (e) => {
+      const current = ensureEditorModelDraft(configEditorModelKeyV2);
+      if (!current) return;
+      current.usesStreetCounts = e.target.value === 'sim';
+    };
+
+    document.querySelectorAll('[data-config-item-field]').forEach(el => {
+      el.addEventListener(el.tagName === 'TEXTAREA' ? 'input' : 'change', (e) => {
+        const current = ensureEditorModelDraft(configEditorModelKeyV2);
+        const index = Number(e.target.dataset.configItemIndex);
+        const field = e.target.dataset.configItemField;
+        if (!current?.items?.[index]) return;
+        current.items[index][field] = e.target.value;
+      });
+    });
+
+    document.querySelectorAll('[data-config-area-index]').forEach(el => {
+      el.addEventListener('input', (e) => {
+        const current = ensureEditorModelDraft(configEditorModelKeyV2);
+        const area = current?.areas?.[Number(e.target.dataset.configAreaIndex)];
+        if (!area) return;
+        area.label = e.target.value;
+      });
+    });
+
+    document.querySelectorAll('[data-config-nc-index]').forEach(el => {
+      el.addEventListener('input', (e) => {
+        const current = ensureEditorModelDraft(configEditorModelKeyV2);
+        const nc = current?.ncs?.[Number(e.target.dataset.configNcIndex)];
+        if (!nc) return;
+        nc.label = e.target.value;
+      });
+    });
+
+    document.querySelectorAll('[data-config-delete-area]').forEach(btn => btn.onclick = () => {
+      const current = ensureEditorModelDraft(configEditorModelKeyV2);
+      const index = Number(btn.dataset.configDeleteArea);
+      const removed = current?.areas?.[index];
+      if (!current || !removed) return;
+      current.areas.splice(index, 1);
+      current.items.forEach(item => { if (item.areaKey === removed.key) item.areaKey = ''; });
+      renderManageItems();
+    });
+
+    document.querySelectorAll('[data-config-delete-nc]').forEach(btn => btn.onclick = () => {
+      const current = ensureEditorModelDraft(configEditorModelKeyV2);
+      const index = Number(btn.dataset.configDeleteNc);
+      const removed = current?.ncs?.[index];
+      if (!current || !removed) return;
+      current.ncs.splice(index, 1);
+      current.items.forEach(item => { if (item.ncKey === removed.key) item.ncKey = ''; });
+      renderManageItems();
+    });
+
+    document.querySelectorAll('[data-config-delete-item]').forEach(btn => btn.onclick = () => {
+      const current = ensureEditorModelDraft(configEditorModelKeyV2);
+      if (!current) return;
+      current.items.splice(Number(btn.dataset.configDeleteItem), 1);
+      current.items.forEach((item, idx) => item.id = idx + 1);
+      renderManageItems();
+    });
+
+    document.querySelectorAll('[data-config-move-up]').forEach(btn => btn.onclick = () => {
+      const current = ensureEditorModelDraft(configEditorModelKeyV2);
+      const index = Number(btn.dataset.configMoveUp);
+      if (!current || index <= 0) return;
+      const [item] = current.items.splice(index, 1);
+      current.items.splice(index - 1, 0, item);
+      current.items.forEach((entry, idx) => entry.id = idx + 1);
+      renderManageItems();
+    });
+
+    document.querySelectorAll('[data-config-move-down]').forEach(btn => btn.onclick = () => {
+      const current = ensureEditorModelDraft(configEditorModelKeyV2);
+      const index = Number(btn.dataset.configMoveDown);
+      if (!current || index >= current.items.length - 1) return;
+      const [item] = current.items.splice(index, 1);
+      current.items.splice(index + 1, 0, item);
+      current.items.forEach((entry, idx) => entry.id = idx + 1);
+      renderManageItems();
+    });
+
+    document.getElementById('createNewDocumentBtn').onclick = () => {
+      const baseKey = slugifyConfigKey(`modelo_${Date.now()}`);
+      configEditorDraft[baseKey] = {
+        key: baseKey,
+        label: 'Nova avaliação',
+        reportLabel: 'Formulário de Avaliação',
+        usesStreetCounts: true,
+        areas: [{ key: 'area_1', label: 'Área 1' }],
+        ncs: [{ key: 'nc_1', label: 'Não conformidade 1' }],
+        items: [{ id: 1, description: 'Novo item de avaliação', section: 'deposito', areaKey: 'area_1', ncKey: 'nc_1' }]
+      };
+      configEditorModelKeyV2 = baseKey;
+      renderManageItems();
+      showToast('Novo documento criado. Salve para torná-lo oficial.');
+    };
+
+    document.getElementById('deleteCurrentDocumentBtn').onclick = () => {
+      if (Object.keys(configEditorDraft).length <= 1) return;
+      const toDelete = configEditorModelKeyV2;
+      delete configEditorDraft[toDelete];
+      configEditorModelKeyV2 = Object.keys(configEditorDraft)[0] || DEFAULT_MODEL_KEY;
+      renderManageItems();
+      showToast('Documento removido do rascunho. Salve para confirmar.');
+    };
+
+    document.getElementById('addDepositoItemBtn').onclick = () => addManagedItem('deposito');
+    document.getElementById('addVendaItemBtn').onclick = () => addManagedItem('venda');
+    document.getElementById('addAreaBtn').onclick = () => {
+      const current = ensureEditorModelDraft(configEditorModelKeyV2);
+      if (!current) return;
+      const next = current.areas.length + 1;
+      current.areas.push({ key: slugifyConfigKey(`area_${Date.now()}_${next}`), label: `Área ${next}` });
+      renderManageItems();
+    };
+    document.getElementById('addNcBtn').onclick = () => {
+      const current = ensureEditorModelDraft(configEditorModelKeyV2);
+      if (!current) return;
+      const next = current.ncs.length + 1;
+      current.ncs.push({ key: slugifyConfigKey(`nc_${Date.now()}_${next}`), label: `Não conformidade ${next}` });
+      renderManageItems();
+    };
+    const headerCloseBtn = document.querySelector('#manageItemsModal .manage-header #closeManageItemsBtn');
+    if (headerCloseBtn) headerCloseBtn.onclick = closeManageItemsModal;
+    const footerCloseBtn = document.getElementById('closeManageItemsFooterBtn');
+    if (footerCloseBtn) footerCloseBtn.onclick = closeManageItemsModal;
+    document.getElementById('saveManageItemsBtn').onclick = saveManageItems;
+  }
+
+  function addManagedItem(section){
+    const current = ensureEditorModelDraft(configEditorModelKeyV2);
+    if (!current) return;
+    current.items.push({
+      id: current.items.length + 1,
+      description: section === 'deposito' ? 'Novo item de Depósito / Aéreo' : 'Novo item de Área de Venda',
+      section: section === 'venda' ? 'venda' : 'deposito',
+      areaKey: current.areas[0]?.key || '',
+      ncKey: current.ncs[0]?.key || ''
+    });
+    renderManageItems();
+  }
+
+  function openManageItemsModal(){
+    configEditorDraft = buildEditorDraftFromConfigs();
+    configEditorModelKeyV2 = state.form?.modelo && configEditorDraft[state.form.modelo] ? state.form.modelo : (Object.keys(configEditorDraft)[0] || DEFAULT_MODEL_KEY);
+    const modal = document.getElementById('manageItemsModal');
+    if (!modal) return;
+    renderManageItems();
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeManageItemsModal(){
+    const modal = document.getElementById('manageItemsModal');
+    if (!modal) return;
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+    configEditorDraft = null;
+  }
+
+  function saveManageItems(){
+    if (!configEditorDraft) return;
+    const compiled = compileEditorDraft();
+    const availableKeys = Object.keys(compiled);
+    if (!availableKeys.length) {
+      showToast('Crie pelo menos um documento antes de salvar.');
+      return;
+    }
+
+    const previousCurrentModel = state.form?.modelo || DEFAULT_MODEL_KEY;
+    const nextCurrentModel = compiled[configEditorModelKeyV2] ? configEditorModelKeyV2 : (compiled[previousCurrentModel] ? previousCurrentModel : availableKeys[0]);
+
+    state.modelConfigs = compiled;
+    state.form.modelo = nextCurrentModel;
+
+    const previousTemplates = clone(state.modelItemTemplates || {});
+    const nextTemplates = {};
+    availableKeys.forEach(modelKey => {
+      const templateSource = modelKey === previousCurrentModel ? state.items : previousTemplates[modelKey];
+      nextTemplates[modelKey] = mergeEvaluationItemsForModel(templateSource, modelKey);
+    });
+    state.modelItemTemplates = nextTemplates;
+    state.items = mergeEvaluationItemsForModel(previousCurrentModel === nextCurrentModel ? state.items : nextTemplates[nextCurrentModel], nextCurrentModel);
+    state.streetCounts = normalizeStreetCountsForModel(state.streetCounts, nextCurrentModel);
+
+    applyAutomaticAreas(state);
+    applyAutomaticNonConformities(state);
+    persistConfigState(true);
+    persistState();
+    queueCloudDraftSync(true);
+    renderApp();
+    closeManageItemsModal();
+    showToast('Documento salvo como configuração oficial.');
+  }
+
+  function populateModelOptions(){
+    const select = document.getElementById('modeloAvaliacao');
+    if (!select) return;
+    const configs = getAllModelConfigs();
+    const keys = Object.keys(configs);
+    const currentValue = configs[state.form.modelo] ? state.form.modelo : (keys[0] || DEFAULT_MODEL_KEY);
+    select.innerHTML = keys.map(key => `<option value="${key}">${escapeHtml(configs[key].label)}</option>`).join('');
+    select.value = currentValue;
+    const badge = document.getElementById('currentModelBadge');
+    if (badge) badge.textContent = configs[currentValue]?.label || currentValue;
+  }
+
+  function switchModel(nextModel){
+    const configs = getAllModelConfigs();
+    const modelKey = configs[nextModel] ? nextModel : (configs[DEFAULT_MODEL_KEY] ? DEFAULT_MODEL_KEY : Object.keys(configs)[0]);
+    const previousModel = state.form.modelo || modelKey;
+    if (!modelKey || modelKey === previousModel) return;
+
+    const preservedTemplates = clone(state.modelItemTemplates || {});
+    preservedTemplates[previousModel] = mergeEvaluationItemsForModel(state.items, previousModel);
+
+    state.form = { ...state.form, modelo:modelKey };
+    state.modelItemTemplates = preservedTemplates;
+    state.items = mergeEvaluationItemsForModel(preservedTemplates[modelKey], modelKey);
+    state.streetCounts = normalizeStreetCountsForModel(state.streetCounts, modelKey);
+
+    if (state.form.nomeLoja) loadStreetCountsForStore(state.form.nomeLoja, modelKey);
+    else {
+      applyAutomaticAreas(state);
+      applyAutomaticNonConformities(state);
+    }
+
+    persistState();
+    queueCloudDraftSync(true);
+    renderApp();
+  }
+
+  window.renderManageItems = renderManageItems;
+  window.openManageItemsModal = openManageItemsModal;
+  window.closeManageItemsModal = closeManageItemsModal;
+  window.saveManageItems = saveManageItems;
+  window.addManagedItem = addManagedItem;
+  window.populateModelOptions = populateModelOptions;
+  window.switchModel = switchModel;
+
+  const originalRenderApp = renderApp;
+  renderApp = function(){
+    originalRenderApp();
+    const btn = document.getElementById('manageItemsBtn');
+    if (btn) btn.textContent = 'Criar Documento';
+    const title = document.querySelector('#manageItemsModal .manage-title');
+    if (title && !document.getElementById('manageItemsModal')?.classList.contains('open')) title.textContent = 'Criar Documento';
+  };
+
+  setTimeout(() => {
+    renderApp();
+    const btn = document.getElementById('manageItemsBtn');
+    if (btn) btn.onclick = openManageItemsModal;
+  }, 0);
+})();
+</script>
 
 </body>
 </html>

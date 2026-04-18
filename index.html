@@ -238,6 +238,21 @@
     @media (max-width: 980px) { .layout { grid-template-columns:1fr; } .sticky-col { position:static; } }
     @media (max-width: 980px) { .counts-table-wrap { overflow:visible; } .count-fields-grid, .photo-fields-grid { grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); } }
     @media (max-width: 640px) { .page { padding:12px; } .card-header { padding:18px 16px 0; } .card-content { padding:0 16px 16px; } .grid-2, .summary-grid { grid-template-columns:1fr; } .item-top { flex-direction:column; } .score-text { width:100%; } .status-score { font-size:38px; } .card-title { font-size:24px; } .sticky-col { position:static; max-height:none; overflow:visible; } .count-row { grid-template-columns:1fr; } .photo-grid { grid-template-columns:1fr; } }
+  
+    .manage-accordion { border:1px solid var(--border); border-radius:18px; background:#fff; margin-bottom:14px; overflow:hidden; }
+    .manage-accordion > summary { list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 18px; font-size:18px; font-weight:900; }
+    .manage-accordion > summary::-webkit-details-marker { display:none; }
+    .manage-accordion-plus { font-size:28px; line-height:1; color:#64748b; font-weight:400; }
+    .manage-accordion[open] .manage-accordion-plus { transform:rotate(45deg); }
+    .manage-accordion-body { padding:0 18px 18px; display:grid; gap:14px; }
+    .manage-save-wrap { display:flex; justify-content:flex-end; margin-top:14px; }
+    .dropdown-panel.compact { min-width:360px; max-width:560px; max-height:320px; overflow:auto; }
+    @media (max-width:640px){
+      .dropdown-panel.compact { min-width:100%; max-width:100%; width:100%; max-height:60vh; }
+      .manage-accordion > summary { padding:14px 16px; font-size:17px; }
+      .manage-accordion-body { padding:0 16px 16px; }
+    }
+
   </style>
 </head>
 <body>
@@ -926,6 +941,32 @@ function makeDefaultPhoto(reportLocation='') {
     setor:reportLocation || '',
     observacao:''
   };
+}
+
+
+function normalizePhotoFileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Falha ao ler a imagem.'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth || img.width || 1600;
+          canvas.height = img.naturalHeight || img.height || 1200;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/jpeg', 0.92));
+        } catch (err) {
+          resolve(String(reader.result || ''));
+        }
+      };
+      img.onerror = () => resolve(String(reader.result || ''));
+      img.src = String(reader.result || '');
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function getDraftPhotoForRow(row) {
@@ -2914,9 +2955,7 @@ function renderStreetCounts() {
       const row = manageStreetCounts?.[index];
       const file = e.target.files && e.target.files[0];
       if (!row || !file) return;
-      const reader = new FileReader();
-      reader.onload = () => { const draft = getDraftPhotoForRow(row); draft.dataUrl = String(reader.result || ''); renderStreetCounts(); };
-      reader.readAsDataURL(file); e.target.value = '';
+      normalizePhotoFileToDataUrl(file).then((normalizedDataUrl) => { const draft = getDraftPhotoForRow(row); draft.dataUrl = String(normalizedDataUrl || ''); renderStreetCounts(); syncStreetDraftToState && syncStreetDraftToState(); }).catch(() => { showToast('Não foi possível carregar a foto.'); }); e.target.value = '';
     };
   });
   list.querySelectorAll('[data-draft-field]').forEach(el => {
@@ -3272,6 +3311,211 @@ function bindNewConfigEvents(){
   const saveStreetBtn = document.getElementById('saveStreetCountsBtn');
   if (saveStreetBtn) saveStreetBtn.onclick = saveStreetCounts;
   bindNewConfigEvents();
+})();
+</script>
+
+
+<script>
+(function(){
+  const DRAFT_DB_NAME = 'arko_avaliacao_offline_db_v1';
+  const DRAFT_STORE = 'drafts';
+  const DRAFT_KEY = 'current';
+  let managePersistTimer = null;
+  let streetPersistTimer = null;
+  let hydrationDone = false;
+
+  function openDraftDb(){
+    return new Promise((resolve, reject) => {
+      try {
+        const req = indexedDB.open(DRAFT_DB_NAME, 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains(DRAFT_STORE)) db.createObjectStore(DRAFT_STORE);
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      } catch (err) { reject(err); }
+    });
+  }
+  async function saveStateToIndexedDb(payload){
+    try {
+      const db = await openDraftDb();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(DRAFT_STORE, 'readwrite');
+        tx.objectStore(DRAFT_STORE).put({ savedAt: Date.now(), payload }, DRAFT_KEY);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      });
+      db.close();
+    } catch (err) { console.warn('Falha ao salvar no IndexedDB.', err); }
+  }
+  async function loadStateFromIndexedDb(){
+    try {
+      const db = await openDraftDb();
+      const result = await new Promise((resolve, reject) => {
+        const tx = db.transaction(DRAFT_STORE, 'readonly');
+        const req = tx.objectStore(DRAFT_STORE).get(DRAFT_KEY);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      db.close();
+      return result && result.payload ? result.payload : null;
+    } catch (err) {
+      console.warn('Falha ao carregar do IndexedDB.', err);
+      return null;
+    }
+  }
+
+  const originalPersistState = window.persistState;
+  window.persistState = function patchedPersistState(){
+    try { saveFailSafeCheckpoint('autosave'); } catch (e) {}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (err) { console.warn('Não foi possível salvar o rascunho.', err); }
+    saveStateToIndexedDb(normalizeState(state));
+  };
+  window.scheduleAutosave = function patchedScheduleAutosave(){
+    clearTimeout(window.autosaveTimer);
+    window.autosaveTimer = setTimeout(() => window.persistState(), 40);
+  };
+
+  async function hydrateFromIndexedDb(){
+    if (hydrationDone) return;
+    hydrationDone = true;
+    const payload = await loadStateFromIndexedDb();
+    if (!payload) return;
+    try {
+      state = normalizeState(payload);
+      renderApp();
+      updateNetworkBadge && updateNetworkBadge();
+    } catch (err) {
+      console.warn('Falha ao hidratar o estado salvo.', err);
+    }
+  }
+
+  window.syncManageDraftToState = function syncManageDraftToState(){
+    if (!Array.isArray(manageDraftItems) || !manageDraftItems.length) return;
+    const idMap = {};
+    manageDraftItems.forEach((item, index)=>{ idMap[Number(item.id)||index+1] = index + 1; });
+    remapItemIdsInModelConfig(state.form.modelo, idMap);
+    state.items = reindexItems(clone(manageDraftItems), state.form.modelo);
+    const all = getCurrentModelConfigsSnapshot();
+    if (all[state.form.modelo]) all[state.form.modelo].items = state.items.map(item => ({ description:item.description, section:item.section }));
+    state.modelConfigs = all;
+    syncItemLinkMetadata(state.form.modelo);
+    state.modelItemTemplates = normalizeModelItemTemplates({ ...(state.modelItemTemplates || {}), [state.form.modelo]: clone(state.items) });
+    applyAutomaticAreas(state); applyAutomaticNonConformities(state);
+    window.persistState();
+  };
+  window.syncStreetDraftToState = function syncStreetDraftToState(){
+    if (!Array.isArray(manageStreetCounts) || !manageStreetCounts.length) return;
+    state.streetCounts = manageStreetCounts.map((row, index) => normalizeStreetCount(row, index, state.form.modelo));
+    saveStreetTemplateForCurrentStore(state.streetCounts);
+    applyAutomaticAreas(state); applyAutomaticNonConformities(state);
+    window.persistState();
+    renderApp();
+  };
+
+  function debounceManageCommit(){ clearTimeout(managePersistTimer); managePersistTimer = setTimeout(()=>{ try { syncManageDraftToState(); } catch (e) {} }, 60); }
+  function debounceStreetCommit(){ clearTimeout(streetPersistTimer); streetPersistTimer = setTimeout(()=>{ try { syncStreetDraftToState(); } catch (e) {} }, 60); }
+
+  function setupManageAccordionLayout(){
+    const body = document.querySelector('#manageItemsModal .manage-body');
+    const itemList = document.getElementById('manageItemsList');
+    const areasBlock = document.querySelector('#manageItemsModal .manage-section-block:nth-of-type(1)');
+    const ncBlock = document.querySelector('#manageItemsModal .manage-section-block:nth-of-type(2)');
+    const addDep = document.getElementById('addDepositoItemBtn');
+    const addVenda = document.getElementById('addVendaItemBtn');
+    const saveBtn = document.getElementById('saveManageItemsBtn');
+    if (!body || !itemList || !areasBlock || !ncBlock || !addDep || !addVenda || !saveBtn) return;
+    if (body.dataset.accordionReady === '1') return;
+    const saveWrap = document.createElement('div');
+    saveWrap.className = 'manage-save-wrap';
+    saveWrap.appendChild(saveBtn);
+
+    const itemsDetails = document.createElement('details');
+    itemsDetails.className = 'manage-accordion';
+    itemsDetails.open = true;
+    itemsDetails.innerHTML = '<summary><span>Itens</span><span class="manage-accordion-plus">+</span></summary><div class="manage-accordion-body"></div>';
+    const itemsBody = itemsDetails.querySelector('.manage-accordion-body');
+    itemsBody.appendChild(itemList);
+    const itemBtns = document.createElement('div');
+    itemBtns.className = 'actions';
+    itemBtns.style.margin = '0';
+    itemBtns.appendChild(addDep);
+    itemBtns.appendChild(addVenda);
+    itemsBody.appendChild(itemBtns);
+
+    function convertBlockToAccordion(block, title){
+      const details = document.createElement('details');
+      details.className = 'manage-accordion';
+      details.innerHTML = `<summary><span>${title}</span><span class="manage-accordion-plus">+</span></summary><div class="manage-accordion-body"></div>`;
+      const content = details.querySelector('.manage-accordion-body');
+      Array.from(block.childNodes).forEach(node => {
+        if (node.nodeType === 1 && node.tagName.toLowerCase() === 'h3') return;
+        content.appendChild(node);
+      });
+      return details;
+    }
+    const areaDetails = convertBlockToAccordion(areasBlock, 'Áreas avaliadas');
+    const ncDetails = convertBlockToAccordion(ncBlock, 'Não conformidades');
+
+    body.innerHTML = '';
+    body.appendChild(itemsDetails);
+    body.appendChild(areaDetails);
+    body.appendChild(ncDetails);
+    body.appendChild(saveWrap);
+    body.dataset.accordionReady = '1';
+  }
+
+  const originalOpenManage = window.openManageItemsModal;
+  window.openManageItemsModal = function patchedOpenManageItemsModal(){
+    originalOpenManage();
+    setupManageAccordionLayout();
+  };
+  const originalRenderManage = window.renderManageItems;
+  window.renderManageItems = function patchedRenderManageItems(){
+    originalRenderManage();
+    setupManageAccordionLayout();
+  };
+
+  function removeConfigureUi(){
+    document.getElementById('configureModelsBtn')?.remove();
+    document.getElementById('configModelsModal')?.remove();
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    removeConfigureUi();
+    hydrateFromIndexedDb();
+  });
+  removeConfigureUi();
+  hydrateFromIndexedDb();
+
+  const manageModal = document.getElementById('manageItemsModal');
+  if (manageModal) {
+    manageModal.addEventListener('input', (e) => {
+      if (e.target.closest('.dropdown-panel')) return;
+      debounceManageCommit();
+    });
+    manageModal.addEventListener('change', debounceManageCommit);
+    manageModal.addEventListener('click', (e) => {
+      if (e.target.closest('#saveManageItemsBtn')) { setTimeout(()=>{ try { syncManageDraftToState(); } catch(e){} },0); return; }
+      if (e.target.closest('[data-delete-item],[data-move-up],[data-move-down],[data-apply-position],[data-remove-manage-area],[data-remove-manage-nc],#addDepositoItemBtn,#addVendaItemBtn,#addAreaDefinitionBtn,#addNcDefinitionBtn,[data-manage-link-area],[data-manage-link-nc]')) {
+        setTimeout(debounceManageCommit, 0);
+      }
+    });
+  }
+  const streetModal = document.getElementById('streetCountsModal');
+  if (streetModal) {
+    streetModal.addEventListener('input', debounceStreetCommit);
+    streetModal.addEventListener('change', debounceStreetCommit);
+    streetModal.addEventListener('click', (e) => {
+      if (e.target.closest('[data-save-draft],[data-remove-photo],[data-remove-count-row],[data-clear-draft],[data-draft-check],[data-remove-draft-nc],#addStreetCountRowBtn,#saveStreetCountsBtn')) setTimeout(debounceStreetCommit, 0);
+    });
+  }
+
+  window.addEventListener('pagehide', () => { try { syncManageDraftToState(); } catch(e){} try { syncStreetDraftToState(); } catch(e){} });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') { try { syncManageDraftToState(); } catch(e){} try { syncStreetDraftToState(); } catch(e){} }
+  });
 })();
 </script>
 

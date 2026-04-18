@@ -3976,5 +3976,99 @@ function bindNewConfigEvents(){ removeConfigUi(); }
 })();
 </script>
 
+
+<script>
+(function(){
+  function normalizeEditorItemsForModel(model){
+    const items = Array.isArray(model?.items) ? model.items : [];
+    return items.map((item, idx) => ({
+      id: idx + 1,
+      description: String(item?.description || `Item ${idx + 1}`).trim() || `Item ${idx + 1}`,
+      section: item?.section === 'venda' ? 'venda' : 'deposito',
+      areaKey: String(item?.areaKey || ''),
+      ncKey: String(item?.ncKey || '')
+    }));
+  }
+
+  window.saveManageItems = function saveManageItemsPatched(){
+    try {
+      if (!window.configEditorDraft) {
+        if (typeof showToast === 'function') showToast('Abra o menu Gerenciar itens novamente e tente salvar.');
+        return;
+      }
+
+      const compiled = typeof compileEditorDraft === 'function' ? compileEditorDraft() : null;
+      const availableKeys = compiled ? Object.keys(compiled) : [];
+      if (!compiled || !availableKeys.length) {
+        if (typeof showToast === 'function') showToast('Crie pelo menos um documento antes de salvar.');
+        return;
+      }
+
+      const previousCurrentModel = state?.form?.modelo || availableKeys[0];
+      const preferredModel = window.configEditorModelKeyV2 || previousCurrentModel;
+      const nextCurrentModel = compiled[preferredModel]
+        ? preferredModel
+        : (compiled[previousCurrentModel] ? previousCurrentModel : availableKeys[0]);
+
+      const previousTemplates = clone(state?.modelItemTemplates || {});
+      const nextTemplates = {};
+
+      availableKeys.forEach((modelKey) => {
+        const editorModel = window.configEditorDraft[modelKey] || {};
+        const editorItems = normalizeEditorItemsForModel(editorModel);
+        const templateSource = editorItems.length
+          ? mergeEvaluationItemsForModel(editorItems, modelKey)
+          : mergeEvaluationItemsForModel(previousTemplates[modelKey] || [], modelKey);
+        nextTemplates[modelKey] = templateSource;
+      });
+
+      state.modelConfigs = compiled;
+      state.modelItemTemplates = normalizeModelItemTemplates(nextTemplates);
+      state.form.modelo = nextCurrentModel;
+      state.items = clone(state.modelItemTemplates[nextCurrentModel] || mergeEvaluationItemsForModel([], nextCurrentModel));
+      state.streetCounts = normalizeStreetCountsForModel(state.streetCounts, nextCurrentModel);
+
+      applyAutomaticAreas(state);
+      applyAutomaticNonConformities(state);
+      persistConfigState(true);
+      persistState(true);
+      if (typeof queueCloudDraftSync === 'function') queueCloudDraftSync(true);
+      renderApp();
+      if (typeof closeManageItemsModal === 'function') closeManageItemsModal();
+      if (typeof showToast === 'function') showToast('Alterações de Gerenciar itens salvas com sucesso.');
+    } catch (err) {
+      console.error('Falha ao salvar em Gerenciar itens:', err);
+      if (typeof showToast === 'function') showToast('Erro ao salvar as alterações de Gerenciar itens.');
+    }
+  };
+
+  function rebindManageSave(){
+    const btn = document.getElementById('saveManageItemsBtn');
+    if (btn) btn.onclick = (e) => { e.preventDefault(); window.saveManageItems(); };
+  }
+
+  const prevRenderManage = window.renderManageItems;
+  if (typeof prevRenderManage === 'function') {
+    window.renderManageItems = function(){
+      const result = prevRenderManage.apply(this, arguments);
+      rebindManageSave();
+      return result;
+    };
+  }
+
+  const prevRenderApp = window.renderApp;
+  if (typeof prevRenderApp === 'function') {
+    window.renderApp = function(){
+      const result = prevRenderApp.apply(this, arguments);
+      rebindManageSave();
+      return result;
+    };
+  }
+
+  document.addEventListener('DOMContentLoaded', rebindManageSave);
+  rebindManageSave();
+})();
+</script>
+
 </body>
 </html>

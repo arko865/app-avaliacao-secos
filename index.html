@@ -4269,5 +4269,263 @@ function bindNewConfigEvents(){ removeConfigUi(); }
 })();
 </script>
 
+
+<script>
+/* === Patch v3: salvamento definitivo do menu Gerenciar Itens === */
+(function(){
+  function toast(msg){
+    try { if (typeof showToast === 'function') return showToast(msg); } catch(e) {}
+    try { alert(msg); } catch(e) {}
+  }
+
+  function deepClone(obj){
+    return JSON.parse(JSON.stringify(obj));
+  }
+
+  function buildDraftFromCurrentState(){
+    const configs = (state && state.modelConfigs) ? state.modelConfigs : (typeof buildInitialConfigurableModels === 'function' ? buildInitialConfigurableModels() : {});
+    const result = {};
+    Object.values(configs || {}).forEach((config) => {
+      const areas = (config.areaDefinitions || []).map((area, idx) => ({
+        key: String(area.key || `area_${idx+1}`),
+        label: String(area.label || `Área ${idx+1}`)
+      }));
+      const ncs = (config.ncDefinitions || []).map((nc, idx) => ({
+        key: String(nc.key || `nc_${idx+1}`),
+        label: String(nc.label || `Não conformidade ${idx+1}`)
+      }));
+      const items = (config.items || []).map((item, idx) => {
+        const itemId = idx + 1;
+        const matchedArea = (config.areaDefinitions || []).find(area => Array.isArray(area.itemIds) && area.itemIds.includes(itemId));
+        const matchedNc = (config.ncDefinitions || []).find(nc => Array.isArray(nc.itemIds) && nc.itemIds.includes(itemId));
+        return {
+          id: itemId,
+          description: String(item.description || `Item ${itemId}`),
+          section: item.section === 'venda' ? 'venda' : 'deposito',
+          areaKey: matchedArea ? matchedArea.key : '',
+          ncKey: matchedNc ? matchedNc.key : ''
+        };
+      });
+      result[config.key] = {
+        key: config.key,
+        label: String(config.label || config.key),
+        reportLabel: String(config.reportLabel || 'Formulário de Avaliação'),
+        usesStreetCounts: !!config.usesStreetCounts,
+        items,
+        areas,
+        ncs
+      };
+    });
+    return result;
+  }
+
+  function getEditorDraft(){
+    if (!window.configEditorDraft || typeof window.configEditorDraft !== 'object' || !Object.keys(window.configEditorDraft).length) {
+      window.configEditorDraft = buildDraftFromCurrentState();
+    }
+    return window.configEditorDraft;
+  }
+
+  function getCurrentEditorModelKey(draft){
+    const keys = Object.keys(draft || {});
+    if (!keys.length) return DEFAULT_MODEL_KEY;
+    if (window.configEditorModelKeyV2 && draft[window.configEditorModelKeyV2]) return window.configEditorModelKeyV2;
+    if (state && state.form && state.form.modelo && draft[state.form.modelo]) return state.form.modelo;
+    return keys[0];
+  }
+
+  function pullDraftFromDOM(){
+    const draft = getEditorDraft();
+    const currentKey = getCurrentEditorModelKey(draft);
+    window.configEditorModelKeyV2 = currentKey;
+    const current = draft[currentKey];
+    if (!current) return draft;
+
+    const label = document.getElementById('configEditorModelLabel');
+    const report = document.getElementById('configEditorReportLabel');
+    const uses = document.getElementById('configEditorUsesStreetCounts');
+    if (label) current.label = label.value;
+    if (report) current.reportLabel = report.value;
+    if (uses) current.usesStreetCounts = uses.value === 'sim';
+
+    document.querySelectorAll('[data-config-item-field]').forEach((el) => {
+      const idx = Number(el.dataset.configItemIndex);
+      const field = el.dataset.configItemField;
+      if (!current.items[idx]) return;
+      current.items[idx][field] = el.value;
+    });
+    document.querySelectorAll('[data-config-area-index]').forEach((el) => {
+      const idx = Number(el.dataset.configAreaIndex);
+      if (current.areas[idx]) current.areas[idx].label = el.value;
+    });
+    document.querySelectorAll('[data-config-nc-index]').forEach((el) => {
+      const idx = Number(el.dataset.configNcIndex);
+      if (current.ncs[idx]) current.ncs[idx].label = el.value;
+    });
+    window.configEditorDraft = draft;
+    return draft;
+  }
+
+  function uniqueSortedNumbers(values){
+    return Array.from(new Set((values || []).map(v => Number(v)).filter(v => Number.isFinite(v) && v > 0))).sort((a,b) => a-b);
+  }
+
+  function slugify(value){
+    return String(value || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'modelo';
+  }
+
+  function compileDraftFromWindow(){
+    const draft = getEditorDraft();
+    const compiled = {};
+    Object.entries(draft).forEach(([key, model]) => {
+      const normalizedKey = String((model && model.key) || key || '').trim() || slugify((model && model.label) || key || 'modelo');
+      const areas = (model && Array.isArray(model.areas) ? model.areas : []).map((area, idx) => ({
+        key: String(area.key || `area_${idx+1}`),
+        label: String(area.label || `Área ${idx+1}`).trim() || `Área ${idx+1}`,
+        itemIds: []
+      }));
+      const ncs = (model && Array.isArray(model.ncs) ? model.ncs : []).map((nc, idx) => ({
+        key: String(nc.key || `nc_${idx+1}`),
+        label: String(nc.label || `Não conformidade ${idx+1}`).trim() || `Não conformidade ${idx+1}`,
+        itemIds: []
+      }));
+      const areaMap = Object.fromEntries(areas.map(a => [a.key, a]));
+      const ncMap = Object.fromEntries(ncs.map(n => [n.key, n]));
+      const items = (model && Array.isArray(model.items) ? model.items : []).map((item, idx) => {
+        const itemId = idx + 1;
+        if (item.areaKey && areaMap[item.areaKey]) areaMap[item.areaKey].itemIds.push(itemId);
+        if (item.ncKey && ncMap[item.ncKey]) ncMap[item.ncKey].itemIds.push(itemId);
+        return {
+          description: String(item.description || `Item ${itemId}`).trim() || `Item ${itemId}`,
+          section: item.section === 'venda' ? 'venda' : 'deposito'
+        };
+      });
+      compiled[normalizedKey] = {
+        key: normalizedKey,
+        label: String((model && model.label) || normalizedKey).trim() || normalizedKey,
+        reportLabel: String((model && model.reportLabel) || 'Formulário de Avaliação').trim() || 'Formulário de Avaliação',
+        usesStreetCounts: !!(model && model.usesStreetCounts),
+        items,
+        areaDefinitions: areas.map(a => ({ key: a.key, label: a.label, itemIds: uniqueSortedNumbers(a.itemIds) })),
+        ncDefinitions: ncs.map(n => ({ key: n.key, label: n.label, itemIds: uniqueSortedNumbers(n.itemIds) }))
+      };
+    });
+    return typeof migrateConfigurableModels === 'function' ? migrateConfigurableModels(compiled) : compiled;
+  }
+
+  function saveManageItemsDefinitive(){
+    try {
+      pullDraftFromDOM();
+      const compiled = compileDraftFromWindow();
+      const keys = Object.keys(compiled || {});
+      if (!keys.length) {
+        toast('Crie pelo menos um item antes de salvar.');
+        return false;
+      }
+
+      const previousModel = (state && state.form && state.form.modelo) || keys[0];
+      const preferredModel = window.configEditorModelKeyV2 || previousModel;
+      const nextModel = compiled[preferredModel] ? preferredModel : (compiled[previousModel] ? previousModel : keys[0]);
+
+      const oldTemplates = deepClone((state && state.modelItemTemplates) || {});
+      const nextTemplates = {};
+
+      keys.forEach((modelKey) => {
+        const editorModel = window.configEditorDraft[modelKey] || {};
+        const rawItems = Array.isArray(editorModel.items) ? editorModel.items : [];
+        const baseItems = rawItems.map((item, idx) => ({
+          id: idx + 1,
+          description: String(item.description || `Item ${idx+1}`).trim() || `Item ${idx+1}`,
+          section: item.section === 'venda' ? 'venda' : 'deposito'
+        }));
+        const merged = typeof mergeEvaluationItemsForModel === 'function'
+          ? mergeEvaluationItemsForModel(baseItems, modelKey)
+          : baseItems;
+        const prev = Array.isArray(oldTemplates[modelKey]) ? oldTemplates[modelKey] : [];
+        nextTemplates[modelKey] = (merged || []).map((item, idx) => ({
+          ...(prev[idx] || {}),
+          ...item,
+          id: idx + 1,
+          description: item.description,
+          section: item.section
+        }));
+      });
+
+      state.modelConfigs = compiled;
+      state.modelItemTemplates = typeof normalizeModelItemTemplates === 'function' ? normalizeModelItemTemplates(nextTemplates, compiled) : nextTemplates;
+      state.form = state.form || {};
+      state.form.modelo = nextModel;
+      state.items = deepClone(state.modelItemTemplates[nextModel] || []);
+      state.streetCounts = typeof normalizeStreetCountsForModel === 'function' ? normalizeStreetCountsForModel(state.streetCounts, nextModel) : (Array.isArray(state.streetCounts) ? state.streetCounts : []);
+
+      if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state);
+      if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state);
+
+      try {
+        if (typeof writeLocalConfigSnapshot === 'function') {
+          writeLocalConfigSnapshot({ modelConfigs: state.modelConfigs, modelItemTemplates: state.modelItemTemplates }, Date.now());
+        }
+      } catch (e) { console.warn('Falha ao gravar snapshot local da configuração.', e); }
+
+      try {
+        localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify({ modelConfigs: state.modelConfigs, modelItemTemplates: state.modelItemTemplates }));
+      } catch (e) { console.warn('Falha ao gravar CONFIG_STORAGE_KEY.', e); }
+
+      try {
+        if (typeof persistConfigState === 'function') persistConfigState(true);
+      } catch (e) { console.warn('Falha em persistConfigState.', e); }
+
+      try {
+        if (typeof persistState === 'function') persistState(true);
+      } catch (e) { console.warn('Falha em persistState.', e); }
+
+      try {
+        if (typeof renderApp === 'function') renderApp();
+      } catch (e) { console.warn('Falha em renderApp.', e); }
+
+      try {
+        if (typeof closeManageItemsModal === 'function') closeManageItemsModal();
+      } catch (e) { console.warn('Falha ao fechar modal.', e); }
+
+      toast('Alterações salvas com sucesso em Gerenciar itens.');
+      return true;
+    } catch (err) {
+      console.error('Erro definitivo ao salvar Gerenciar itens:', err);
+      toast('Erro ao salvar as alterações em Gerenciar itens.');
+      return false;
+    }
+  }
+
+  function rebind(){
+    const btn = document.getElementById('saveManageItemsBtn');
+    if (btn) {
+      btn.textContent = 'Salvar alterações';
+      btn.onclick = function(ev){
+        if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+        saveManageItemsDefinitive();
+      };
+    }
+    const manageBtn = document.getElementById('manageItemsBtn');
+    if (manageBtn) manageBtn.textContent = 'Gerenciar itens';
+    const title = document.querySelector('#manageItemsModal .manage-title');
+    if (title) title.textContent = 'Gerenciar Itens';
+  }
+
+  window.saveManageItems = saveManageItemsDefinitive;
+  document.addEventListener('click', function(ev){
+    const btn = ev.target && ev.target.closest ? ev.target.closest('#saveManageItemsBtn') : null;
+    if (!btn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    saveManageItemsDefinitive();
+  }, true);
+  document.addEventListener('DOMContentLoaded', rebind);
+  setTimeout(rebind, 200);
+  setTimeout(rebind, 1000);
+})();
+</script>
+
 </body>
 </html>

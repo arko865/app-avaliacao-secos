@@ -1843,7 +1843,7 @@ function renderStreetCounts() {
               <div class="actions" style="margin-top:0;">
                 <button class="btn secondary" type="button" data-open-camera="${index}">Tirar foto</button>
                 <button class="btn secondary" type="button" data-clear-draft="${index}">Nova foto</button>
-                <button class="btn" type="button" data-save-draft="${index}" ${draftPhoto.dataUrl ? '' : 'disabled'}>${Number.isInteger(row.editingPhotoIndex) ? 'Salvar edição' : 'Salvar foto'}</button>
+                <button class="btn" type="button" data-save-draft="${index}" ${draftPhoto.dataUrl ? '' : 'disabled'}>Salvar foto</button>
                 <input class="camera-input" type="file" accept="image/*" capture="environment" data-camera-input="${index}" />
               </div>
             </div>
@@ -2471,6 +2471,67 @@ function exportPDF() {
     doc.text(obsLines, 50, lineY);
     y += boxH + 5;
   };
+  const fitImageInBox = (naturalW, naturalH, maxW, maxH) => {
+    const safeW = Math.max(Number(naturalW) || 1, 1);
+    const safeH = Math.max(Number(naturalH) || 1, 1);
+    const scale = Math.min(maxW / safeW, maxH / safeH);
+    return {
+      width: Math.max(12, safeW * scale),
+      height: Math.max(12, safeH * scale)
+    };
+  };
+  const getPhotoPlacement = (photo) => {
+    const maxW = 172;
+    const maxH = 105;
+    try {
+      const props = doc.getImageProperties(photo.dataUrl);
+      return fitImageInBox(props.width, props.height, maxW, maxH);
+    } catch (err) {
+      return { width: maxW, height: 72 };
+    }
+  };
+  const drawPhotoCard = (row, photo, indexInRow, totalInRow) => {
+    const placement = getPhotoPlacement(photo);
+    const ncText = (Array.isArray(photo.nonConformities) && photo.nonConformities.length) ? photo.nonConformities.join('; ') : '-';
+    const setorLine = `Setor: ${photo.setor || row.rua || '-'}`;
+    const ncLines = doc.splitTextToSize(`NC: ${ncText}`, 168);
+    const areasLines = doc.splitTextToSize(`Áreas NC: ${photo.areasNaoConformes || '-'}`, 168);
+    const setorLines = doc.splitTextToSize(setorLine, 168);
+    const obsSource = String(photo.observacao || photo.note || '').trim();
+    const obsLines = obsSource ? doc.splitTextToSize(`Obs.: ${obsSource}`, 168) : [];
+    const textBlockH = (ncLines.length * 4.1) + (areasLines.length * 4.1) + (setorLines.length * 4.1) + (obsLines.length ? (obsLines.length * 4.1) : 0) + 8;
+    const cardH = placement.height + textBlockH + 12;
+    ensureSpace(cardH + 5, true);
+    const cardX = 16;
+    const cardY = y;
+
+    doc.setFillColor(255,255,255); doc.setDrawColor(226,232,240);
+    doc.roundedRect(cardX, cardY, 178, cardH, 3, 3, 'FD');
+
+    doc.setFillColor(241,245,249); doc.roundedRect(cardX + 4, cardY + 4, 52, 7, 2.5, 2.5, 'F');
+    doc.setTextColor(15,23,42); doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
+    doc.text(`Foto ${indexInRow + 1} de ${totalInRow}`, cardX + 30, cardY + 8.7, { align:'center' });
+
+    const imageX = cardX + ((178 - placement.width) / 2);
+    const imageY = cardY + 14;
+    try {
+      doc.addImage(photo.dataUrl, 'JPEG', imageX, imageY, placement.width, placement.height, undefined, 'MEDIUM');
+    } catch (err) {
+      try { doc.addImage(photo.dataUrl, 'PNG', imageX, imageY, placement.width, placement.height, undefined, 'MEDIUM'); } catch (e) {}
+    }
+
+    let textY = imageY + placement.height + 6;
+    doc.setTextColor(15,23,42); doc.setFont('helvetica','bold'); doc.setFontSize(8.6);
+    doc.text(ncLines, cardX + 5, textY); textY += ncLines.length * 4.1 + 1;
+    doc.setFont('helvetica','normal'); doc.setFontSize(8.4);
+    doc.text(areasLines, cardX + 5, textY); textY += areasLines.length * 4.1 + 1;
+    doc.text(setorLines, cardX + 5, textY); textY += setorLines.length * 4.1;
+    if (obsLines.length) {
+      textY += 1;
+      doc.text(obsLines, cardX + 5, textY);
+    }
+    y += cardH + 5;
+  };
 
   drawPdfFrame(doc, pageWidth, pageHeight);
   drawPdfHeader(doc, pageWidth);
@@ -2529,38 +2590,7 @@ function exportPDF() {
       y += 14;
 
       validPhotos.forEach((photo, photoIndex) => {
-        const cardW = 87;
-        const cardH = 84;
-        const imageW = 81;
-        const imageH = 54;
-        if (photoIndex % 2 === 0) ensureSpace(cardH + 5, true);
-        const col = photoIndex % 2;
-        const cardX = col === 0 ? 16 : 107;
-        const cardY = y;
-
-        doc.setFillColor(255,255,255); doc.setDrawColor(226,232,240);
-        doc.roundedRect(cardX, cardY, cardW, cardH, 3, 3, 'FD');
-
-        try {
-          doc.addImage(photo.dataUrl, 'JPEG', cardX + 3, cardY + 3, imageW, imageH, undefined, 'MEDIUM');
-        } catch (err) {
-          try { doc.addImage(photo.dataUrl, 'PNG', cardX + 3, cardY + 3, imageW, imageH, undefined, 'MEDIUM'); } catch (e) {}
-        }
-
-        const ncText = (Array.isArray(photo.nonConformities) && photo.nonConformities.length) ? photo.nonConformities.join('; ') : '-';
-        const titleLines = doc.splitTextToSize(`NC: ${ncText}`, cardW - 8);
-        const areaLine = `Áreas NC: ${photo.areasNaoConformes || '-'}`;
-        const setorLine = `Setor: ${photo.setor || row.rua || '-'}`;
-
-        doc.setTextColor(15,23,42); doc.setFont('helvetica','bold'); doc.setFontSize(8.3);
-        doc.text(titleLines.slice(0, 2), cardX + 4, cardY + 56);
-        let infoY = cardY + 56 + Math.min(titleLines.length, 2) * 3.6 + 1;
-        doc.setFont('helvetica','normal'); doc.setFontSize(8.2);
-        doc.text(areaLine, cardX + 4, infoY); infoY += 4.5;
-        const setorLines = doc.splitTextToSize(setorLine, cardW - 8);
-        doc.text(setorLines.slice(0, 1), cardX + 4, infoY);
-
-        if (photoIndex % 2 === 1 || photoIndex === validPhotos.length - 1) y += cardH + 5;
+        drawPhotoCard(row, photo, photoIndex, validPhotos.length);
       });
       y += 2;
     });
@@ -3139,12 +3169,8 @@ function renderStreetCounts() {
                 <div class="saved-photo-meta"><strong>Foto ${photoIndex + 1}</strong></div>
                 <div class="saved-photo-meta"><strong>NC:</strong> ${escapeHtml(ncText)}</div>
                 <div class="saved-photo-meta"><strong>Áreas NC:</strong> ${escapeHtml(photo.areasNaoConformes || '-')}</div>
-                <div class="saved-photo-meta"><strong>Setor:</strong> ${escapeHtml(photo.setor || row.rua || '-')}</div>
                 ${photo.observacao ? `<div class="saved-photo-meta"><strong>Obs.:</strong> ${escapeHtml(photo.observacao)}</div>` : ''}
-                <div class="photo-card-actions">
-                  <button class="btn secondary" type="button" data-edit-photo="${index}" data-photo-index="${photoIndex}">Editar foto</button>
-                  <button class="btn danger" type="button" data-remove-photo="${index}" data-photo-index="${photoIndex}">Excluir foto</button>
-                </div>
+                <div class="photo-card-actions"><button class="btn danger" type="button" data-remove-photo="${index}" data-photo-index="${photoIndex}">Excluir foto</button></div>
               </div>`;
           }).join('')}
         </div>` : '<div class="manage-empty">Nenhuma foto registrada nesta área.</div>';
@@ -3164,7 +3190,7 @@ function renderStreetCounts() {
               <div class="actions" style="margin-top:0;">
                 <button class="btn secondary" type="button" data-open-camera="${index}">Tirar foto</button>
                 <button class="btn secondary" type="button" data-clear-draft="${index}">Nova foto</button>
-                <button class="btn" type="button" data-save-draft="${index}" ${draftPhoto.dataUrl ? '' : 'disabled'}>${Number.isInteger(row.editingPhotoIndex) ? 'Salvar edição' : 'Salvar foto'}</button>
+                <button class="btn" type="button" data-save-draft="${index}" ${draftPhoto.dataUrl ? '' : 'disabled'}>Salvar foto</button>
                 <input class="camera-input" type="file" accept="image/*" capture="environment" data-camera-input="${index}" />
               </div>
             </div>
@@ -3187,10 +3213,6 @@ function renderStreetCounts() {
               <div class="field">
                 <label>Áreas não conformes</label>
                 <input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-draft-field="areasNaoConformes" value="${escapeHtml(draftPhoto.areasNaoConformes ?? '')}" />
-              </div>
-              <div class="field">
-                <label>Setor</label>
-                <input type="text" data-count-index="${index}" data-draft-field="setor" value="${escapeHtml(draftPhoto.setor || row.rua || '')}" placeholder="Ex.: Depósito" />
               </div>
               <div class="field" style="grid-column:1 / -1;">
                 <label>Observação complementar</label>
@@ -3278,50 +3300,16 @@ function renderStreetCounts() {
   list.querySelectorAll('.dropdown-panel').forEach(panel => panel.onclick = e => e.stopPropagation());
   document.onclick = () => { list.querySelectorAll('[data-nc-panel]').forEach(p => p.classList.remove('open')); };
   list.querySelectorAll('[data-clear-draft]').forEach(btn => btn.onclick = () => {
-    const index = Number(btn.dataset.clearDraft); const row = manageStreetCounts?.[index];
-    if (!row) return;
-    row.draftPhoto = makeDefaultPhoto(row.rua || '');
-    delete row.editingPhotoIndex;
-    renderStreetCounts();
+    const index = Number(btn.dataset.clearDraft); const row = manageStreetCounts?.[index]; if (!row) return; row.draftPhoto = makeDefaultPhoto(row.rua || ''); renderStreetCounts();
   });
   list.querySelectorAll('[data-save-draft]').forEach(btn => btn.onclick = () => {
     const index = Number(btn.dataset.saveDraft); const row = manageStreetCounts?.[index]; if (!row) return;
     const draft = getDraftPhotoForRow(row); if (!draft.dataUrl) { showToast('Tire uma foto antes de salvar.'); return; }
-    row.photos = Array.isArray(row.photos) ? row.photos : [];
-    const editingIndex = Number.isInteger(row.editingPhotoIndex) ? row.editingPhotoIndex : -1;
-    const payload = { ...draft, id: editingIndex >= 0 && row.photos[editingIndex]?.id ? row.photos[editingIndex].id : `photo-${Date.now()}-${Math.random().toString(36).slice(2,7)}` };
-    if (editingIndex >= 0 && row.photos[editingIndex]) {
-      row.photos[editingIndex] = payload;
-    } else {
-      row.photos.push(payload);
-    }
-    row.draftPhoto = makeDefaultPhoto(row.rua || '');
-    delete row.editingPhotoIndex;
-    renderStreetCounts();
-    showToast(editingIndex >= 0 ? 'Foto atualizada nesta área.' : 'Foto salva nesta área.');
-  });
-  list.querySelectorAll('[data-edit-photo]').forEach(btn => btn.onclick = () => {
-    const row = manageStreetCounts?.[Number(btn.dataset.editPhoto)];
-    const photoIndex = Number(btn.dataset.photoIndex);
-    if (!row?.photos || !row.photos[photoIndex]) return;
-    row.draftPhoto = { ...makeDefaultPhoto(row.rua || ''), ...row.photos[photoIndex] };
-    row.editingPhotoIndex = photoIndex;
-    renderStreetCounts();
+    row.photos = Array.isArray(row.photos) ? row.photos : []; row.photos.push({ ...draft, id: `photo-${Date.now()}-${Math.random().toString(36).slice(2,7)}` });
+    row.draftPhoto = makeDefaultPhoto(row.rua || ''); renderStreetCounts(); showToast('Foto salva nesta área.');
   });
   list.querySelectorAll('[data-remove-photo]').forEach(btn => btn.onclick = () => {
-    const row = manageStreetCounts?.[Number(btn.dataset.removePhoto)];
-    const photoIndex = Number(btn.dataset.photoIndex);
-    if (!row?.photos) return;
-    row.photos.splice(photoIndex,1);
-    if (Number.isInteger(row.editingPhotoIndex)) {
-      if (row.editingPhotoIndex === photoIndex) {
-        row.draftPhoto = makeDefaultPhoto(row.rua || '');
-        delete row.editingPhotoIndex;
-      } else if (row.editingPhotoIndex > photoIndex) {
-        row.editingPhotoIndex -= 1;
-      }
-    }
-    renderStreetCounts();
+    const row = manageStreetCounts?.[Number(btn.dataset.removePhoto)]; if (!row?.photos) return; row.photos.splice(Number(btn.dataset.photoIndex),1); renderStreetCounts();
   });
   list.querySelectorAll('[data-remove-count-row]').forEach(btn => btn.onclick = () => {
     manageStreetCounts.splice(Number(btn.dataset.removeCountRow), 1); if (!manageStreetCounts.length) manageStreetCounts = makeDefaultStreetCounts(state.form.modelo); renderStreetCounts();
@@ -3719,9 +3707,7 @@ function bindNewConfigEvents(){
     saveStreetTemplateForCurrentStore(state.streetCounts);
     applyAutomaticAreas(state); applyAutomaticNonConformities(state);
     window.persistState();
-    if (!document.getElementById('streetCountsModal')?.classList.contains('open')) {
-      renderApp();
-    }
+    renderApp();
   };
 
   function debounceManageCommit(){ clearTimeout(managePersistTimer); managePersistTimer = setTimeout(()=>{ try { syncManageDraftToState(); } catch (e) {} }, 60); }

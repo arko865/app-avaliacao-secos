@@ -290,8 +290,6 @@
     .theme-toggle { min-width:132px; justify-content:center; }
     .floating-save { position:fixed; right:18px; bottom:18px; z-index:65; border:none; border-radius:999px; padding:14px 18px; font-size:15px; font-weight:900; background:#0f172a; color:#fff; box-shadow:0 14px 32px rgba(15,23,42,.22); cursor:pointer; }
     .floating-save:hover { filter:brightness(1.03); }
-    .floating-refresh { position:fixed; right:18px; bottom:76px; z-index:65; border:none; border-radius:999px; padding:14px 18px; font-size:15px; font-weight:900; background:#d71920; color:#fff; box-shadow:0 14px 32px rgba(215,25,32,.22); cursor:pointer; }
-    .floating-refresh:hover { filter:brightness(1.03); }
     .item-card.status-danger { border-color:#fecaca; background:#fff5f5; }
     .item-card.status-good { border-color:#bbf7d0; background:#f0fdf4; }
     .item-card.status-pending { border-color:#cbd5e1; background:#fff; }
@@ -309,7 +307,7 @@
     body.dark-mode .item-card.status-danger { background:#2a1215; border-color:#7f1d1d; }
     body.dark-mode .item-card.status-good { background:#0f2415; border-color:#166534; }
     body.dark-mode .floating-save { background:#d71920; }
-    @media (max-width: 640px) { .floating-refresh { left:12px; right:12px; bottom:74px; width:auto; border-radius:18px; } .floating-save { left:12px; right:12px; bottom:12px; width:auto; border-radius:18px; } .progress-stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    @media (max-width: 640px) { .floating-save { left:12px; right:12px; bottom:12px; width:auto; border-radius:18px; } .progress-stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 
   </style>
 </head>
@@ -512,7 +510,6 @@
     </div>
   </div>
 
-  <button id="floatingRefreshBtn" class="floating-refresh" type="button">↻ Atualizar página</button>
   <button id="floatingSaveBtn" class="floating-save" type="button">💾 Salvar avaliação</button>
   <div id="toast" class="toast"></div>
 
@@ -1124,26 +1121,120 @@ function parseMillis(value) {
   if (typeof value.toMillis === 'function') return value.toMillis();
   return 0;
 }
+function cloudDraftPayload(forcedUpdatedAt = 0) {
+  return {
+    data: normalizeState(state),
+    updatedAt: forcedUpdatedAt || Date.now(),
+    updatedBy: deviceId,
+    version: 1
+  };
+}
 function queueCloudDraftSync(immediate = false, forcedUpdatedAt = 0) {
-  return;
+  if (!firebaseReady || !firestore || !navigator.onLine) return Promise.resolve(false);
+  const run = async () => {
+    try {
+      const payload = cloudDraftPayload(forcedUpdatedAt);
+      lastCloudDraftAt = parseMillis(payload.updatedAt);
+      await firestore.doc(CLOUD_DRAFT_DOC_PATH).set(payload, { merge:true });
+      cloudDraftInitialized = true;
+      return true;
+    } catch (err) {
+      console.warn('Não foi possível sincronizar o rascunho na nuvem.', err);
+      return false;
+    }
+  };
+  if (draftSyncTimer) clearTimeout(draftSyncTimer);
+  if (immediate) return run();
+  return new Promise(resolve => {
+    draftSyncTimer = setTimeout(async () => resolve(await run()), 450);
+  });
 }
 async function syncHistoryEntryToCloud(entry) {
-  return;
+  if (!firebaseReady || !firestore || !entry?.id) return false;
+  try {
+    await firestore.collection(CLOUD_HISTORY_COLLECTION).doc(String(entry.id)).set({
+      ...entry,
+      updatedAt: Date.now(),
+      updatedBy: deviceId
+    }, { merge:true });
+    return true;
+  } catch (err) {
+    console.warn('Não foi possível sincronizar o histórico na nuvem.', err);
+    return false;
+  }
 }
 async function deleteHistoryEntryFromCloud(id) {
-  return;
+  if (!firebaseReady || !firestore || !id) return false;
+  try {
+    await firestore.collection(CLOUD_HISTORY_COLLECTION).doc(String(id)).delete();
+    return true;
+  } catch (err) {
+    console.warn('Não foi possível excluir o histórico na nuvem.', err);
+    return false;
+  }
 }
 async function seedCloudFromLocal() {
-  return;
+  if (!firebaseReady || !firestore || !navigator.onLine) return false;
+  try {
+    const ref = firestore.doc(CLOUD_DRAFT_DOC_PATH);
+    const snap = await ref.get();
+    const localState = normalizeState(state);
+    if (!snap.exists || !snap.data()?.data) {
+      await ref.set({ data: localState, updatedAt: Date.now(), updatedBy: deviceId, version:1 }, { merge:true });
+      lastCloudDraftAt = Date.now();
+      cloudDraftInitialized = true;
+      return true;
+    }
+    const payload = snap.data();
+    const cloudTs = parseMillis(payload.updatedAt);
+    lastCloudDraftAt = cloudTs;
+    cloudDraftInitialized = true;
+    if (payload.updatedBy !== deviceId && payload.data) {
+      state = normalizeState(payload.data);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      renderApp();
+    }
+    return true;
+  } catch (err) {
+    console.warn('Não foi possível iniciar a sincronização na nuvem.', err);
+    return false;
+  }
 }
 function startCloudListeners() {
-  return;
+  if (!firebaseReady || !firestore || startCloudListeners.started) return;
+  startCloudListeners.started = true;
+  firestore.doc(CLOUD_DRAFT_DOC_PATH).onSnapshot(snapshot => {
+    if (!snapshot.exists) return;
+    const payload = snapshot.data() || {};
+    const incomingTs = parseMillis(payload.updatedAt);
+    if (!payload.data || !incomingTs) return;
+    if (payload.updatedBy === deviceId && incomingTs <= lastCloudDraftAt) return;
+    if (incomingTs < lastCloudDraftAt) return;
+    lastCloudDraftAt = incomingTs;
+    state = normalizeState(payload.data);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (err) {}
+    if (document.getElementById('manageItemsModal')?.classList.contains('open')) manageDraftItems = null;
+    if (document.getElementById('streetCountsModal')?.classList.contains('open')) manageStreetCounts = null;
+    renderApp();
+    showToast('Sincronizado com outro dispositivo.');
+  }, err => {
+    console.warn('Falha ao ouvir atualizações em tempo real.', err);
+  });
 }
 async function initializeFirebaseSync() {
-  firebaseReady = false;
-  firestore = null;
-  return;
+  try {
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    firestore = firebase.firestore();
+    firebaseReady = true;
+    await seedCloudFromLocal();
+    startCloudListeners();
+  } catch (err) {
+    firebaseReady = false;
+    firestore = null;
+    console.warn('Firebase indisponível para sincronização.', err);
+  }
 }
+startCloudListeners.started = false;
 
 function sectionTotals(rows) { let area=0,nc=0; rows.forEach(r=>{ area += r.areaAvaliada; nc += r.naoConformes; }); return { area, nc, nota: area > 0 ? clampPercent(((area - nc) / area) * 100) : 0 }; }
 function smartFileName() {
@@ -2221,14 +2312,6 @@ function bindInputs() {
   document.getElementById('streetCountsModal').onclick = (e) => { if (e.target.id === 'streetCountsModal') closeStreetCountsModal(); };
   const themeBtn = document.getElementById('themeToggleBtn');
   if (themeBtn) themeBtn.onclick = toggleTheme;
-  const floatingRefreshBtn = document.getElementById('floatingRefreshBtn');
-  if (floatingRefreshBtn) floatingRefreshBtn.onclick = () => {
-    try { syncManageDraftToState(); } catch(e){}
-    try { syncStreetDraftToState(); } catch(e){}
-    try { persistState(); } catch(e){}
-    showToast('Atualizando página...');
-    setTimeout(() => window.location.reload(), 180);
-  };
   const floatingSaveBtn = document.getElementById('floatingSaveBtn');
   if (floatingSaveBtn) floatingSaveBtn.onclick = () => { saveHistorySnapshot(); persistState(); showToast('Avaliação salva no histórico.'); scheduleAutosave(); };
 }
@@ -2609,6 +2692,7 @@ function init() {
   restoreFailSafeCheckpoint();
   renderApp();
   updateNetworkBadge();
+  initializeFirebaseSync();
   const stickyCol = document.querySelector('.sticky-col');
   if (stickyCol) {
     stickyCol.addEventListener('wheel', event => {
@@ -2618,7 +2702,7 @@ function init() {
       event.preventDefault();
     }, { passive:false });
   }
-  window.addEventListener('online', () => { updateNetworkBadge(); persistState(); });
+  window.addEventListener('online', () => { updateNetworkBadge(); persistState(); initializeFirebaseSync(); queueCloudDraftSync(true); });
   window.addEventListener('offline', () => { updateNetworkBadge(); persistState(); });
   window.addEventListener('beforeunload', () => { persistState(); });
   document.addEventListener('visibilitychange', () => {

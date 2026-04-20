@@ -290,6 +290,8 @@
     .theme-toggle { min-width:132px; justify-content:center; }
     .floating-save { position:fixed; right:18px; bottom:18px; z-index:65; border:none; border-radius:999px; padding:14px 18px; font-size:15px; font-weight:900; background:#0f172a; color:#fff; box-shadow:0 14px 32px rgba(15,23,42,.22); cursor:pointer; }
     .floating-save:hover { filter:brightness(1.03); }
+    .floating-refresh { position:fixed; right:18px; bottom:76px; z-index:65; border:none; border-radius:999px; padding:14px 18px; font-size:15px; font-weight:900; background:#d71920; color:#fff; box-shadow:0 14px 32px rgba(215,25,32,.22); cursor:pointer; }
+    .floating-refresh:hover { filter:brightness(1.03); }
     .item-card.status-danger { border-color:#fecaca; background:#fff5f5; }
     .item-card.status-good { border-color:#bbf7d0; background:#f0fdf4; }
     .item-card.status-pending { border-color:#cbd5e1; background:#fff; }
@@ -307,7 +309,7 @@
     body.dark-mode .item-card.status-danger { background:#2a1215; border-color:#7f1d1d; }
     body.dark-mode .item-card.status-good { background:#0f2415; border-color:#166534; }
     body.dark-mode .floating-save { background:#d71920; }
-    @media (max-width: 640px) { .floating-save { left:12px; right:12px; bottom:12px; width:auto; border-radius:18px; } .progress-stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    @media (max-width: 640px) { .floating-refresh { left:12px; right:12px; bottom:74px; width:auto; border-radius:18px; } .floating-save { left:12px; right:12px; bottom:12px; width:auto; border-radius:18px; } .progress-stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 
   </style>
 </head>
@@ -510,6 +512,7 @@
     </div>
   </div>
 
+  <button id="floatingRefreshBtn" class="floating-refresh" type="button">↻ Atualizar página</button>
   <button id="floatingSaveBtn" class="floating-save" type="button">💾 Salvar avaliação</button>
   <div id="toast" class="toast"></div>
 
@@ -2218,6 +2221,14 @@ function bindInputs() {
   document.getElementById('streetCountsModal').onclick = (e) => { if (e.target.id === 'streetCountsModal') closeStreetCountsModal(); };
   const themeBtn = document.getElementById('themeToggleBtn');
   if (themeBtn) themeBtn.onclick = toggleTheme;
+  const floatingRefreshBtn = document.getElementById('floatingRefreshBtn');
+  if (floatingRefreshBtn) floatingRefreshBtn.onclick = () => {
+    try { syncManageDraftToState(); } catch(e){}
+    try { syncStreetDraftToState(); } catch(e){}
+    try { persistState(); } catch(e){}
+    showToast('Atualizando página...');
+    setTimeout(() => window.location.reload(), 180);
+  };
   const floatingSaveBtn = document.getElementById('floatingSaveBtn');
   if (floatingSaveBtn) floatingSaveBtn.onclick = () => { saveHistorySnapshot(); persistState(); showToast('Avaliação salva no histórico.'); scheduleAutosave(); };
 }

@@ -1255,7 +1255,9 @@ async function initializeFirebaseSync() {
     firebaseReady = true;
     await seedCloudFromLocal();
     startCloudListeners();
+    startHistoryListener();
     await pullCloudDraftNow(true);
+    await pullCloudHistoryNow();
   } catch (err) {
     firebaseReady = false;
     firestore = null;
@@ -1263,6 +1265,78 @@ async function initializeFirebaseSync() {
   }
 }
 startCloudListeners.started = false;
+let historyListenerStarted = false;
+let historyRefreshTimer = null;
+
+function normalizeHistoryEntry(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const normalized = {
+    id: String(entry.id || Date.now()),
+    createdAt: entry.createdAt || new Date().toISOString(),
+    title: String(entry.title || 'Loja sem nome'),
+    subtitle: String(entry.subtitle || 'Sem detalhes'),
+    notaFinal: Number(entry.notaFinal || 0),
+    data: normalizeState(entry.data || state),
+    updatedAt: parseMillis(entry.updatedAt || 0),
+    updatedBy: String(entry.updatedBy || '')
+  };
+  return normalized;
+}
+
+function mergeHistoryEntries(localList = [], cloudList = []) {
+  const map = new Map();
+  [...(Array.isArray(localList) ? localList : []), ...(Array.isArray(cloudList) ? cloudList : [])].forEach(entry => {
+    const normalized = normalizeHistoryEntry(entry);
+    if (!normalized) return;
+    const current = map.get(normalized.id);
+    const currentTs = parseMillis(current?.updatedAt || current?.createdAt || 0);
+    const nextTs = parseMillis(normalized.updatedAt || normalized.createdAt || 0);
+    if (!current || nextTs >= currentTs) map.set(normalized.id, normalized);
+  });
+  return Array.from(map.values())
+    .sort((a,b) => parseMillis(b.updatedAt || b.createdAt || 0) - parseMillis(a.updatedAt || a.createdAt || 0))
+    .slice(0, 50);
+}
+
+function applyHistoryList(list, source = 'cloud') {
+  const next = mergeHistoryEntries(getLocalHistory(), list);
+  historyCache = next;
+  setLocalHistory(next);
+  renderHistory();
+  if (source === 'cloud') {
+    const modelBadge = document.getElementById('currentModelBadge');
+    if (modelBadge) modelBadge.title = `Histórico sincronizado: ${next.length} avaliação(ões)`;
+  }
+}
+
+async function pullCloudHistoryNow() {
+  if (!firebaseReady || !firestore || !navigator.onLine) return false;
+  try {
+    const snapshot = await firestore.collection(CLOUD_HISTORY_COLLECTION).orderBy('createdAt', 'desc').limit(50).get();
+    const cloudList = snapshot.docs.map(doc => normalizeHistoryEntry({ id: doc.id, ...doc.data() })).filter(Boolean);
+    applyHistoryList(cloudList, 'cloud');
+    return true;
+  } catch (err) {
+    console.warn('Não foi possível buscar o histórico salvo na nuvem.', err);
+    return false;
+  }
+}
+
+function startHistoryListener() {
+  if (!firebaseReady || !firestore || historyListenerStarted) return;
+  historyListenerStarted = true;
+  firestore.collection(CLOUD_HISTORY_COLLECTION).orderBy('createdAt', 'desc').limit(50).onSnapshot(snapshot => {
+    const cloudList = snapshot.docs.map(doc => normalizeHistoryEntry({ id: doc.id, ...doc.data() })).filter(Boolean);
+    applyHistoryList(cloudList, 'cloud');
+  }, err => {
+    console.warn('Falha ao ouvir o histórico salvo na nuvem.', err);
+  });
+}
+
+function scheduleHistoryRefresh() {
+  if (historyRefreshTimer) clearTimeout(historyRefreshTimer);
+  historyRefreshTimer = setTimeout(() => { pullCloudHistoryNow(); }, 800);
+}
 
 function sectionTotals(rows) { let area=0,nc=0; rows.forEach(r=>{ area += r.areaAvaliada; nc += r.naoConformes; }); return { area, nc, nota: area > 0 ? clampPercent(((area - nc) / area) * 100) : 0 }; }
 function smartFileName() {
@@ -1421,7 +1495,7 @@ function saveHistorySnapshot() {
   historyCache = next;
   setLocalHistory(next);
   renderHistory();
-  syncHistoryEntryToCloud(entry);
+  syncHistoryEntryToCloud(entry).then(() => scheduleHistoryRefresh());
 }
 function getHistory() {
   return historyCache.length ? historyCache : getLocalHistory();
@@ -2298,7 +2372,7 @@ function bindInputs() {
   });
 
   document.getElementById('exportBtn').onclick = exportPDF;
-  document.getElementById('saveEvaluationBtn').onclick = async () => { saveHistorySnapshot(); persistState(); await queueCloudDraftSync(true); showToast('Avaliação salva e sincronizada.'); scheduleAutosave(); };
+  document.getElementById('saveEvaluationBtn').onclick = async () => { saveHistorySnapshot(); persistState(); await queueCloudDraftSync(true); await pullCloudHistoryNow(); showToast('Avaliação salva e sincronizada.'); scheduleAutosave(); };
   document.getElementById('resetBtn').onclick = () => {
     if (!confirm('Deseja limpar a avaliação atual? Os dados preenchidos serão apagados deste rascunho.')) return;
     const activeModel = state.form.modelo || DEFAULT_MODEL_KEY;
@@ -2341,12 +2415,13 @@ function bindInputs() {
   const themeBtn = document.getElementById('themeToggleBtn');
   if (themeBtn) themeBtn.onclick = toggleTheme;
   const floatingSaveBtn = document.getElementById('floatingSaveBtn');
-  if (floatingSaveBtn) floatingSaveBtn.onclick = async () => { saveHistorySnapshot(); persistState(); await queueCloudDraftSync(true); showToast('Avaliação salva e sincronizada.'); scheduleAutosave(); };
+  if (floatingSaveBtn) floatingSaveBtn.onclick = async () => { saveHistorySnapshot(); persistState(); await queueCloudDraftSync(true); await pullCloudHistoryNow(); showToast('Avaliação salva e sincronizada.'); scheduleAutosave(); };
   const floatingRefreshBtn = document.getElementById('floatingRefreshBtn');
   if (floatingRefreshBtn) floatingRefreshBtn.onclick = async () => {
     persistState();
     await queueCloudDraftSync(true);
     const updated = await pullCloudDraftNow(true);
+    await pullCloudHistoryNow();
     if (updated) showToast('Dados atualizados da nuvem.');
     setTimeout(() => window.location.reload(), 180);
   };
@@ -2738,11 +2813,11 @@ function init() {
       event.preventDefault();
     }, { passive:false });
   }
-  window.addEventListener('online', () => { updateNetworkBadge(); persistState(); initializeFirebaseSync(); queueCloudDraftSync(true); });
+  window.addEventListener('online', () => { updateNetworkBadge(); persistState(); initializeFirebaseSync(); queueCloudDraftSync(true); pullCloudHistoryNow(); });
   window.addEventListener('offline', () => { updateNetworkBadge(); persistState(); });
   window.addEventListener('beforeunload', () => { persistState(); });
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState !== 'visible') { persistState(); }
+    if (document.visibilityState !== 'visible') { persistState(); } else { pullCloudDraftNow(true); pullCloudHistoryNow(); }
   });
 }
 document.getElementById('configureModelsBtn')?.remove();

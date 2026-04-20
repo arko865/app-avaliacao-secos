@@ -290,6 +290,8 @@
     .theme-toggle { min-width:132px; justify-content:center; }
     .floating-save { position:fixed; right:18px; bottom:18px; z-index:65; border:none; border-radius:999px; padding:14px 18px; font-size:15px; font-weight:900; background:#0f172a; color:#fff; box-shadow:0 14px 32px rgba(15,23,42,.22); cursor:pointer; }
     .floating-save:hover { filter:brightness(1.03); }
+    .floating-refresh { position:fixed; right:18px; bottom:74px; z-index:65; border:none; border-radius:999px; padding:12px 16px; font-size:14px; font-weight:900; background:#d71920; color:#fff; box-shadow:0 14px 32px rgba(15,23,42,.18); cursor:pointer; }
+    .floating-refresh:hover { filter:brightness(1.03); }
     .item-card.status-danger { border-color:#fecaca; background:#fff5f5; }
     .item-card.status-good { border-color:#bbf7d0; background:#f0fdf4; }
     .item-card.status-pending { border-color:#cbd5e1; background:#fff; }
@@ -307,7 +309,7 @@
     body.dark-mode .item-card.status-danger { background:#2a1215; border-color:#7f1d1d; }
     body.dark-mode .item-card.status-good { background:#0f2415; border-color:#166534; }
     body.dark-mode .floating-save { background:#d71920; }
-    @media (max-width: 640px) { .floating-save { left:12px; right:12px; bottom:12px; width:auto; border-radius:18px; } .progress-stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    @media (max-width: 640px) { .floating-save { left:12px; right:12px; bottom:12px; width:auto; border-radius:18px; } .floating-refresh { left:12px; right:12px; bottom:72px; width:auto; border-radius:18px; } .progress-stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 
   </style>
 </head>
@@ -511,6 +513,7 @@
   </div>
 
   <button id="floatingSaveBtn" class="floating-save" type="button">💾 Salvar avaliação</button>
+  <button id="floatingRefreshBtn" class="floating-refresh" type="button">↻ Atualizar página</button>
   <div id="toast" class="toast"></div>
 
 <script>
@@ -1200,6 +1203,30 @@ async function seedCloudFromLocal() {
     return false;
   }
 }
+
+async function pullCloudDraftNow(forceApply = false) {
+  if (!firebaseReady || !firestore || !navigator.onLine) return false;
+  try {
+    const snapshot = await firestore.doc(CLOUD_DRAFT_DOC_PATH).get();
+    if (!snapshot.exists) return false;
+    const payload = snapshot.data() || {};
+    const incomingTs = parseMillis(payload.updatedAt);
+    if (!payload.data || !incomingTs) return false;
+    if (!forceApply && incomingTs < lastCloudDraftAt) return false;
+    if (!forceApply && payload.updatedBy === deviceId && incomingTs <= lastCloudDraftAt) return false;
+    lastCloudDraftAt = incomingTs;
+    state = normalizeState(payload.data);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (err) {}
+    if (document.getElementById('manageItemsModal')?.classList.contains('open')) manageDraftItems = null;
+    if (document.getElementById('streetCountsModal')?.classList.contains('open')) manageStreetCounts = null;
+    renderApp();
+    return true;
+  } catch (err) {
+    console.warn('Não foi possível buscar o rascunho da nuvem.', err);
+    return false;
+  }
+}
+
 function startCloudListeners() {
   if (!firebaseReady || !firestore || startCloudListeners.started) return;
   startCloudListeners.started = true;
@@ -1228,6 +1255,7 @@ async function initializeFirebaseSync() {
     firebaseReady = true;
     await seedCloudFromLocal();
     startCloudListeners();
+    await pullCloudDraftNow(true);
   } catch (err) {
     firebaseReady = false;
     firestore = null;
@@ -2270,7 +2298,7 @@ function bindInputs() {
   });
 
   document.getElementById('exportBtn').onclick = exportPDF;
-  document.getElementById('saveEvaluationBtn').onclick = () => { saveHistorySnapshot(); persistState(); showToast('Avaliação salva no histórico.'); scheduleAutosave(); };
+  document.getElementById('saveEvaluationBtn').onclick = async () => { saveHistorySnapshot(); persistState(); await queueCloudDraftSync(true); showToast('Avaliação salva e sincronizada.'); scheduleAutosave(); };
   document.getElementById('resetBtn').onclick = () => {
     if (!confirm('Deseja limpar a avaliação atual? Os dados preenchidos serão apagados deste rascunho.')) return;
     const activeModel = state.form.modelo || DEFAULT_MODEL_KEY;
@@ -2313,7 +2341,15 @@ function bindInputs() {
   const themeBtn = document.getElementById('themeToggleBtn');
   if (themeBtn) themeBtn.onclick = toggleTheme;
   const floatingSaveBtn = document.getElementById('floatingSaveBtn');
-  if (floatingSaveBtn) floatingSaveBtn.onclick = () => { saveHistorySnapshot(); persistState(); showToast('Avaliação salva no histórico.'); scheduleAutosave(); };
+  if (floatingSaveBtn) floatingSaveBtn.onclick = async () => { saveHistorySnapshot(); persistState(); await queueCloudDraftSync(true); showToast('Avaliação salva e sincronizada.'); scheduleAutosave(); };
+  const floatingRefreshBtn = document.getElementById('floatingRefreshBtn');
+  if (floatingRefreshBtn) floatingRefreshBtn.onclick = async () => {
+    persistState();
+    await queueCloudDraftSync(true);
+    const updated = await pullCloudDraftNow(true);
+    if (updated) showToast('Dados atualizados da nuvem.');
+    setTimeout(() => window.location.reload(), 180);
+  };
 }
 
 function updateUI() {

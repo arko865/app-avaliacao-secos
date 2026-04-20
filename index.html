@@ -2471,67 +2471,6 @@ function exportPDF() {
     doc.text(obsLines, 50, lineY);
     y += boxH + 5;
   };
-  const fitImageInBox = (naturalW, naturalH, maxW, maxH) => {
-    const safeW = Math.max(Number(naturalW) || 1, 1);
-    const safeH = Math.max(Number(naturalH) || 1, 1);
-    const scale = Math.min(maxW / safeW, maxH / safeH);
-    return {
-      width: Math.max(12, safeW * scale),
-      height: Math.max(12, safeH * scale)
-    };
-  };
-  const getPhotoPlacement = (photo) => {
-    const maxW = 172;
-    const maxH = 105;
-    try {
-      const props = doc.getImageProperties(photo.dataUrl);
-      return fitImageInBox(props.width, props.height, maxW, maxH);
-    } catch (err) {
-      return { width: maxW, height: 72 };
-    }
-  };
-  const drawPhotoCard = (row, photo, indexInRow, totalInRow) => {
-    const placement = getPhotoPlacement(photo);
-    const ncText = (Array.isArray(photo.nonConformities) && photo.nonConformities.length) ? photo.nonConformities.join('; ') : '-';
-    const setorLine = `Setor: ${photo.setor || row.rua || '-'}`;
-    const ncLines = doc.splitTextToSize(`NC: ${ncText}`, 168);
-    const areasLines = doc.splitTextToSize(`Áreas NC: ${photo.areasNaoConformes || '-'}`, 168);
-    const setorLines = doc.splitTextToSize(setorLine, 168);
-    const obsSource = String(photo.observacao || photo.note || '').trim();
-    const obsLines = obsSource ? doc.splitTextToSize(`Obs.: ${obsSource}`, 168) : [];
-    const textBlockH = (ncLines.length * 4.1) + (areasLines.length * 4.1) + (setorLines.length * 4.1) + (obsLines.length ? (obsLines.length * 4.1) : 0) + 8;
-    const cardH = placement.height + textBlockH + 12;
-    ensureSpace(cardH + 5, true);
-    const cardX = 16;
-    const cardY = y;
-
-    doc.setFillColor(255,255,255); doc.setDrawColor(226,232,240);
-    doc.roundedRect(cardX, cardY, 178, cardH, 3, 3, 'FD');
-
-    doc.setFillColor(241,245,249); doc.roundedRect(cardX + 4, cardY + 4, 52, 7, 2.5, 2.5, 'F');
-    doc.setTextColor(15,23,42); doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
-    doc.text(`Foto ${indexInRow + 1} de ${totalInRow}`, cardX + 30, cardY + 8.7, { align:'center' });
-
-    const imageX = cardX + ((178 - placement.width) / 2);
-    const imageY = cardY + 14;
-    try {
-      doc.addImage(photo.dataUrl, 'JPEG', imageX, imageY, placement.width, placement.height, undefined, 'MEDIUM');
-    } catch (err) {
-      try { doc.addImage(photo.dataUrl, 'PNG', imageX, imageY, placement.width, placement.height, undefined, 'MEDIUM'); } catch (e) {}
-    }
-
-    let textY = imageY + placement.height + 6;
-    doc.setTextColor(15,23,42); doc.setFont('helvetica','bold'); doc.setFontSize(8.6);
-    doc.text(ncLines, cardX + 5, textY); textY += ncLines.length * 4.1 + 1;
-    doc.setFont('helvetica','normal'); doc.setFontSize(8.4);
-    doc.text(areasLines, cardX + 5, textY); textY += areasLines.length * 4.1 + 1;
-    doc.text(setorLines, cardX + 5, textY); textY += setorLines.length * 4.1;
-    if (obsLines.length) {
-      textY += 1;
-      doc.text(obsLines, cardX + 5, textY);
-    }
-    y += cardH + 5;
-  };
 
   drawPdfFrame(doc, pageWidth, pageHeight);
   drawPdfHeader(doc, pageWidth);
@@ -2590,7 +2529,38 @@ function exportPDF() {
       y += 14;
 
       validPhotos.forEach((photo, photoIndex) => {
-        drawPhotoCard(row, photo, photoIndex, validPhotos.length);
+        const cardW = 87;
+        const cardH = 84;
+        const imageW = 81;
+        const imageH = 54;
+        if (photoIndex % 2 === 0) ensureSpace(cardH + 5, true);
+        const col = photoIndex % 2;
+        const cardX = col === 0 ? 16 : 107;
+        const cardY = y;
+
+        doc.setFillColor(255,255,255); doc.setDrawColor(226,232,240);
+        doc.roundedRect(cardX, cardY, cardW, cardH, 3, 3, 'FD');
+
+        try {
+          doc.addImage(photo.dataUrl, 'JPEG', cardX + 3, cardY + 3, imageW, imageH, undefined, 'MEDIUM');
+        } catch (err) {
+          try { doc.addImage(photo.dataUrl, 'PNG', cardX + 3, cardY + 3, imageW, imageH, undefined, 'MEDIUM'); } catch (e) {}
+        }
+
+        const ncText = (Array.isArray(photo.nonConformities) && photo.nonConformities.length) ? photo.nonConformities.join('; ') : '-';
+        const titleLines = doc.splitTextToSize(`NC: ${ncText}`, cardW - 8);
+        const areaLine = `Áreas NC: ${photo.areasNaoConformes || '-'}`;
+        const setorLine = `Setor: ${photo.setor || row.rua || '-'}`;
+
+        doc.setTextColor(15,23,42); doc.setFont('helvetica','bold'); doc.setFontSize(8.3);
+        doc.text(titleLines.slice(0, 2), cardX + 4, cardY + 56);
+        let infoY = cardY + 56 + Math.min(titleLines.length, 2) * 3.6 + 1;
+        doc.setFont('helvetica','normal'); doc.setFontSize(8.2);
+        doc.text(areaLine, cardX + 4, infoY); infoY += 4.5;
+        const setorLines = doc.splitTextToSize(setorLine, cardW - 8);
+        doc.text(setorLines.slice(0, 1), cardX + 4, infoY);
+
+        if (photoIndex % 2 === 1 || photoIndex === validPhotos.length - 1) y += cardH + 5;
       });
       y += 2;
     });
@@ -3754,6 +3724,400 @@ function bindNewConfigEvents(){
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') { try { syncManageDraftToState(); } catch(e){} try { syncStreetDraftToState(); } catch(e){} }
   });
+})();
+</script>
+
+
+<script>
+(function(){
+  function cloudDocRef(){
+    if (!firestore) return null;
+    const parts = String(CLOUD_DRAFT_DOC_PATH || 'shared/currentState').split('/').filter(Boolean);
+    if (parts.length < 2) return firestore.collection('shared').doc('currentState');
+    return firestore.collection(parts[0]).doc(parts[1]);
+  }
+  function cloudHistoryRef(){
+    return firestore ? firestore.collection(CLOUD_HISTORY_COLLECTION || 'historyEntries') : null;
+  }
+  function hasMeaningfulState(payload){
+    try {
+      const st = normalizeState(payload || state || buildDefaultState());
+      const hasStore = !!String(st?.form?.nomeLoja || '').trim();
+      const hasFields = Object.values(st?.form || {}).some(v => String(v || '').trim() && String(v || '').trim() !== '1° Visita');
+      const hasItems = (st?.items || []).some(item => String(item.areaAvaliada || '').trim() || String(item.naoConformes || '').trim() || String(item.observacao || '').trim() || item.naoAvaliar);
+      const hasPhotos = (st?.streetCounts || []).some(row => Array.isArray(row.photos) && row.photos.some(photo => photo && photo.dataUrl));
+      return hasStore || hasFields || hasItems || hasPhotos;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  window.queueCloudDraftSync = function patchedQueueCloudDraftSync(immediate = false, forcedUpdatedAt = 0) {
+    if (!firebaseReady || !firestore) return;
+    const send = async () => {
+      try {
+        const updatedAtMs = forcedUpdatedAt || Date.now();
+        lastCloudDraftAt = Math.max(lastCloudDraftAt || 0, updatedAtMs);
+        const ref = cloudDocRef();
+        if (!ref) return;
+        await ref.set({
+          payload: normalizeState(state),
+          updatedAtMs,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          deviceId,
+          modelKey: state?.form?.modelo || DEFAULT_MODEL_KEY,
+          storeName: String(state?.form?.nomeLoja || '').trim(),
+          version: 2
+        }, { merge:true });
+      } catch (err) {
+        console.warn('Falha ao sincronizar rascunho na nuvem.', err);
+      }
+    };
+    clearTimeout(draftSyncTimer);
+    if (immediate) { send(); return; }
+    draftSyncTimer = setTimeout(send, 650);
+  };
+
+  window.syncHistoryEntryToCloud = async function patchedSyncHistoryEntryToCloud(entry) {
+    if (!firebaseReady || !firestore || !entry || !entry.id) return;
+    try {
+      await cloudHistoryRef().doc(String(entry.id)).set({
+        ...entry,
+        deviceId,
+        updatedAtMs: Date.now(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge:true });
+    } catch (err) {
+      console.warn('Falha ao sincronizar histórico na nuvem.', err);
+    }
+  };
+
+  window.deleteHistoryEntryFromCloud = async function patchedDeleteHistoryEntryFromCloud(id) {
+    if (!firebaseReady || !firestore || !id) return;
+    try {
+      await cloudHistoryRef().doc(String(id)).delete();
+    } catch (err) {
+      console.warn('Falha ao remover histórico na nuvem.', err);
+    }
+  };
+
+  window.seedCloudFromLocal = async function patchedSeedCloudFromLocal() {
+    if (!firebaseReady || !firestore) return;
+    try {
+      const ref = cloudDocRef();
+      const snap = await ref.get();
+      if (!snap.exists && hasMeaningfulState(state)) {
+        await ref.set({
+          payload: normalizeState(state),
+          updatedAtMs: Date.now(),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          deviceId,
+          version: 2
+        }, { merge:true });
+      }
+      const localHistory = getHistory();
+      if (Array.isArray(localHistory) && localHistory.length) {
+        localHistory.slice(0, 20).forEach(entry => window.syncHistoryEntryToCloud(entry));
+      }
+    } catch (err) {
+      console.warn('Falha ao preparar sincronização inicial.', err);
+    }
+  };
+
+  window.startCloudListeners = function patchedStartCloudListeners() {
+    if (!firebaseReady || !firestore) return;
+    if (!cloudDraftInitialized) {
+      cloudDraftInitialized = true;
+      cloudDocRef().onSnapshot(snapshot => {
+        try {
+          if (!snapshot.exists) return;
+          const data = snapshot.data() || {};
+          const incomingMs = Number(data.updatedAtMs || parseMillis(data.updatedAt) || 0);
+          const incomingDevice = String(data.deviceId || '');
+          if (!data.payload) return;
+          if (incomingDevice === deviceId && incomingMs <= (lastCloudDraftAt || 0)) return;
+          if (incomingMs && incomingMs < (lastCloudDraftAt || 0)) return;
+          lastCloudDraftAt = Math.max(lastCloudDraftAt || 0, incomingMs || 0);
+          state = normalizeState(data.payload);
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (err) {}
+          saveFailSafeCheckpoint('cloud-sync');
+          renderApp();
+          if (incomingDevice && incomingDevice !== deviceId) {
+            showToast('Avaliação atualizada com dados de outro dispositivo.');
+          }
+        } catch (err) {
+          console.warn('Falha ao aplicar rascunho vindo da nuvem.', err);
+        }
+      }, err => console.warn('Falha no listener do rascunho.', err));
+    }
+    if (!cloudHistoryInitialized) {
+      cloudHistoryInitialized = true;
+      cloudHistoryRef().orderBy('updatedAtMs', 'desc').limit(50).onSnapshot(snapshot => {
+        try {
+          const docs = [];
+          snapshot.forEach(docSnap => {
+            const data = docSnap.data() || {};
+            if (!data.id) data.id = docSnap.id;
+            docs.push(data);
+          });
+          if (docs.length) {
+            historyCache = docs;
+            setLocalHistory(docs);
+            renderHistory();
+          }
+        } catch (err) {
+          console.warn('Falha ao aplicar histórico vindo da nuvem.', err);
+        }
+      }, err => console.warn('Falha no listener do histórico.', err));
+    }
+  };
+
+  window.initializeFirebaseSync = async function patchedInitializeFirebaseSync() {
+    try {
+      if (!(window.firebase && firebase.firestore)) {
+        firebaseReady = false;
+        firestore = null;
+        return;
+      }
+      if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+      firestore = firebase.firestore();
+      firebaseReady = true;
+      await window.seedCloudFromLocal();
+      window.startCloudListeners();
+      const pill = document.querySelector('.top-tools .pill:nth-child(2)');
+      if (pill) pill.textContent = 'Rascunho salvo neste aparelho e sincronizado entre dispositivos';
+    } catch (err) {
+      firebaseReady = false;
+      firestore = null;
+      console.warn('Firebase indisponível para sincronização.', err);
+    }
+  };
+
+  function computePhotoRender(doc, dataUrl, maxW, maxH){
+    let imgW = maxW, imgH = Math.min(maxH, maxW * 0.75);
+    try {
+      const props = doc.getImageProperties(dataUrl);
+      const rawW = Number(props?.width || 0);
+      const rawH = Number(props?.height || 0);
+      if (rawW > 0 && rawH > 0) {
+        const ratio = rawW / rawH;
+        imgW = maxW;
+        imgH = imgW / ratio;
+        if (imgH > maxH) {
+          imgH = maxH;
+          imgW = imgH * ratio;
+        }
+      }
+    } catch (err) {}
+    return { imgW, imgH };
+  }
+
+  window.exportPDF = function patchedExportPDF() {
+    persistState();
+    saveFailSafeCheckpoint('before-pdf-export');
+    const summary = getSummary();
+    try {
+      if (!(window.jspdf && window.jspdf.jsPDF)) throw new Error('Biblioteca de PDF indisponível neste momento.');
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ unit:'mm', format:'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      let y = 40;
+
+      const newPage = () => {
+        drawPdfFooter(doc, pageWidth, pageHeight, false);
+        doc.addPage();
+        drawPdfFrame(doc, pageWidth, pageHeight);
+        drawPdfHeader(doc, pageWidth);
+        y = 40;
+      };
+      const ensureSpace = (needed, reserveSignatures=false) => {
+        const limit = reserveSignatures ? pageHeight - 40 : pageHeight - 22;
+        if (y + needed > limit) newPage();
+      };
+      const writeLabelValue = (x, top, w, label, value) => {
+        const h = 15;
+        doc.setFillColor(255,255,255); doc.setDrawColor(226,232,240);
+        doc.roundedRect(x, top, w, h, 3, 3, 'FD');
+        doc.setTextColor(100,116,139); doc.setFont('helvetica','bold'); doc.setFontSize(7.8);
+        doc.text(label, x + 4, top + 5.5);
+        doc.setTextColor(15,23,42); doc.setFont('helvetica','normal'); doc.setFontSize(9.3);
+        const lines = doc.splitTextToSize(String(value || '-'), w - 8);
+        doc.text(lines.slice(0,2), x + 4, top + 10.2);
+      };
+      const metricBox = (x, top, w, h, title, value, approved) => {
+        doc.setFillColor(...(approved ? [22,163,74] : [127,29,29]));
+        doc.roundedRect(x, top, w, h, 4, 4, 'F');
+        doc.setTextColor(255,255,255); doc.setFont('helvetica','bold');
+        doc.setFontSize(10); doc.text(title, x + w/2, top + 6.8, { align:'center' });
+        doc.setFontSize(20); doc.text(value, x + w/2, top + 17.8, { align:'center' });
+        doc.setFontSize(12); doc.text(approved ? 'Loja Aprovada' : 'Loja Reprovada', x + w/2, top + 28.5, { align:'center' });
+        doc.setTextColor(15,23,42);
+      };
+      const neutralBox = (x, top, w, h, title, value, titleSize = 8.2) => {
+        doc.setFillColor(241,245,249); doc.setDrawColor(226,232,240);
+        doc.roundedRect(x, top, w, h, 4, 4, 'FD');
+        doc.setTextColor(100,116,139); doc.setFont('helvetica','bold'); doc.setFontSize(titleSize);
+        const lines = String(title).split('\n');
+        const titleY = lines.length > 1 ? top + 5.4 : top + 7.4;
+        doc.text(lines, x + w/2, titleY, { align:'center', baseline:'top' });
+        doc.setTextColor(15,23,42); doc.setFont('helvetica','bold'); doc.setFontSize(13.6);
+        doc.text(String(value), x + w/2, top + h - 4.5, { align:'center' });
+      };
+      const itemCard = (row) => {
+        const descLines = doc.splitTextToSize(row.description, 116);
+        const obsLines = doc.splitTextToSize(row.observacao || '-', 116);
+        const descH = descLines.length * 4;
+        const obsH = Math.max(4, obsLines.length * 4);
+        const statusExtra = row.naoAvaliar ? 6 : 0;
+        const boxH = 24 + descH + obsH + statusExtra;
+        ensureSpace(boxH + 6, row.id >= 16);
+        doc.setFillColor(...(row.naoAvaliar ? [248,250,252] : [255,255,255]));
+        doc.setDrawColor(226,232,240);
+        doc.roundedRect(16, y, 178, boxH, 3, 3, 'FD');
+        doc.setFillColor(241,245,249); doc.roundedRect(20, y + 4, 24, 8, 3, 3, 'F');
+        doc.setTextColor(15,23,42); doc.setFont('helvetica','bold'); doc.setFontSize(9);
+        doc.text(`Item ${row.id}`, 32, y + 9.2, { align:'center' });
+        const scoreLabel = row.naoAvaliar ? 'N/A' : formatPercent(row.itemScore);
+        doc.setFillColor(...(row.naoAvaliar ? [203,213,225] : (row.itemScore >= STATUS_THRESHOLD ? [22,163,74] : [127,29,29])));
+        doc.setTextColor(...(row.naoAvaliar ? [71,85,105] : [255,255,255]));
+        doc.roundedRect(150, y + 4, 36, 10, 3, 3, 'F');
+        doc.setFontSize(11); doc.text(scoreLabel, 168, y + 10.6, { align:'center' });
+        doc.setTextColor(15,23,42); doc.setFont('helvetica','normal'); doc.setFontSize(10);
+        doc.text(descLines, 20, y + 19);
+        let lineY = y + 19 + descH + 2;
+        if (row.naoAvaliar) {
+          doc.setTextColor(71,85,105); doc.setFont('helvetica','bold'); doc.setFontSize(9.3);
+          doc.text('Item marcado como Não Avaliar', 20, lineY);
+          lineY += 5;
+          doc.setTextColor(15,23,42); doc.setFont('helvetica','normal');
+        }
+        doc.setFont('helvetica','bold'); doc.text('Áreas avaliadas:', 20, lineY); doc.setFont('helvetica','normal'); doc.text(String(row.areaAvaliada), 52, lineY);
+        doc.setFont('helvetica','bold'); doc.text('Não conformes:', 84, lineY); doc.setFont('helvetica','normal'); doc.text(String(row.naoConformes), 114, lineY);
+        lineY += 6;
+        doc.setFont('helvetica','bold'); doc.text('Observações:', 20, lineY); doc.setFont('helvetica','normal');
+        doc.text(obsLines, 50, lineY);
+        y += boxH + 5;
+      };
+      const drawProfessionalPhotoCard = (row, photo, index) => {
+        const cardX = 16;
+        const cardW = 178;
+        const imageMaxW = cardW - 10;
+        const imageMaxH = 92;
+        const ncText = (Array.isArray(photo.nonConformities) && photo.nonConformities.length) ? photo.nonConformities.join('; ') : '-';
+        const titleLines = doc.splitTextToSize(`NC: ${ncText}`, cardW - 12);
+        const areaLines = doc.splitTextToSize(`Áreas NC: ${photo.areasNaoConformes || '-'}`, cardW - 12);
+        const setorLines = doc.splitTextToSize(`Setor: ${photo.setor || row.rua || '-'}`, cardW - 12);
+        const obsText = String(photo.observacao || '').trim();
+        const obsLines = obsText ? doc.splitTextToSize(`Obs.: ${obsText}`, cardW - 12) : [];
+        const imageDims = computePhotoRender(doc, photo.dataUrl, imageMaxW, imageMaxH);
+        const metaTextHeight = Math.max(10, (titleLines.length * 4.1) + (areaLines.length * 4.1) + (setorLines.length * 4.1) + (obsLines.length ? (obsLines.length * 4.1) : 0));
+        const cardH = 18 + imageDims.imgH + 6 + metaTextHeight + 8;
+        ensureSpace(cardH + 6, true);
+
+        doc.setFillColor(255,255,255); doc.setDrawColor(226,232,240);
+        doc.roundedRect(cardX, y, cardW, cardH, 4, 4, 'FD');
+        doc.setFillColor(241,245,249);
+        doc.roundedRect(cardX + 4, y + 4, cardW - 8, 9, 2.5, 2.5, 'F');
+        doc.setTextColor(15,23,42); doc.setFont('helvetica','bold'); doc.setFontSize(10);
+        doc.text(`Foto ${index + 1} • Área ${row.rua || '-'}`, cardX + 7, y + 10.1);
+
+        const imgX = cardX + ((cardW - imageDims.imgW) / 2);
+        const imgY = y + 16;
+        try {
+          doc.addImage(photo.dataUrl, 'JPEG', imgX, imgY, imageDims.imgW, imageDims.imgH, undefined, 'MEDIUM');
+        } catch (err) {
+          try { doc.addImage(photo.dataUrl, 'PNG', imgX, imgY, imageDims.imgW, imageDims.imgH, undefined, 'MEDIUM'); } catch (e) {}
+        }
+
+        let textY = imgY + imageDims.imgH + 6;
+        doc.setTextColor(15,23,42); doc.setFont('helvetica','bold'); doc.setFontSize(9.2);
+        doc.text(titleLines, cardX + 6, textY);
+        textY += titleLines.length * 4.1;
+        doc.setFont('helvetica','normal');
+        doc.text(areaLines, cardX + 6, textY); textY += areaLines.length * 4.1;
+        doc.text(setorLines, cardX + 6, textY); textY += setorLines.length * 4.1;
+        if (obsLines.length) {
+          doc.text(obsLines, cardX + 6, textY);
+          textY += obsLines.length * 4.1;
+        }
+        y += cardH + 5;
+      };
+
+      drawPdfFrame(doc, pageWidth, pageHeight);
+      drawPdfHeader(doc, pageWidth);
+
+      doc.setTextColor(15,23,42); doc.setFont('helvetica','bold'); doc.setFontSize(12);
+      doc.text('Resumo da Loja', pageWidth / 2, y, { align:'center' });
+      doc.setDrawColor(215,25,32);
+      doc.setLineWidth(0.5);
+      doc.line(18, y + 2, pageWidth - 18, y + 2);
+      y += 8;
+      const infoW = 56;
+      writeLabelValue(16, y, infoW, 'Loja', state.form.nomeLoja || '-');
+      writeLabelValue(76, y, infoW, 'Visita', state.form.visita || '-');
+      writeLabelValue(136, y, 58, 'Coord. Arko', state.form.coordArko || '-'); y += 18;
+      writeLabelValue(16, y, infoW, 'Responsável Loja', state.form.gerenteLoja || '-');
+      writeLabelValue(76, y, infoW, 'Setor', state.form.setor || '-');
+      writeLabelValue(136, y, 28, 'Data', formatDateBR(state.form.data) || '-');
+      writeLabelValue(166, y, 28, 'Hora', state.form.horaVisita || '-'); y += 18;
+      writeLabelValue(16, y, 56, 'Responsável acompanhou', state.form.gerenteAcompanhou ? 'Sim' : 'Não');
+      writeLabelValue(76, y, 56, 'Itens críticos', String(summary.itensCriticos));
+      writeLabelValue(136, y, 58, 'Itens não avaliados', String(summary.itensNaoAvaliados)); y += 22;
+
+      metricBox(16, y, 62, 34, 'Nota Geral', formatPercent(summary.notaFinal), summary.notaFinal >= STATUS_THRESHOLD);
+      neutralBox(82, y, 52, 20, 'Depósito / Aéreo', formatPercent(summary.deposito.nota), 8.0);
+      neutralBox(138, y, 56, 20, 'Área de Venda', formatPercent(summary.venda.nota), 8.0);
+      neutralBox(82, y + 22, 27, 20, 'Áreas\nAvaliadas', summary.totalAreas, 7.8);
+      neutralBox(111, y + 22, 27, 20, 'Não\nConformes', summary.totalNaoConformes, 7.8);
+      neutralBox(140, y + 22, 27, 20, 'Depósito\nNC', summary.deposito.nc, 7.6);
+      neutralBox(169, y + 22, 25, 20, 'Venda\nNC', summary.venda.nc, 7.6);
+      y += 48;
+
+      doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.text('Itens Avaliados', 16, y); y += 6;
+      summary.rows.forEach(itemCard);
+
+      ensureSpace(48, true);
+      doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.text('Itens Informativos (Sem Nota)', 16, y); y += 6;
+      doc.setFont('helvetica','normal'); doc.setFontSize(10);
+      const info1 = doc.splitTextToSize(`Produtos que não deverão ser contados: ${state.form.produtosIdentificados || '-'}`, 178);
+      const info2 = doc.splitTextToSize(`Mercadorias podem atrasar o inventário: ${state.form.impactoMercadoria || '-'}`, 178);
+      doc.text(info1, 16, y); y += info1.length * 4 + 2;
+      doc.text(info2, 16, y); y += info2.length * 4 + 4;
+
+      const photoRows = (state.streetCounts || []).filter(row => Array.isArray(row.photos) && row.photos.length);
+      if (photoRows.length) {
+        ensureSpace(20, true);
+        doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.text('Relatório Fotográfico', 16, y); y += 7;
+        photoRows.forEach(row => {
+          const validPhotos = (row.photos || []).filter(photo => photo && photo.dataUrl);
+          if (!validPhotos.length) return;
+          ensureSpace(12, true);
+          doc.setFillColor(241,245,249); doc.setDrawColor(226,232,240);
+          doc.roundedRect(16, y, 178, 10, 3, 3, 'FD');
+          doc.setTextColor(15,23,42); doc.setFont('helvetica','bold'); doc.setFontSize(10.5);
+          doc.text(`Área: ${row.rua || '-'}`, 20, y + 6.5);
+          y += 14;
+          validPhotos.forEach((photo, index) => drawProfessionalPhotoCard(row, photo, index));
+          y += 1;
+        });
+      }
+
+      drawPdfFooter(doc, pageWidth, pageHeight, true);
+      doc.save(smartFileName());
+      saveHistorySnapshot();
+      scheduleAutosave();
+      showToast('PDF gerado com sucesso.');
+    } catch (err) {
+      console.warn('Falha ao gerar PDF.', err);
+      persistState();
+      const restored = restoreFailSafeCheckpoint();
+      if (restored) renderApp();
+      showToast(navigator.onLine ? 'Não foi possível gerar o PDF agora, mas a avaliação foi mantida neste aparelho.' : 'Sem internet no momento. A avaliação foi mantida salva neste aparelho para você continuar.');
+    }
+  };
+
+  setTimeout(() => { try { window.initializeFirebaseSync(); } catch (err) {} }, 200);
 })();
 </script>
 

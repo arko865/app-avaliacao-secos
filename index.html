@@ -5004,6 +5004,239 @@ function bindNewConfigEvents(){
 })();
 </script>
 
+
+<script>
+(function(){
+  const PATCH_TAG = 'arko_patch_v18_manage_final_fix';
+  if (window[PATCH_TAG]) return;
+  window[PATCH_TAG] = true;
+
+  function deepClone(v){ try { return JSON.parse(JSON.stringify(v)); } catch(e){ return v; } }
+  function nowTs(){ return Date.now(); }
+
+  function readManageModalIntoState(){
+    const modal = document.getElementById('manageItemsModal');
+    const modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY;
+    if (!Array.isArray(manageDraftItems) || !manageDraftItems.length) {
+      manageDraftItems = typeof makeDefaultItems === 'function' ? makeDefaultItems(modelKey) : deepClone(state.items || []);
+    }
+
+    if (modal) {
+      modal.querySelectorAll('textarea[data-manage-field="description"]').forEach(el => {
+        const index = Number(el.dataset.manageIndex);
+        if (manageDraftItems[index]) manageDraftItems[index].description = String(el.value || '');
+      });
+      modal.querySelectorAll('select[data-manage-field="section"]').forEach(el => {
+        const index = Number(el.dataset.manageIndex);
+        if (manageDraftItems[index]) manageDraftItems[index].section = el.value === 'venda' ? 'venda' : 'deposito';
+      });
+    }
+
+    const all = typeof getCurrentModelConfigsSnapshot === 'function'
+      ? getCurrentModelConfigsSnapshot()
+      : deepClone(state.modelConfigs || {});
+    if (!all[modelKey]) all[modelKey] = deepClone(getModelConfig(modelKey));
+    const model = all[modelKey];
+
+    // Normalize buckets first
+    model.areaDefinitions = Array.isArray(model.areaDefinitions) ? model.areaDefinitions : [];
+    model.ncDefinitions = Array.isArray(model.ncDefinitions) ? model.ncDefinitions : [];
+
+    // Labels from DOM
+    if (modal) {
+      model.areaDefinitions.forEach((area, idx) => {
+        const input = modal.querySelector(`[data-manage-area-field="label"][data-manage-area-index="${idx}"]`);
+        const nextLabel = String(input ? input.value : area.label || '').trim() || `Nova área ${idx + 1}`;
+        area.label = nextLabel;
+      });
+      model.ncDefinitions.forEach((nc, idx) => {
+        const input = modal.querySelector(`[data-manage-nc-field="label"][data-manage-nc-index="${idx}"]`);
+        const nextLabel = String(input ? input.value : nc.label || '').trim() || `Nova não conformidade ${idx + 1}`;
+        nc.label = nextLabel;
+      });
+
+      // Rebuild all links from DOM instead of relying on stale memory.
+      const areaMap = new Map(model.areaDefinitions.map((area, idx) => [String(area.key), { idx, itemIds: [] }]));
+      modal.querySelectorAll('[data-manage-link-area]').forEach(el => {
+        if (!el.checked) return;
+        const key = String(el.dataset.manageLinkArea || '');
+        const itemIndex = Number(el.dataset.manageIndex);
+        const bucket = areaMap.get(key);
+        if (!bucket) return;
+        const itemId = itemIndex + 1;
+        if (itemId > 0) bucket.itemIds.push(itemId);
+      });
+      model.areaDefinitions.forEach(area => {
+        const bucket = areaMap.get(String(area.key));
+        area.itemIds = Array.from(new Set(bucket ? bucket.itemIds : [])).sort((a,b)=>a-b);
+      });
+
+      const ncBuckets = model.ncDefinitions.map(() => []);
+      modal.querySelectorAll('[data-manage-link-nc]').forEach(el => {
+        if (!el.checked) return;
+        const ncIndex = Number(el.dataset.manageLinkNc);
+        const itemIndex = Number(el.dataset.manageIndex);
+        if (!Number.isFinite(ncIndex) || !ncBuckets[ncIndex]) return;
+        const itemId = itemIndex + 1;
+        if (itemId > 0) ncBuckets[ncIndex].push(itemId);
+      });
+      model.ncDefinitions.forEach((nc, idx) => {
+        nc.itemIds = Array.from(new Set(ncBuckets[idx] || [])).sort((a,b)=>a-b);
+      });
+
+      // Rebuild keys after labels are final, keeping links.
+      const oldToNewAreaKey = new Map();
+      model.areaDefinitions.forEach((area, idx) => {
+        const previousKey = String(area.key || '');
+        const usedKeys = model.areaDefinitions.map((x, i) => i === idx ? null : x.key).filter(Boolean);
+        const newKey = typeof slugifyConfigKey === 'function'
+          ? slugifyConfigKey(area.label || `area_${idx+1}`)
+          : (String(area.label || `area_${idx+1}`).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || `area_${idx+1}`);
+        area.key = newKey;
+        oldToNewAreaKey.set(previousKey, newKey);
+      });
+
+      // Also update checkbox attributes in DOM memory if modal still open.
+      modal.querySelectorAll('[data-manage-link-area]').forEach(el => {
+        const oldKey = String(el.dataset.manageLinkArea || '');
+        if (oldToNewAreaKey.has(oldKey)) el.dataset.manageLinkArea = oldToNewAreaKey.get(oldKey);
+      });
+    }
+
+    const idMap = {};
+    manageDraftItems.forEach((item, index) => { idMap[Number(item.id) || (index + 1)] = index + 1; });
+    if (typeof remapItemIdsInModelConfig === 'function') remapItemIdsInModelConfig(modelKey, idMap);
+
+    state.items = typeof reindexItems === 'function'
+      ? reindexItems(deepClone(manageDraftItems), modelKey)
+      : deepClone(manageDraftItems);
+
+    model.items = state.items.map(item => ({
+      description: String(item.description || ''),
+      section: item.section === 'venda' ? 'venda' : 'deposito'
+    }));
+
+    all[modelKey] = model;
+    state.modelConfigs = typeof migrateConfigurableModels === 'function' ? migrateConfigurableModels(all) : all;
+
+    if (typeof syncItemLinkMetadata === 'function') syncItemLinkMetadata(modelKey);
+    if (typeof normalizeModelItemTemplates === 'function') {
+      state.modelItemTemplates = normalizeModelItemTemplates({
+        ...(state.modelItemTemplates || {}),
+        [modelKey]: deepClone(state.items)
+      });
+    }
+    if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state);
+    if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state);
+    return true;
+  }
+
+  function persistManageStateEverywhere(ts){
+    const timestamp = ts || nowTs();
+    const normalized = typeof normalizeState === 'function' ? normalizeState(state) : state;
+    state = normalized;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+    } catch (e) { console.warn('Falha ao salvar rascunho local.', e); }
+    try {
+      localStorage.setItem(SAFETY_KEY, JSON.stringify({
+        reason: 'manage-v18-save',
+        savedAt: new Date(timestamp).toISOString(),
+        payload: normalized
+      }));
+    } catch (e) { console.warn('Falha ao salvar checkpoint local.', e); }
+    try { localStorage.setItem('arko_local_edit_ts_v15', String(timestamp)); } catch(e) {}
+    try { localStorage.setItem('arko_last_sync_source_v15', 'manage-v18-local'); } catch(e) {}
+    try { if (typeof saveStateToIndexedDb === 'function') saveStateToIndexedDb(normalized); } catch (e) { console.warn('Falha no IndexedDB.', e); }
+    return timestamp;
+  }
+
+  async function saveManageItemsFinal(){
+    readManageModalIntoState();
+    const ts = persistManageStateEverywhere(nowTs());
+    try {
+      if (typeof queueCloudDraftSync === 'function') {
+        await queueCloudDraftSync(true, ts);
+      }
+    } catch (e) {
+      console.warn('Falha ao sincronizar com a nuvem.', e);
+    }
+    try { renderApp(); } catch(e) {}
+    try { if (typeof closeManageItemsModal === 'function') closeManageItemsModal(); } catch(e) {}
+    try { if (typeof showToast === 'function') showToast('Itens, áreas avaliadas e NCs salvos com sucesso.'); } catch(e) {}
+  }
+
+  window.syncManageDraftToState = function syncManageDraftToStateV18(){
+    readManageModalIntoState();
+    persistManageStateEverywhere(nowTs());
+  };
+
+  window.saveManageItems = saveManageItemsFinal;
+
+  function bindManageFinalSave(){
+    const btn = document.getElementById('saveManageItemsBtn');
+    if (!btn || btn.dataset.v18Bound === '1') return;
+    btn.dataset.v18Bound = '1';
+    btn.onclick = saveManageItemsFinal;
+  }
+
+  function bindManageLivePersistence(){
+    const modal = document.getElementById('manageItemsModal');
+    if (!modal || modal.dataset.v18LiveBound === '1') return;
+    modal.dataset.v18LiveBound = '1';
+    let timer = null;
+    const flush = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        try { readManageModalIntoState(); } catch(e) {}
+        try { persistManageStateEverywhere(nowTs()); } catch(e) {}
+      }, 60);
+    };
+    ['input','change','blur','focusout'].forEach(evt => {
+      modal.addEventListener(evt, (e) => {
+        if (!e.target.closest('textarea[data-manage-field],select[data-manage-field],input[data-manage-area-field],input[data-manage-nc-field],input[data-manage-link-area],input[data-manage-link-nc]')) return;
+        flush();
+      }, true);
+    });
+    modal.addEventListener('click', (e) => {
+      if (e.target.closest('[data-delete-item],[data-move-up],[data-move-down],[data-apply-position],[data-remove-manage-area],[data-remove-manage-nc],#addDepositoItemBtn,#addVendaItemBtn,#addAreaDefinitionBtn,#addNcDefinitionBtn,[data-manage-link-area],[data-manage-link-nc]')) {
+        flush();
+      }
+    }, true);
+  }
+
+  const originalOpenManage = window.openManageItemsModal;
+  if (typeof originalOpenManage === 'function' && !window.__arkoV18OpenPatched) {
+    window.openManageItemsModal = function(){
+      const result = originalOpenManage.apply(this, arguments);
+      bindManageFinalSave();
+      bindManageLivePersistence();
+      return result;
+    };
+    window.__arkoV18OpenPatched = true;
+  }
+
+  // Protect refresh flow by persisting before app goes to background.
+  window.addEventListener('pagehide', () => { try { readManageModalIntoState(); persistManageStateEverywhere(nowTs()); } catch(e) {} }, true);
+  window.addEventListener('beforeunload', () => { try { readManageModalIntoState(); persistManageStateEverywhere(nowTs()); } catch(e) {} }, true);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') {
+      try { readManageModalIntoState(); persistManageStateEverywhere(nowTs()); } catch(e) {}
+    }
+  }, true);
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      bindManageFinalSave();
+      bindManageLivePersistence();
+    }, { once:true });
+  } else {
+    bindManageFinalSave();
+    bindManageLivePersistence();
+  }
+})();
+</script>
+
 </body>
 </html>
 <script>

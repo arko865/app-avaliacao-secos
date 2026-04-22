@@ -4859,5 +4859,150 @@ function bindNewConfigEvents(){
 })();
 </script>
 
+
+<script>
+(function(){
+  const PATCH_TAG = 'arko_patch_v16_manage_areas_ncs_persist_fix';
+  if (window[PATCH_TAG]) return;
+  window[PATCH_TAG] = true;
+
+  function cloneSafe(v){ try { return JSON.parse(JSON.stringify(v)); } catch(e){ return v; } }
+
+  window.captureManageDomIntoDraftGlobal = function captureManageDomIntoDraftGlobal(){
+    const modal = document.getElementById('manageItemsModal');
+    if (!modal) return;
+
+    if (!Array.isArray(window.manageDraftItems)) {
+      window.manageDraftItems = cloneSafe(state.items || []);
+    }
+
+    modal.querySelectorAll('textarea[data-manage-field="description"]').forEach(el => {
+      const index = Number(el.dataset.manageIndex);
+      if (window.manageDraftItems[index]) window.manageDraftItems[index].description = el.value || '';
+    });
+    modal.querySelectorAll('select[data-manage-field="section"]').forEach(el => {
+      const index = Number(el.dataset.manageIndex);
+      if (window.manageDraftItems[index]) window.manageDraftItems[index].section = el.value || 'deposito';
+    });
+
+    const modelKey = state?.form?.modelo;
+    const all = typeof getCurrentModelConfigsSnapshot === 'function' ? getCurrentModelConfigsSnapshot() : (state.modelConfigs || {});
+    if (!all[modelKey]) return;
+    const model = all[modelKey];
+
+    (model.areaDefinitions || []).forEach((area, idx) => {
+      const input = modal.querySelector('[data-manage-area-field="label"][data-manage-area-index="' + idx + '"]');
+      if (input) {
+        const nextLabel = String(input.value || '').trim() || ('Nova área ' + (idx + 1));
+        area.label = nextLabel;
+        if (typeof slugifyConfigKey === 'function') {
+          area.key = slugifyConfigKey(nextLabel, 'area', model.areaDefinitions.map((x,i)=> i===idx ? null : x.key).filter(Boolean));
+        } else {
+          area.key = nextLabel.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || ('area_' + (idx+1));
+        }
+      }
+
+      const checkedItemIds = Array.from(modal.querySelectorAll('[data-manage-link-area][data-manage-area-index="' + idx + '"]:checked'))
+        .map(el => Number(el.dataset.itemId || el.value || 0))
+        .filter(Boolean);
+      if (checkedItemIds.length || modal.querySelector('[data-manage-link-area][data-manage-area-index="' + idx + '"]')) {
+        area.itemIds = Array.from(new Set(checkedItemIds)).sort((a,b)=>a-b);
+      }
+    });
+
+    (model.ncDefinitions || []).forEach((nc, idx) => {
+      const input = modal.querySelector('[data-manage-nc-field="label"][data-manage-nc-index="' + idx + '"]');
+      if (input) nc.label = String(input.value || '').trim() || ('Nova não conformidade ' + (idx + 1));
+
+      const checkedItemIds = Array.from(modal.querySelectorAll('[data-manage-link-nc][data-manage-nc-index="' + idx + '"]:checked'))
+        .map(el => Number(el.dataset.itemId || el.value || 0))
+        .filter(Boolean);
+      if (checkedItemIds.length || modal.querySelector('[data-manage-link-nc][data-manage-nc-index="' + idx + '"]')) {
+        nc.itemIds = Array.from(new Set(checkedItemIds)).sort((a,b)=>a-b);
+      }
+    });
+
+    state.modelConfigs = all;
+  };
+
+  window.syncManageDraftToState = function syncManageDraftToStatePatched(){
+    try { window.captureManageDomIntoDraftGlobal(); } catch(e) { console.warn('Falha ao capturar gerenciar.', e); }
+    if (!Array.isArray(window.manageDraftItems) || !window.manageDraftItems.length) {
+      window.manageDraftItems = typeof makeDefaultItems === 'function' ? makeDefaultItems(state.form.modelo) : cloneSafe(state.items || []);
+    }
+    const modelKey = state.form.modelo;
+    const idMap = {};
+    window.manageDraftItems.forEach((item, index)=>{ idMap[Number(item.id)||index+1] = index + 1; });
+    if (typeof remapItemIdsInModelConfig === 'function') remapItemIdsInModelConfig(modelKey, idMap);
+    state.items = typeof reindexItems === 'function' ? reindexItems(cloneSafe(window.manageDraftItems), modelKey) : cloneSafe(window.manageDraftItems);
+    const all = typeof getCurrentModelConfigsSnapshot === 'function' ? getCurrentModelConfigsSnapshot() : (state.modelConfigs || {});
+    if (all[modelKey]) {
+      all[modelKey].items = state.items.map(item => ({ description:item.description, section:item.section }));
+    }
+    state.modelConfigs = all;
+    if (typeof syncItemLinkMetadata === 'function') syncItemLinkMetadata(modelKey);
+    if (typeof normalizeModelItemTemplates === 'function') {
+      state.modelItemTemplates = normalizeModelItemTemplates({ ...(state.modelItemTemplates || {}), [modelKey]: cloneSafe(state.items) });
+    }
+    if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state);
+    if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state);
+    try { if (typeof persistState === 'function') persistState(); } catch(e) {}
+  };
+
+  function bindFinalSave(){
+    const btn = document.getElementById('saveManageItemsBtn');
+    if (!btn) return;
+    btn.onclick = function(){
+      try { window.syncManageDraftToState(); } catch(e) { console.error(e); }
+      const ts = Date.now();
+      try { localStorage.setItem('arko_local_edit_ts_v15', String(ts)); } catch(e) {}
+      try { if (typeof saveFailSafeCheckpoint === 'function') saveFailSafeCheckpoint('manage-save-v16'); } catch(e) {}
+      try { if (typeof saveStateToIndexedDb === 'function') saveStateToIndexedDb(normalizeState(state)); } catch(e) {}
+      try { if (typeof queueCloudDraftSync === 'function') queueCloudDraftSync(true, ts); } catch(e) {}
+      try { renderApp(); } catch(e) {}
+      try { if (typeof closeManageItemsModal === 'function') closeManageItemsModal(); } catch(e) {}
+      try { if (typeof showToast === 'function') showToast('Itens, áreas avaliadas e NCs salvos com sucesso.'); } catch(e) {}
+    };
+  }
+
+  function bindLive(){
+    const modal = document.getElementById('manageItemsModal');
+    if (!modal || modal.dataset.v16LiveBound === '1') return;
+    modal.dataset.v16LiveBound = '1';
+    const selector = 'textarea[data-manage-field],select[data-manage-field],input[data-manage-area-field],input[data-manage-nc-field],input[data-manage-link-area],input[data-manage-link-nc]';
+    ['input','change','blur','focusout','click'].forEach(evt => {
+      modal.addEventListener(evt, (e) => {
+        if (!e.target.closest(selector)) return;
+        setTimeout(() => {
+          try { window.syncManageDraftToState(); } catch(err) {}
+          const ts = Date.now();
+          try { localStorage.setItem('arko_local_edit_ts_v15', String(ts)); } catch(err) {}
+          try { if (typeof saveStateToIndexedDb === 'function') saveStateToIndexedDb(normalizeState(state)); } catch(err) {}
+          try { if (navigator.onLine && typeof queueCloudDraftSync === 'function') queueCloudDraftSync(true, ts); } catch(err) {}
+        }, 0);
+      }, true);
+    });
+  }
+
+  const originalOpen = window.openManageItemsModal;
+  if (typeof originalOpen === 'function' && !window.__arkoV16OpenPatched) {
+    window.openManageItemsModal = function(){
+      const result = originalOpen.apply(this, arguments);
+      bindFinalSave();
+      bindLive();
+      return result;
+    };
+    window.__arkoV16OpenPatched = true;
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => { bindFinalSave(); bindLive(); }, { once:true });
+  } else {
+    bindFinalSave();
+    bindLive();
+  }
+})();
+</script>
+
 </body>
 </html>

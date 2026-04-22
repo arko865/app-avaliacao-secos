@@ -5237,6 +5237,299 @@ function bindNewConfigEvents(){
 })();
 </script>
 
+
+<script>
+(function(){
+  const PATCH_TAG = 'arko_patch_v19_manage_snapshot_repair';
+  if (window[PATCH_TAG]) return;
+  window[PATCH_TAG] = true;
+
+  const MANAGE_LOCAL_KEY = 'arko_manage_snapshot_v19';
+  const MANAGE_CLOUD_DOC_PATH = 'shared/manageConfigState';
+
+  function deepClone(v){ try { return JSON.parse(JSON.stringify(v)); } catch(e){ return v; } }
+  function nowTs(){ return Date.now(); }
+  function parseTs(v){
+    if (v == null) return 0;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+    if (typeof v === 'string') {
+      const n = Number(v);
+      if (Number.isFinite(n) && n > 0) return n;
+      const d = Date.parse(v);
+      return Number.isFinite(d) ? d : 0;
+    }
+    if (v && typeof v.toMillis === 'function') {
+      try { return Number(v.toMillis()) || 0; } catch(e){ return 0; }
+    }
+    return 0;
+  }
+
+  function buildManageSnapshot(){
+    const all = typeof getAllModelConfigs === 'function'
+      ? getAllModelConfigs()
+      : (state?.modelConfigs || {});
+    return {
+      currentModel: state?.form?.modelo || DEFAULT_MODEL_KEY,
+      modelConfigs: deepClone(all),
+      modelItemTemplates: deepClone(state?.modelItemTemplates || {}),
+      savedFromDevice: typeof deviceId !== 'undefined' ? deviceId : 'unknown'
+    };
+  }
+
+  function getLocalManageSnapshot(){
+    try {
+      const raw = localStorage.getItem(MANAGE_LOCAL_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !parsed.snapshot) return null;
+      return parsed;
+    } catch(e){ return null; }
+  }
+
+  function saveLocalManageSnapshot(ts){
+    const finalTs = Number(ts) || nowTs();
+    const payload = { updatedAt: finalTs, snapshot: buildManageSnapshot() };
+    try { localStorage.setItem(MANAGE_LOCAL_KEY, JSON.stringify(payload)); } catch(e) { console.warn('Falha ao salvar snapshot local do gerenciar.', e); }
+    return payload;
+  }
+
+  function syncVisibleItemsFromModel(modelKey){
+    const all = typeof getAllModelConfigs === 'function' ? getAllModelConfigs() : (state.modelConfigs || {});
+    const model = all[modelKey];
+    if (!model) return;
+    const previousItems = Array.isArray(state.items) ? deepClone(state.items) : [];
+    const rebuilt = (model.items || []).map((definition, index) => {
+      const previous = previousItems[index] || {};
+      const merged = Object.assign({}, previous, {
+        description: String(definition?.description || `Item ${index+1}`),
+        section: definition?.section === 'venda' ? 'venda' : 'deposito'
+      });
+      return typeof normalizeItem === 'function' ? normalizeItem(merged, index, modelKey) : merged;
+    });
+    state.items = typeof reindexItems === 'function' ? reindexItems(rebuilt, modelKey) : rebuilt;
+    if (typeof normalizeModelItemTemplates === 'function') {
+      state.modelItemTemplates = normalizeModelItemTemplates({
+        ...(state.modelItemTemplates || {}),
+        [modelKey]: deepClone(state.items)
+      });
+    }
+    if (typeof syncItemLinkMetadata === 'function') syncItemLinkMetadata(modelKey);
+    if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state);
+    if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state);
+  }
+
+  function applyManageSnapshotPayload(payload, source){
+    if (!payload || !payload.snapshot) return false;
+    const snapshot = payload.snapshot;
+    const incomingConfigs = snapshot.modelConfigs || {};
+    const migrated = typeof migrateConfigurableModels === 'function'
+      ? migrateConfigurableModels(incomingConfigs)
+      : incomingConfigs;
+    state.modelConfigs = migrated;
+    if (typeof normalizeModelItemTemplates === 'function') {
+      state.modelItemTemplates = normalizeModelItemTemplates({
+        ...(state.modelItemTemplates || {}),
+        ...(snapshot.modelItemTemplates || {})
+      });
+    } else {
+      state.modelItemTemplates = Object.assign({}, state.modelItemTemplates || {}, snapshot.modelItemTemplates || {});
+    }
+    const modelKey = state?.form?.modelo && migrated[state.form.modelo]
+      ? state.form.modelo
+      : (snapshot.currentModel && migrated[snapshot.currentModel] ? snapshot.currentModel : DEFAULT_MODEL_KEY);
+    if (!state.form) state.form = {};
+    state.form.modelo = modelKey;
+    syncVisibleItemsFromModel(modelKey);
+    try { state = typeof normalizeState === 'function' ? normalizeState(state) : state; } catch(e) {}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) {}
+    try {
+      localStorage.setItem(MANAGE_LOCAL_KEY, JSON.stringify({ updatedAt: Number(payload.updatedAt) || nowTs(), snapshot: buildManageSnapshot() }));
+    } catch(e) {}
+    try { if (typeof saveStateToIndexedDb === 'function') saveStateToIndexedDb(state); } catch(e) {}
+    try { if (typeof saveFailSafeCheckpoint === 'function') saveFailSafeCheckpoint(source || 'manage-snapshot-apply'); } catch(e) {}
+    try { renderApp(); } catch(e) {}
+    return true;
+  }
+
+  async function pushManageSnapshotToCloud(ts){
+    if (!navigator.onLine || !window.firebaseReady || !window.firestore) return false;
+    try {
+      const payload = {
+        snapshot: buildManageSnapshot(),
+        updatedAt: Number(ts) || nowTs(),
+        updatedBy: typeof deviceId !== 'undefined' ? deviceId : 'unknown',
+        version: 19
+      };
+      await window.firestore.doc(MANAGE_CLOUD_DOC_PATH).set(payload, { merge: true });
+      return true;
+    } catch(e) {
+      console.warn('Falha ao sincronizar snapshot do gerenciar.', e);
+      return false;
+    }
+  }
+
+  async function reconcileManageSnapshots(){
+    const local = getLocalManageSnapshot();
+    const localTs = parseTs(local?.updatedAt);
+
+    if (local && local.snapshot) {
+      applyManageSnapshotPayload(local, 'manage-local-restore');
+    }
+
+    if (!navigator.onLine || !window.firebaseReady || !window.firestore) return !!local;
+
+    try {
+      const snap = await window.firestore.doc(MANAGE_CLOUD_DOC_PATH).get();
+      if (!snap.exists) {
+        if (local && local.snapshot) await pushManageSnapshotToCloud(localTs || nowTs());
+        return !!local;
+      }
+      const cloud = snap.data() || {};
+      const cloudTs = parseTs(cloud.updatedAt);
+      if (cloudTs > localTs && cloud.snapshot) {
+        applyManageSnapshotPayload({ updatedAt: cloudTs, snapshot: cloud.snapshot }, 'manage-cloud-restore');
+        return true;
+      }
+      if (localTs >= cloudTs && local && local.snapshot) {
+        await pushManageSnapshotToCloud(localTs || nowTs());
+        return true;
+      }
+      return !!local;
+    } catch(e) {
+      console.warn('Falha ao reconciliar snapshots do gerenciar.', e);
+      return !!local;
+    }
+  }
+
+  let manageCloudListenerStarted = false;
+  function startManageSnapshotListener(){
+    if (manageCloudListenerStarted || !navigator.onLine || !window.firebaseReady || !window.firestore) return;
+    manageCloudListenerStarted = true;
+    try {
+      window.firestore.doc(MANAGE_CLOUD_DOC_PATH).onSnapshot((snap) => {
+        if (!snap.exists) return;
+        const cloud = snap.data() || {};
+        const cloudTs = parseTs(cloud.updatedAt);
+        const local = getLocalManageSnapshot();
+        const localTs = parseTs(local?.updatedAt);
+        if (!cloud.snapshot || cloudTs <= localTs) return;
+        applyManageSnapshotPayload({ updatedAt: cloudTs, snapshot: cloud.snapshot }, 'manage-cloud-listener');
+        try { if (typeof showToast === 'function') showToast('Itens do gerenciar sincronizados.'); } catch(e) {}
+      }, (err) => {
+        console.warn('Falha ao ouvir snapshot do gerenciar.', err);
+      });
+    } catch(e) {
+      console.warn('Falha ao iniciar listener do gerenciar.', e);
+    }
+  }
+
+  async function persistManageSnapshotEverywhere(reason){
+    try { if (typeof window.syncManageDraftToState === 'function') window.syncManageDraftToState(); } catch(e) { console.warn('Falha ao consolidar rascunho do gerenciar.', e); }
+    const ts = nowTs();
+    saveLocalManageSnapshot(ts);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) {}
+    try { if (typeof saveStateToIndexedDb === 'function') saveStateToIndexedDb(state); } catch(e) {}
+    try { if (typeof saveFailSafeCheckpoint === 'function') saveFailSafeCheckpoint(reason || 'manage-v19-save'); } catch(e) {}
+    try { if (typeof queueCloudDraftSync === 'function') await queueCloudDraftSync(true, ts); } catch(e) {}
+    await pushManageSnapshotToCloud(ts);
+    return ts;
+  }
+
+  async function finalSaveManageV19(){
+    await persistManageSnapshotEverywhere('manage-v19-manual-save');
+    try { renderApp(); } catch(e) {}
+    try { if (typeof closeManageItemsModal === 'function') closeManageItemsModal(); } catch(e) {}
+    try { if (typeof showToast === 'function') showToast('Itens, áreas avaliadas e NCs salvos com sucesso.'); } catch(e) {}
+  }
+
+  function bindManageSaveButton(){
+    const btn = document.getElementById('saveManageItemsBtn');
+    if (!btn || btn.dataset.v19Bound === '1') return;
+    btn.dataset.v19Bound = '1';
+    btn.onclick = finalSaveManageV19;
+  }
+
+  function bindManageAutosave(){
+    const modal = document.getElementById('manageItemsModal');
+    if (!modal || modal.dataset.v19AutosaveBound === '1') return;
+    modal.dataset.v19AutosaveBound = '1';
+    let timer = null;
+    const schedule = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { persistManageSnapshotEverywhere('manage-v19-autosave'); }, 120);
+    };
+    const selector = [
+      'textarea[data-manage-field]',
+      'select[data-manage-field]',
+      'input[data-manage-area-field]',
+      'input[data-manage-nc-field]',
+      'input[data-manage-link-area]',
+      'input[data-manage-link-nc]',
+      'input[data-manage-position]',
+      'button[data-apply-position]',
+      'button[data-delete-item]',
+      'button[data-move-up]',
+      'button[data-move-down]',
+      'button[data-remove-manage-area]',
+      'button[data-remove-manage-nc]',
+      '#addDepositoItemBtn',
+      '#addVendaItemBtn',
+      '#addAreaDefinitionBtn',
+      '#addNcDefinitionBtn'
+    ].join(',');
+    ['input','change','click','blur','focusout'].forEach((evt) => {
+      modal.addEventListener(evt, (e) => {
+        if (!e.target.closest(selector)) return;
+        schedule();
+      }, true);
+    });
+  }
+
+  const originalOpenManage = window.openManageItemsModal;
+  if (typeof originalOpenManage === 'function' && !window.__arkoV19OpenManagePatched) {
+    window.openManageItemsModal = function(){
+      const result = originalOpenManage.apply(this, arguments);
+      bindManageSaveButton();
+      bindManageAutosave();
+      return result;
+    };
+    window.__arkoV19OpenManagePatched = true;
+  }
+
+  const originalInitSync = window.initializeFirebaseSync;
+  if (typeof originalInitSync === 'function' && !window.__arkoV19InitPatched) {
+    window.initializeFirebaseSync = async function(){
+      const result = await originalInitSync.apply(this, arguments);
+      try { await reconcileManageSnapshots(); } catch(e) {}
+      try { startManageSnapshotListener(); } catch(e) {}
+      return result;
+    };
+    window.__arkoV19InitPatched = true;
+  }
+
+  window.addEventListener('pagehide', () => { persistManageSnapshotEverywhere('manage-v19-pagehide'); }, true);
+  window.addEventListener('beforeunload', () => { persistManageSnapshotEverywhere('manage-v19-beforeunload'); }, true);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') persistManageSnapshotEverywhere('manage-v19-hidden');
+  }, true);
+  window.addEventListener('online', () => { reconcileManageSnapshots(); startManageSnapshotListener(); });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      bindManageSaveButton();
+      bindManageAutosave();
+      reconcileManageSnapshots();
+      startManageSnapshotListener();
+    }, { once:true });
+  } else {
+    bindManageSaveButton();
+    bindManageAutosave();
+    reconcileManageSnapshots();
+    startManageSnapshotListener();
+  }
+})();
+</script>
+
 </body>
 </html>
 <script>

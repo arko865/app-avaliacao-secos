@@ -4262,5 +4262,182 @@ function bindNewConfigEvents(){
 })();
 </script>
 
+
+<script>
+(function(){
+  const PATCH_TAG = 'arko_patch_v13_street_persistence_hardening';
+  if (window[PATCH_TAG]) return;
+  window[PATCH_TAG] = true;
+
+  const STREET_MODAL_CACHE_KEY = 'arko_street_modal_cache_v13';
+  let suppressCloudApplyUntil = 0;
+
+  function modalIsOpen(){
+    return !!document.getElementById('streetCountsModal')?.classList.contains('open');
+  }
+
+  function cloneSafe(v){
+    try { return JSON.parse(JSON.stringify(v)); } catch(e) { return v; }
+  }
+
+  function readModalCache(){
+    try {
+      const raw = localStorage.getItem(STREET_MODAL_CACHE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch(e){ return null; }
+  }
+
+  function clearModalCache(){
+    try { localStorage.removeItem(STREET_MODAL_CACHE_KEY); } catch(e) {}
+  }
+
+  function writeModalCache(reason = 'input'){
+    try {
+      if (!Array.isArray(window.manageStreetCounts)) return;
+      const payload = {
+        reason,
+        ts: Date.now(),
+        model: window.state?.form?.modelo || null,
+        rows: cloneSafe(window.manageStreetCounts)
+      };
+      localStorage.setItem(STREET_MODAL_CACHE_KEY, JSON.stringify(payload));
+    } catch(e) {}
+  }
+
+  function restoreModalCache(force = false){
+    try {
+      const cached = readModalCache();
+      if (!cached || !Array.isArray(cached.rows)) return false;
+      const model = window.state?.form?.modelo || null;
+      if (!force && cached.model && model && cached.model !== model) return false;
+      if (!force && Array.isArray(window.manageStreetCounts) && window.manageStreetCounts.length) {
+        const current = JSON.stringify(window.manageStreetCounts);
+        const saved = JSON.stringify(cached.rows);
+        if (current === saved) return true;
+      }
+      if (typeof window.normalizeStreetCount === 'function') {
+        window.manageStreetCounts = cached.rows.map((row, index) => window.normalizeStreetCount(row, index, model || undefined));
+      } else {
+        window.manageStreetCounts = cloneSafe(cached.rows);
+      }
+      return true;
+    } catch(e){
+      return false;
+    }
+  }
+
+  function hardPersistStreet(reason = 'input'){
+    try {
+      if (modalIsOpen()) restoreModalCache(false);
+    } catch(e) {}
+    try { writeModalCache(reason); } catch(e) {}
+    try {
+      if (typeof window.syncStreetDraftToState === 'function') {
+        window.syncStreetDraftToState();
+      } else if (Array.isArray(window.manageStreetCounts)) {
+        window.state.streetCounts = cloneSafe(window.manageStreetCounts);
+        if (typeof window.persistState === 'function') window.persistState();
+      }
+    } catch(e) {}
+    suppressCloudApplyUntil = Date.now() + 8000;
+  }
+
+  function debounceHardPersist(reason = 'input'){
+    clearTimeout(window.__arkoStreetHardPersistTimer);
+    window.__arkoStreetHardPersistTimer = setTimeout(() => hardPersistStreet(reason), 0);
+  }
+
+  const originalOpenStreetCountsModal = window.openStreetCountsModal;
+  if (typeof originalOpenStreetCountsModal === 'function') {
+    window.openStreetCountsModal = function(){
+      const result = originalOpenStreetCountsModal.apply(this, arguments);
+      restoreModalCache(true);
+      if (typeof window.renderStreetCounts === 'function') window.renderStreetCounts();
+      suppressCloudApplyUntil = Date.now() + 8000;
+      return result;
+    };
+  }
+
+  const originalCloseStreetCountsModal = window.closeStreetCountsModal;
+  if (typeof originalCloseStreetCountsModal === 'function') {
+    window.closeStreetCountsModal = function(){
+      hardPersistStreet('close');
+      clearModalCache();
+      return originalCloseStreetCountsModal.apply(this, arguments);
+    };
+  }
+
+  const originalSaveStreetCounts = window.saveStreetCounts;
+  if (typeof originalSaveStreetCounts === 'function') {
+    window.saveStreetCounts = function(){
+      hardPersistStreet('save-before');
+      const result = originalSaveStreetCounts.apply(this, arguments);
+      clearModalCache();
+      suppressCloudApplyUntil = Date.now() + 8000;
+      return result;
+    };
+  }
+
+  const originalPullCloudDraftNow = window.pullCloudDraftNow;
+  if (typeof originalPullCloudDraftNow === 'function') {
+    window.pullCloudDraftNow = async function(forceApply = false){
+      if (modalIsOpen() || Date.now() < suppressCloudApplyUntil) return false;
+      return await originalPullCloudDraftNow.apply(this, arguments);
+    };
+  }
+
+  const originalRenderApp = window.renderApp;
+  if (typeof originalRenderApp === 'function') {
+    window.renderApp = function(){
+      const result = originalRenderApp.apply(this, arguments);
+      if (modalIsOpen() && restoreModalCache(false) && typeof window.renderStreetCounts === 'function') {
+        window.renderStreetCounts();
+      }
+      return result;
+    };
+  }
+
+  function bindStreetPersistenceEvents(){
+    const modal = document.getElementById('streetCountsModal');
+    if (!modal || modal.dataset.v13StreetBound === '1') return;
+    modal.dataset.v13StreetBound = '1';
+
+    ['input','change','keyup','blur','focusout'].forEach(evt => {
+      modal.addEventListener(evt, (e) => {
+        if (!e.target.closest('[data-count-key],[data-count-field],[data-draft-field],[data-draft-check],[data-remove-draft-nc],[data-save-draft],[data-clear-draft],[data-remove-photo],[data-remove-count-row],#saveStreetCountsBtn,#addStreetCountRowBtn,.camera-input,textarea,input')) return;
+        debounceHardPersist(evt);
+      }, true);
+    });
+
+    modal.addEventListener('click', (e) => {
+      if (e.target.closest('[data-save-draft],[data-remove-photo],[data-remove-count-row],[data-clear-draft],[data-draft-check],[data-remove-draft-nc],#addStreetCountRowBtn,#saveStreetCountsBtn,[data-open-camera]')) {
+        debounceHardPersist('click');
+      }
+    }, true);
+  }
+
+  function persistOnBackground(reason){
+    if (!modalIsOpen()) return;
+    hardPersistStreet(reason);
+  }
+
+  document.addEventListener('DOMContentLoaded', bindStreetPersistenceEvents);
+  bindStreetPersistenceEvents();
+
+  window.addEventListener('blur', () => persistOnBackground('window-blur'), true);
+  window.addEventListener('pagehide', () => persistOnBackground('pagehide'), true);
+  window.addEventListener('beforeunload', () => persistOnBackground('beforeunload'), true);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') {
+      persistOnBackground('visibility-hidden');
+    } else if (modalIsOpen()) {
+      restoreModalCache(true);
+      if (typeof window.renderStreetCounts === 'function') window.renderStreetCounts();
+      suppressCloudApplyUntil = Date.now() + 8000;
+    }
+  }, true);
+})();
+</script>
+
 </body>
 </html>

@@ -4577,5 +4577,287 @@ function bindNewConfigEvents(){
 })();
 </script>
 
+
+<script>
+(function(){
+  const PATCH_TAG = 'arko_patch_v15_manage_sync_conflict_fix';
+  if (window[PATCH_TAG]) return;
+  window[PATCH_TAG] = true;
+
+  const LOCAL_EDIT_TS_KEY = 'arko_local_edit_ts_v15';
+  const LAST_SYNC_SOURCE_KEY = 'arko_last_sync_source_v15';
+
+  function nowTs(){ return Date.now(); }
+  function getLocalEditTs(){
+    try { return Number(localStorage.getItem(LOCAL_EDIT_TS_KEY) || '0') || 0; } catch(e){ return 0; }
+  }
+  function setLocalEditTs(ts, source){
+    try { localStorage.setItem(LOCAL_EDIT_TS_KEY, String(Number(ts)||0)); } catch(e){}
+    try { if (source) localStorage.setItem(LAST_SYNC_SOURCE_KEY, String(source)); } catch(e){}
+    return Number(ts)||0;
+  }
+  function touchLocalEdit(reason){
+    const ts = nowTs();
+    setLocalEditTs(ts, reason || 'local-edit');
+    return ts;
+  }
+  function cloneSafe(v){
+    try { return JSON.parse(JSON.stringify(v)); } catch(e){ return v; }
+  }
+  function saveLocalEverywhere(reason){
+    try { if (typeof saveFailSafeCheckpoint === 'function') saveFailSafeCheckpoint(reason || 'patched-save'); } catch(e){}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e){}
+    try { if (typeof saveStateToIndexedDb === 'function') saveStateToIndexedDb(normalizeState(state)); } catch(e){}
+  }
+  function markManageMutation(reason){
+    const ts = touchLocalEdit(reason || 'manage-mutation');
+    saveLocalEverywhere(reason || 'manage-mutation');
+    try { if (typeof queueCloudDraftSync === 'function') queueCloudDraftSync(true, ts); } catch(e){}
+    return ts;
+  }
+  function getCloudTs(payload){
+    try { return parseMillis(payload && payload.updatedAt); } catch(e){ return Number(payload && payload && payload.updatedAt) || 0; }
+  }
+  function captureCurrentManageStateIfOpen(){
+    try { if (typeof captureManageDomIntoDraft === 'function') captureManageDomIntoDraft(); } catch(e){}
+    try { if (typeof syncManageDraftToState === 'function') syncManageDraftToState(); } catch(e){}
+    try { if (typeof syncStreetDraftToState === 'function') syncStreetDraftToState(); } catch(e){}
+  }
+
+  // Ensure cloud payload always uses the newest known local mutation timestamp.
+  if (typeof window.cloudDraftPayload === 'function') {
+    const originalCloudDraftPayload = window.cloudDraftPayload;
+    window.cloudDraftPayload = function patchedCloudDraftPayload(forcedUpdatedAt = 0){
+      const localTs = getLocalEditTs();
+      const payload = originalCloudDraftPayload.call(this, forcedUpdatedAt || localTs || nowTs());
+      payload.updatedAt = forcedUpdatedAt || localTs || payload.updatedAt || nowTs();
+      payload.updatedBy = deviceId;
+      payload.version = 2;
+      return payload;
+    };
+  }
+
+  // Conflict-safe application of cloud state.
+  function applyIncomingCloudPayload(payload, source, forceApply){
+    if (!payload || !payload.data) return false;
+    const incomingTs = getCloudTs(payload);
+    if (!incomingTs) return false;
+
+    captureCurrentManageStateIfOpen();
+
+    const localTs = getLocalEditTs();
+    if (!forceApply && localTs && incomingTs < localTs) {
+      try { if (typeof queueCloudDraftSync === 'function') queueCloudDraftSync(true, localTs); } catch(e){}
+      return false;
+    }
+
+    try {
+      state = normalizeState(payload.data);
+      setLocalEditTs(incomingTs, source || 'cloud-apply');
+      saveLocalEverywhere(source || 'cloud-apply');
+      if (document.getElementById('manageItemsModal')?.classList.contains('open')) manageDraftItems = cloneSafe(state.items);
+      if (document.getElementById('streetCountsModal')?.classList.contains('open')) manageStreetCounts = cloneSafe(state.streetCounts);
+      renderApp();
+      return true;
+    } catch (e) {
+      console.warn('Falha ao aplicar estado vindo da nuvem.', e);
+      return false;
+    }
+  }
+
+  // Override cloud pull to avoid stale overwrite.
+  if (typeof window.pullCloudDraftNow === 'function') {
+    window.pullCloudDraftNow = async function patchedPullCloudDraftNow(forceApply = false){
+      if (!firebaseReady || !firestore || !navigator.onLine) return false;
+      try {
+        const snapshot = await firestore.doc(CLOUD_DRAFT_DOC_PATH).get();
+        if (!snapshot.exists) return false;
+        const payload = snapshot.data() || {};
+        return applyIncomingCloudPayload(payload, 'cloud-pull', !!forceApply);
+      } catch (err) {
+        console.warn('Não foi possível buscar o rascunho da nuvem.', err);
+        return false;
+      }
+    };
+  }
+
+  // Override cloud seeding with timestamp comparison.
+  if (typeof window.seedCloudFromLocal === 'function') {
+    window.seedCloudFromLocal = async function patchedSeedCloudFromLocal(){
+      if (!firebaseReady || !firestore || !navigator.onLine) return false;
+      try {
+        const ref = firestore.doc(CLOUD_DRAFT_DOC_PATH);
+        const snap = await ref.get();
+        const localTs = getLocalEditTs();
+        if (!snap.exists || !snap.data()?.data) {
+          const ts = localTs || nowTs();
+          setLocalEditTs(ts, 'cloud-seed-local');
+          await ref.set({ data: normalizeState(state), updatedAt: ts, updatedBy: deviceId, version:2 }, { merge:true });
+          lastCloudDraftAt = ts;
+          cloudDraftInitialized = true;
+          return true;
+        }
+        const payload = snap.data() || {};
+        const cloudTs = getCloudTs(payload);
+        lastCloudDraftAt = cloudTs;
+        cloudDraftInitialized = true;
+        if (localTs && localTs >= cloudTs) {
+          await ref.set({ data: normalizeState(state), updatedAt: localTs, updatedBy: deviceId, version:2 }, { merge:true });
+          lastCloudDraftAt = localTs;
+          return true;
+        }
+        return applyIncomingCloudPayload(payload, 'cloud-seed-apply', true);
+      } catch (err) {
+        console.warn('Não foi possível iniciar a sincronização na nuvem.', err);
+        return false;
+      }
+    };
+  }
+
+  // Add a second guarded real-time listener that restores local state when stale cloud arrives.
+  function startGuardedCloudListener(){
+    if (!firebaseReady || !firestore || window.__arkoGuardedCloudListenerStarted) return;
+    window.__arkoGuardedCloudListenerStarted = true;
+    firestore.doc(CLOUD_DRAFT_DOC_PATH).onSnapshot(snapshot => {
+      if (!snapshot.exists) return;
+      const payload = snapshot.data() || {};
+      const incomingTs = getCloudTs(payload);
+      const localTs = getLocalEditTs();
+      if (payload.updatedBy === deviceId && incomingTs <= (lastCloudDraftAt || 0)) return;
+      if (localTs && incomingTs < localTs) {
+        try { if (typeof queueCloudDraftSync === 'function') queueCloudDraftSync(true, localTs); } catch(e){}
+        return;
+      }
+      const applied = applyIncomingCloudPayload(payload, 'cloud-listener', false);
+      if (applied) {
+        lastCloudDraftAt = incomingTs;
+      }
+    }, err => console.warn('Falha ao ouvir atualizações protegidas.', err));
+  }
+
+  // Strengthen manage persistence on every meaningful change.
+  function bindManageConflictSafePersistence(){
+    const modal = document.getElementById('manageItemsModal');
+    if (!modal || modal.dataset.manageConflictSafe === '1') return;
+    modal.dataset.manageConflictSafe = '1';
+
+    const selector = [
+      'textarea[data-manage-field]',
+      'select[data-manage-field]',
+      'input[data-manage-area-field]',
+      'input[data-manage-nc-field]',
+      'input[data-manage-link-area]',
+      'input[data-manage-link-nc]',
+      'input[data-manage-position]',
+      'button[data-apply-position]',
+      'button[data-delete-item]',
+      'button[data-move-up]',
+      'button[data-move-down]',
+      'button[data-remove-manage-area]',
+      'button[data-remove-manage-nc]',
+      '#addDepositoItemBtn',
+      '#addVendaItemBtn',
+      '#addAreaDefinitionBtn',
+      '#addNcDefinitionBtn',
+      '#saveManageItemsBtn'
+    ].join(',');
+
+    const commit = (reason) => {
+      try { if (typeof captureManageDomIntoDraft === 'function') captureManageDomIntoDraft(); } catch(e){}
+      try { if (typeof syncManageDraftToState === 'function') syncManageDraftToState(); } catch(e){}
+      markManageMutation(reason || 'manage-live');
+    };
+
+    ['input','change','blur','focusout'].forEach(evt => {
+      modal.addEventListener(evt, (e) => {
+        if (!e.target.closest(selector)) return;
+        setTimeout(() => commit(`manage-${evt}`), 0);
+      }, true);
+    });
+
+    modal.addEventListener('click', (e) => {
+      if (!e.target.closest(selector)) return;
+      setTimeout(() => commit('manage-click'), 0);
+    }, true);
+  }
+
+  // Override save button one more time with cloud-safe save.
+  function bindFinalManageSaveOverride(){
+    const btn = document.getElementById('saveManageItemsBtn');
+    if (!btn || btn.dataset.finalManageOverride === '1') return;
+    btn.dataset.finalManageOverride = '1';
+    btn.onclick = function(){
+      try { if (typeof captureManageDomIntoDraft === 'function') captureManageDomIntoDraft(); } catch(e){}
+      try { if (typeof saveManageItems === 'function') saveManageItems(); } catch(e){}
+      markManageMutation('manage-save-button');
+      try { if (typeof showToast === 'function') showToast('Itens, áreas avaliadas e NCs salvos e sincronizados.'); } catch(e){}
+    };
+  }
+
+  function patchOpenManageBinding(){
+    if (window.__arkoManageOpenConflictPatched || typeof openManageItemsModal !== 'function') return;
+    const original = openManageItemsModal;
+    window.openManageItemsModal = function(){
+      const result = original.apply(this, arguments);
+      bindManageConflictSafePersistence();
+      bindFinalManageSaveOverride();
+      return result;
+    };
+    window.__arkoManageOpenConflictPatched = true;
+  }
+
+  function patchVisibilityProtection(){
+    const flushLocal = () => {
+      captureCurrentManageStateIfOpen();
+      saveLocalEverywhere('background-flush');
+      const localTs = getLocalEditTs();
+      if (localTs) {
+        try { if (typeof queueCloudDraftSync === 'function') queueCloudDraftSync(true, localTs); } catch(e){}
+      }
+    };
+    window.addEventListener('blur', flushLocal, true);
+    window.addEventListener('pagehide', flushLocal, true);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') flushLocal();
+      else {
+        startGuardedCloudListener();
+        try { if (typeof pullCloudDraftNow === 'function') pullCloudDraftNow(false); } catch(e){}
+      }
+    }, true);
+  }
+
+  function recoverInitialLocalTimestamp(){
+    const existing = getLocalEditTs();
+    if (existing) return;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) setLocalEditTs(nowTs(), 'bootstrap-local');
+    } catch(e){}
+  }
+
+  function initManageSyncFix(){
+    recoverInitialLocalTimestamp();
+    patchOpenManageBinding();
+    bindManageConflictSafePersistence();
+    bindFinalManageSaveOverride();
+    patchVisibilityProtection();
+    startGuardedCloudListener();
+    // Push current local copy if it is newer than cloud.
+    try {
+      const ts = getLocalEditTs();
+      if (ts && typeof queueCloudDraftSync === 'function' && navigator.onLine) {
+        queueCloudDraftSync(true, ts);
+      }
+    } catch(e){}
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initManageSyncFix, { once:true });
+  } else {
+    initManageSyncFix();
+  }
+})();
+</script>
+
 </body>
 </html>

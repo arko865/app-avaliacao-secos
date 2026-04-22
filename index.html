@@ -3955,5 +3955,128 @@ function bindNewConfigEvents(){
 })();
 </script>
 
+
+<script>
+(function(){
+  const PATCH_TAG = 'arko_patch_v11_persist_new_eval';
+  if (window[PATCH_TAG]) return;
+  window[PATCH_TAG] = true;
+
+  function cloneSafe(v){ try { return JSON.parse(JSON.stringify(v)); } catch(e){ return v; } }
+
+  function persistNow(){
+    try { if (typeof syncStreetDraftToState === 'function') syncStreetDraftToState(); } catch (e) {}
+    try { if (typeof syncManageDraftToState === 'function') syncManageDraftToState(); } catch (e) {}
+    try { if (typeof persistState === 'function') persistState(); } catch (e) {}
+  }
+
+  function debouncePersistNow(){
+    clearTimeout(window.__arkoInstantPersistTimer);
+    window.__arkoInstantPersistTimer = setTimeout(persistNow, 0);
+  }
+
+  function attachStreetDraftGuards(){
+    const modal = document.getElementById('streetCountsModal');
+    if (!modal || modal.dataset.patchBound === '1') return;
+    modal.dataset.patchBound = '1';
+
+    ['input','change','keyup','blur','focusout'].forEach(evt => {
+      modal.addEventListener(evt, function(e){
+        if (!e.target.closest('[data-count-key],[data-count-field],[data-draft-field],[data-draft-check],[data-remove-draft-nc],[data-save-draft],[data-clear-draft],[data-remove-photo],[data-remove-count-row],#saveStreetCountsBtn,#addStreetCountRowBtn,.camera-input')) return;
+        debouncePersistNow();
+      }, true);
+    });
+  }
+
+  function attachGlobalBackgroundGuards(){
+    const saveOnBackground = () => { debouncePersistNow(); };
+    window.addEventListener('blur', saveOnBackground, true);
+    window.addEventListener('pagehide', saveOnBackground, true);
+    window.addEventListener('beforeunload', saveOnBackground, true);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') saveOnBackground();
+    }, true);
+  }
+
+  function injectNewEvaluationButton(){
+    const footer = document.querySelector('#manageItemsModal .manage-footer');
+    if (!footer || document.getElementById('newEvaluationBtn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'newEvaluationBtn';
+    btn.type = 'button';
+    btn.className = 'btn highlight';
+    btn.textContent = 'Nova avaliação';
+    btn.onclick = createNewEvaluationFromApp;
+    footer.insertBefore(btn, footer.firstChild);
+  }
+
+  function createNewEvaluationFromApp(){
+    const baseModel = (typeof getModelConfig === 'function' ? getModelConfig(state?.form?.modelo) : null) || {};
+    const label = prompt('Digite o nome da nova avaliação:');
+    if (!label || !String(label).trim()) return;
+    const cleanLabel = String(label).trim();
+    const baseKey = (typeof slugifyConfigKey === 'function' ? slugifyConfigKey(cleanLabel) : cleanLabel.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'')) || `avaliacao_${Date.now()}`;
+    const all = typeof getCurrentModelConfigsSnapshot === 'function' ? getCurrentModelConfigsSnapshot() : cloneSafe(state.modelConfigs || {});
+    let key = baseKey;
+    let counter = 2;
+    while (all[key]) key = `${baseKey}_${counter++}`;
+
+    all[key] = {
+      key,
+      label: cleanLabel,
+      reportLabel: cleanLabel,
+      usesStreetCounts: !!baseModel.usesStreetCounts,
+      items: [],
+      areaDefinitions: [],
+      ncDefinitions: [],
+      autoAreaMap: {}
+    };
+
+    state.modelConfigs = (typeof migrateConfigurableModels === 'function') ? migrateConfigurableModels(all) : all;
+    state.modelItemTemplates = (typeof normalizeModelItemTemplates === 'function')
+      ? normalizeModelItemTemplates({ ...(state.modelItemTemplates || {}), [key]: [] })
+      : { ...(state.modelItemTemplates || {}), [key]: [] };
+
+    state.form.modelo = key;
+    state.form.produtosIdentificados = '';
+    state.form.impactoMercadoria = '';
+    state.items = [];
+    state.streetCounts = all[key].usesStreetCounts && typeof makeDefaultStreetCounts === 'function' ? makeDefaultStreetCounts(key) : [];
+
+    try { if (typeof persistState === 'function') persistState(); } catch (e) {}
+    try { if (typeof populateModelOptions === 'function') populateModelOptions(); } catch (e) {}
+    try { if (typeof renderApp === 'function') renderApp(); } catch (e) {}
+    try { if (typeof openManageItemsModal === 'function') openManageItemsModal(); } catch (e) {}
+    const modelSelect = document.getElementById('modeloAvaliacao');
+    if (modelSelect) modelSelect.value = key;
+    if (typeof showToast === 'function') showToast('Nova avaliação criada. Agora cadastre itens, áreas avaliadas e NCs no menu Gerenciar.');
+  }
+
+  function ensurePatchedOpenManage(){
+    if (typeof openManageItemsModal !== 'function' || window.__arkoOpenManagePatched) return;
+    const original = openManageItemsModal;
+    window.openManageItemsModal = function(){
+      const result = original.apply(this, arguments);
+      injectNewEvaluationButton();
+      return result;
+    };
+    window.__arkoOpenManagePatched = true;
+  }
+
+  function initPatch(){
+    attachStreetDraftGuards();
+    attachGlobalBackgroundGuards();
+    ensurePatchedOpenManage();
+    injectNewEvaluationButton();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPatch, { once:true });
+  } else {
+    initPatch();
+  }
+})();
+</script>
+
 </body>
 </html>

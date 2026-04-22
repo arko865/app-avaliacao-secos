@@ -343,6 +343,7 @@
               <button id="saveEvaluationBtn" class="btn secondary" type="button">Salvar avaliação</button>
               <button id="downloadBackupBtn" class="btn secondary" type="button">Exportar backup</button>
               <button id="manageItemsBtn" class="btn secondary" type="button">Gerenciar itens</button>
+              <button id="installShortcutBtn" class="btn secondary" type="button">Instalar atalho</button>
               <button id="streetCountsBtn" class="btn evaluate-btn" type="button">Avaliar</button>
               <button id="resetBtn" class="btn ghost-danger" type="button">Limpar avaliação</button>
             </div>
@@ -4074,6 +4075,189 @@ function bindNewConfigEvents(){
     document.addEventListener('DOMContentLoaded', initPatch, { once:true });
   } else {
     initPatch();
+  }
+})();
+</script>
+
+
+<script>
+(function(){
+  const PATCH_TAG = 'arko_patch_v12_install_shortcut';
+  if (window[PATCH_TAG]) return;
+  window[PATCH_TAG] = true;
+
+  let deferredInstallPrompt = null;
+  let manifestUrl = null;
+  let swUrl = null;
+
+  function isStandaloneMode(){
+    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  }
+
+  function isIos(){
+    return /iphone|ipad|ipod/i.test(navigator.userAgent || '');
+  }
+
+  function isAndroid(){
+    return /android/i.test(navigator.userAgent || '');
+  }
+
+  function buildManifest(){
+    try {
+      const manifest = {
+        name: 'Avaliação de Inventário',
+        short_name: 'Avaliação',
+        start_url: './',
+        scope: './',
+        display: 'standalone',
+        background_color: '#f8fafc',
+        theme_color: '#d71920',
+        description: 'App de avaliação de inventário Arko.',
+        icons: [
+          { src: LOGO_DATA, sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+          { src: LOGO_DATA, sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+        ]
+      };
+      const blob = new Blob([JSON.stringify(manifest)], { type:'application/manifest+json' });
+      manifestUrl = URL.createObjectURL(blob);
+      let link = document.querySelector('link[rel="manifest"]');
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'manifest';
+        document.head.appendChild(link);
+      }
+      link.href = manifestUrl;
+    } catch (e) {}
+  }
+
+  function applyIcons(){
+    try {
+      const ensureLink = (rel) => {
+        let el = document.querySelector(`link[rel="${rel}"]`);
+        if (!el) {
+          el = document.createElement('link');
+          el.rel = rel;
+          document.head.appendChild(el);
+        }
+        return el;
+      };
+      const iconLink = ensureLink('icon');
+      iconLink.type = 'image/png';
+      iconLink.href = LOGO_DATA;
+      const appleLink = ensureLink('apple-touch-icon');
+      appleLink.href = LOGO_DATA;
+      const appleCapable = document.querySelector('meta[name="apple-mobile-web-app-capable"]') || document.createElement('meta');
+      appleCapable.name = 'apple-mobile-web-app-capable';
+      appleCapable.content = 'yes';
+      if (!appleCapable.parentNode) document.head.appendChild(appleCapable);
+      const appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]') || document.createElement('meta');
+      appleTitle.name = 'apple-mobile-web-app-title';
+      appleTitle.content = 'Avaliação';
+      if (!appleTitle.parentNode) document.head.appendChild(appleTitle);
+    } catch (e) {}
+  }
+
+  async function registerInlineServiceWorker(){
+    if (!('serviceWorker' in navigator) || !window.isSecureContext) return false;
+    try {
+      const swCode = `
+        self.addEventListener('install', event => { self.skipWaiting(); });
+        self.addEventListener('activate', event => { event.waitUntil(self.clients.claim()); });
+        self.addEventListener('fetch', event => {});
+      `;
+      const blob = new Blob([swCode], { type:'text/javascript' });
+      swUrl = URL.createObjectURL(blob);
+      await navigator.serviceWorker.register(swUrl, { scope: './' });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function updateInstallButton(){
+    const btn = document.getElementById('installShortcutBtn');
+    if (!btn) return;
+    if (isStandaloneMode()) {
+      btn.textContent = 'Atalho instalado';
+      btn.disabled = true;
+      btn.style.opacity = '.7';
+      btn.style.cursor = 'default';
+      return;
+    }
+    btn.disabled = false;
+    btn.style.opacity = '';
+    btn.style.cursor = '';
+    if (deferredInstallPrompt) {
+      btn.textContent = isAndroid() ? 'Instalar na tela inicial' : 'Instalar atalho';
+      return;
+    }
+    if (isIos()) {
+      btn.textContent = 'Criar atalho no iPhone/iPad';
+      return;
+    }
+    btn.textContent = 'Instalar atalho';
+  }
+
+  async function promptInstall(){
+    if (isStandaloneMode()) {
+      if (typeof showToast === 'function') showToast('O atalho deste app já está instalado neste dispositivo.');
+      return;
+    }
+
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      try {
+        await deferredInstallPrompt.userChoice;
+      } catch (e) {}
+      deferredInstallPrompt = null;
+      setTimeout(updateInstallButton, 300);
+      return;
+    }
+
+    if (isIos()) {
+      alert('No iPhone/iPad, abra este app no Safari e toque em Compartilhar → Adicionar à Tela de Início. O ícone usará a logo do cabeçalho.');
+      return;
+    }
+
+    alert('Neste navegador, a instalação automática pode não estar disponível agora. Se estiver no Chrome ou Edge, abra o menu do navegador e procure por “Instalar app”, “Instalar site” ou “Criar atalho”.');
+  }
+
+  function bindInstallButton(){
+    const btn = document.getElementById('installShortcutBtn');
+    if (!btn || btn.dataset.bound === '1') return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', promptInstall);
+    updateInstallButton();
+  }
+
+  function wireInstallEvents(){
+    window.addEventListener('beforeinstallprompt', (event) => {
+      event.preventDefault();
+      deferredInstallPrompt = event;
+      updateInstallButton();
+      if (typeof showToast === 'function') showToast('Instalação disponível neste dispositivo.');
+    });
+
+    window.addEventListener('appinstalled', () => {
+      deferredInstallPrompt = null;
+      updateInstallButton();
+      if (typeof showToast === 'function') showToast('Atalho instalado com sucesso.');
+    });
+  }
+
+  async function initInstallShortcutPatch(){
+    applyIcons();
+    buildManifest();
+    await registerInlineServiceWorker();
+    bindInstallButton();
+    wireInstallEvents();
+    updateInstallButton();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initInstallShortcutPatch, { once:true });
+  } else {
+    initInstallShortcutPatch();
   }
 })();
 </script>

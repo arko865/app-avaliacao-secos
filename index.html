@@ -6790,5 +6790,130 @@ function bindNewConfigEvents(){
 
 </script>
 
+
+<script>
+(function(){
+  function cloneDeep(obj){ try { return JSON.parse(JSON.stringify(obj)); } catch(e){ return obj; } }
+  function uniqueSortedNumbersSafe(values){
+    if (typeof uniqueSortedNumbers === 'function') return uniqueSortedNumbers(values);
+    return Array.from(new Set((Array.isArray(values)?values:[]).map(v=>Number(v)).filter(v=>Number.isFinite(v)&&v>0))).sort((a,b)=>a-b);
+  }
+  function stableAreaKey(existingKey, index){
+    const raw = String(existingKey || '').trim();
+    if (raw) return raw;
+    return 'area_' + String(index + 1);
+  }
+  function captureManageNamesOnly(){
+    try {
+      const all = (typeof getCurrentModelConfigsSnapshot === 'function') ? getCurrentModelConfigsSnapshot() : (state.modelConfigs || {});
+      const modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY;
+      if (!all[modelKey]) return false;
+      const model = all[modelKey];
+      const areaInputs = Array.from(document.querySelectorAll('#manageAreasList [data-manage-area-field="label"]'));
+      const ncInputs = Array.from(document.querySelectorAll('#manageNcList [data-manage-nc-field="label"]'));
+      model.areaDefinitions = Array.isArray(model.areaDefinitions) ? model.areaDefinitions : [];
+      model.ncDefinitions = Array.isArray(model.ncDefinitions) ? model.ncDefinitions : [];
+      areaInputs.forEach((input, idx) => {
+        const current = model.areaDefinitions[idx] || { key: stableAreaKey('', idx), label: '', itemIds: [] };
+        model.areaDefinitions[idx] = {
+          key: stableAreaKey(current.key, idx),
+          label: String(input.value || '').trim() || current.label || `Nova área ${idx + 1}`,
+          itemIds: uniqueSortedNumbersSafe(current.itemIds)
+        };
+      });
+      model.areaDefinitions = model.areaDefinitions.slice(0, areaInputs.length);
+      ncInputs.forEach((input, idx) => {
+        const current = model.ncDefinitions[idx] || { label: '', itemIds: [] };
+        model.ncDefinitions[idx] = {
+          label: String(input.value || '').trim() || current.label || `Nova não conformidade ${idx + 1}`,
+          itemIds: uniqueSortedNumbersSafe(current.itemIds)
+        };
+      });
+      model.ncDefinitions = model.ncDefinitions.slice(0, ncInputs.length);
+      state.modelConfigs = all;
+      return true;
+    } catch(err){ console.warn('Falha ao capturar nomes do gerenciar.', err); return false; }
+  }
+
+  const originalRenderManageItems = window.renderManageItems;
+  if (typeof originalRenderManageItems === 'function') {
+    window.renderManageItems = function patchedRenderManageItems(){
+      const result = originalRenderManageItems.apply(this, arguments);
+      try {
+        document.querySelectorAll('#manageAreasList [data-manage-area-field="label"]').forEach((el) => {
+          el.oninput = (e) => {
+            const idx = Number(e.target.dataset.manageAreaIndex);
+            const all = getCurrentModelConfigsSnapshot();
+            const modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY;
+            const model = all[modelKey] || (all[modelKey] = cloneDeep(getModelConfig(modelKey)));
+            model.areaDefinitions = Array.isArray(model.areaDefinitions) ? model.areaDefinitions : [];
+            const current = model.areaDefinitions[idx] || { key: stableAreaKey('', idx), label: '', itemIds: [] };
+            current.key = stableAreaKey(current.key, idx);
+            current.label = String(e.target.value || '').trim() || `Nova área ${idx + 1}`;
+            current.itemIds = uniqueSortedNumbersSafe(current.itemIds);
+            model.areaDefinitions[idx] = current;
+            state.modelConfigs = all;
+          };
+        });
+        document.querySelectorAll('#manageNcList [data-manage-nc-field="label"]').forEach((el) => {
+          el.oninput = (e) => {
+            const idx = Number(e.target.dataset.manageNcIndex);
+            const all = getCurrentModelConfigsSnapshot();
+            const modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY;
+            const model = all[modelKey] || (all[modelKey] = cloneDeep(getModelConfig(modelKey)));
+            model.ncDefinitions = Array.isArray(model.ncDefinitions) ? model.ncDefinitions : [];
+            const current = model.ncDefinitions[idx] || { label: '', itemIds: [] };
+            current.label = String(e.target.value || '').trim() || `Nova não conformidade ${idx + 1}`;
+            current.itemIds = uniqueSortedNumbersSafe(current.itemIds);
+            model.ncDefinitions[idx] = current;
+            state.modelConfigs = all;
+          };
+        });
+      } catch(err) { console.warn('Falha ao reforçar edição de rótulos.', err); }
+      return result;
+    };
+  }
+
+  const originalSaveManageItems = window.saveManageItems;
+  window.saveManageItems = async function patchedSaveManageItems(){
+    captureManageNamesOnly();
+    const modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY;
+    const all = (typeof getCurrentModelConfigsSnapshot === 'function') ? getCurrentModelConfigsSnapshot() : (state.modelConfigs || {});
+    const model = all[modelKey] || (all[modelKey] = cloneDeep(getModelConfig(modelKey)));
+    model.areaDefinitions = (Array.isArray(model.areaDefinitions) ? model.areaDefinitions : []).map((area, idx) => ({
+      key: stableAreaKey(area?.key, idx),
+      label: String(area?.label || `Nova área ${idx + 1}`),
+      itemIds: uniqueSortedNumbersSafe(area?.itemIds)
+    }));
+    model.ncDefinitions = (Array.isArray(model.ncDefinitions) ? model.ncDefinitions : []).map((nc, idx) => ({
+      label: String(nc?.label || `Nova não conformidade ${idx + 1}`),
+      itemIds: uniqueSortedNumbersSafe(nc?.itemIds)
+    }));
+    state.modelConfigs = all;
+
+    let result;
+    if (typeof originalSaveManageItems === 'function') {
+      result = await originalSaveManageItems.apply(this, arguments);
+    }
+
+    try {
+      // reforça gravação final do bloco salvo para sobreviver a refresh e outros dispositivos
+      state.modelConfigs = all;
+      const now = Date.now();
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeState(state))); } catch (e) {}
+      try { saveFailSafeCheckpoint('manage-labels'); } catch (e) {}
+      if (typeof queueCloudDraftSync === 'function') { await queueCloudDraftSync(true, now); }
+    } catch(err){ console.warn('Falha ao persistir rótulos do gerenciar.', err); }
+    return result;
+  };
+
+  // garante que o botão use a versão corrigida
+  document.addEventListener('DOMContentLoaded', function(){
+    const btn = document.getElementById('saveManageItemsBtn');
+    if (btn) btn.onclick = window.saveManageItems;
+  });
+})();
+</script>
+
 </body>
 </html>

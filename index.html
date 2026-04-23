@@ -7034,5 +7034,175 @@ function bindNewConfigEvents(){
 })();
 </script>
 
+
+<script>
+(function(){
+  const LABEL_SYNC_GUARD_KEY = 'arko_label_sync_guard_v29';
+
+  function cloneSafe(v){
+    try { return JSON.parse(JSON.stringify(v)); } catch(e){ return v; }
+  }
+  function toTs(v){
+    if (v == null) return 0;
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string') return Number(v) || 0;
+    if (typeof v.toMillis === 'function') return v.toMillis();
+    return 0;
+  }
+  function buildLabelSnapshotFromConfigs(configs){
+    const out = {};
+    const all = configs && typeof configs === 'object' ? configs : {};
+    Object.keys(all).sort().forEach((modelKey) => {
+      const cfg = all[modelKey] || {};
+      out[modelKey] = {
+        areaDefinitions: (Array.isArray(cfg.areaDefinitions) ? cfg.areaDefinitions : []).map((area, idx) => ({
+          key: String(area?.key || `area_${idx+1}`),
+          label: String(area?.label || '')
+        })),
+        ncDefinitions: (Array.isArray(cfg.ncDefinitions) ? cfg.ncDefinitions : []).map((nc) => ({
+          label: String(nc?.label || '')
+        }))
+      };
+    });
+    return out;
+  }
+  function currentLabelSnapshot(){
+    const configs = (typeof getCurrentModelConfigsSnapshot === 'function')
+      ? getCurrentModelConfigsSnapshot()
+      : ((window.state && state.modelConfigs) || {});
+    return buildLabelSnapshotFromConfigs(configs);
+  }
+  function labelHash(snapshot){
+    try { return JSON.stringify(snapshot || {}); } catch(e){ return '{}'; }
+  }
+  function readGuard(){
+    try {
+      const raw = localStorage.getItem(LABEL_SYNC_GUARD_KEY);
+      if (!raw) return { ts:0, hash:'{}' };
+      const parsed = JSON.parse(raw);
+      return { ts: toTs(parsed.ts), hash: String(parsed.hash || '{}') };
+    } catch(e){ return { ts:0, hash:'{}' }; }
+  }
+  function writeGuard(ts){
+    try {
+      localStorage.setItem(LABEL_SYNC_GUARD_KEY, JSON.stringify({
+        ts: toTs(ts) || Date.now(),
+        hash: labelHash(currentLabelSnapshot())
+      }));
+    } catch(e){}
+  }
+  function payloadLabelHash(payload){
+    const configs = payload && payload.data && payload.data.modelConfigs ? payload.data.modelConfigs : {};
+    return labelHash(buildLabelSnapshotFromConfigs(configs));
+  }
+  function shouldRejectCloudPayload(payload){
+    const incomingTs = toTs(payload && payload.updatedAt);
+    const incomingHash = payloadLabelHash(payload);
+    const guard = readGuard();
+    if (!guard.ts) return false;
+    if (!incomingTs) return false;
+    return incomingTs < guard.ts && incomingHash !== guard.hash;
+  }
+  function refreshGuardFromState(ts){
+    try { writeGuard(ts || (window.state && (state.updatedAt || state.__updatedAt)) || Date.now()); } catch(e){}
+  }
+
+  const originalSaveManageItems = window.saveManageItems;
+  if (typeof originalSaveManageItems === 'function') {
+    window.saveManageItems = async function(){
+      const result = await originalSaveManageItems.apply(this, arguments);
+      const ts = Date.now();
+      try {
+        if (window.state) {
+          state.updatedAt = Math.max(toTs(state.updatedAt), ts);
+          state.__updatedAt = Math.max(toTs(state.__updatedAt), ts);
+        }
+        refreshGuardFromState(ts);
+        if (typeof queueCloudDraftSync === 'function') {
+          await queueCloudDraftSync(true, ts);
+          setTimeout(() => { try { queueCloudDraftSync(true, ts + 1); } catch(e){} }, 900);
+        }
+      } catch(e){ console.warn('Falha ao reforçar sync de rótulos.', e); }
+      return result;
+    };
+  }
+
+  const originalQueueCloudDraftSync = window.queueCloudDraftSync;
+  if (typeof originalQueueCloudDraftSync === 'function') {
+    window.queueCloudDraftSync = function(immediate, forcedUpdatedAt){
+      const ts = toTs(forcedUpdatedAt) || Date.now();
+      refreshGuardFromState(ts);
+      return originalQueueCloudDraftSync.call(this, immediate, ts);
+    };
+  }
+
+  const originalSeedCloudFromLocal = window.seedCloudFromLocal;
+  if (typeof originalSeedCloudFromLocal === 'function') {
+    window.seedCloudFromLocal = async function(){
+      const result = await originalSeedCloudFromLocal.apply(this, arguments);
+      try { refreshGuardFromState(Date.now()); } catch(e){}
+      return result;
+    };
+  }
+
+  const originalPullCloudDraftNow = window.pullCloudDraftNow;
+  if (typeof originalPullCloudDraftNow === 'function') {
+    window.pullCloudDraftNow = async function(forceApply = false){
+      if (!window.firebaseReady || !window.firestore || !navigator.onLine) return false;
+      try {
+        const snapshot = await firestore.doc(CLOUD_DRAFT_DOC_PATH).get();
+        if (!snapshot.exists) return false;
+        const payload = snapshot.data() || {};
+        const incomingTs = toTs(payload.updatedAt);
+        if (!payload.data || !incomingTs) return false;
+        if (shouldRejectCloudPayload(payload)) return false;
+      } catch(e){ console.warn('Falha no guard de pull da nuvem.', e); }
+      const result = await originalPullCloudDraftNow.apply(this, arguments);
+      try { if (result) refreshGuardFromState(toTs(state && (state.updatedAt || state.__updatedAt)) || Date.now()); } catch(e){}
+      return result;
+    };
+  }
+
+  if (window.firestore && typeof firestore.doc === 'function') {
+    const originalStartCloudListeners = window.startCloudListeners;
+    if (typeof originalStartCloudListeners === 'function') {
+      window.startCloudListeners = function(){
+        if (window.__v29StartCloudListenersWrapped) return originalStartCloudListeners.apply(this, arguments);
+        window.__v29StartCloudListenersWrapped = true;
+        if (originalStartCloudListeners.started) return;
+        originalStartCloudListeners.started = true;
+        firestore.doc(CLOUD_DRAFT_DOC_PATH).onSnapshot(snapshot => {
+          if (!snapshot.exists) return;
+          const payload = snapshot.data() || {};
+          const incomingTs = toTs(payload.updatedAt);
+          if (!payload.data || !incomingTs) return;
+          if (shouldRejectCloudPayload(payload)) return;
+          if (payload.updatedBy === deviceId && incomingTs <= lastCloudDraftAt) return;
+          if (incomingTs < lastCloudDraftAt) return;
+          lastCloudDraftAt = incomingTs;
+          state = normalizeState(payload.data);
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (err) {}
+          try { refreshGuardFromState(incomingTs); } catch(e){}
+          if (document.getElementById('manageItemsModal')?.classList.contains('open')) manageDraftItems = null;
+          if (document.getElementById('streetCountsModal')?.classList.contains('open')) manageStreetCounts = null;
+          renderApp();
+          showToast('Sincronizado com outro dispositivo.');
+        }, err => {
+          console.warn('Falha ao ouvir atualizações em tempo real.', err);
+        });
+      };
+      try { startCloudListeners.started = false; } catch(e){}
+    }
+  }
+
+  setTimeout(() => {
+    try {
+      refreshGuardFromState(Date.now());
+      const btn = document.getElementById('saveManageItemsBtn');
+      if (btn && typeof window.saveManageItems === 'function') btn.onclick = window.saveManageItems;
+    } catch(e){}
+  }, 0);
+})();
+</script>
 </body>
 </html>

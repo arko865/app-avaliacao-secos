@@ -7204,5 +7204,218 @@ function bindNewConfigEvents(){
   }, 0);
 })();
 </script>
+
+<script>
+(function(){
+  const MODEL_SYNC_KEY = 'arko_modelconfigs_snapshot_v30';
+  const MODEL_SYNC_DOC = 'shared/modelConfigsState';
+  function deepClone(v){ try { return JSON.parse(JSON.stringify(v)); } catch(e){ return v; } }
+  function asTs(v){
+    if (v == null) return 0;
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string') return Number(v) || 0;
+    if (typeof v.toMillis === 'function') return v.toMillis();
+    return 0;
+  }
+  function makeSnapshot(ts){
+    const allConfigs = (typeof getCurrentModelConfigsSnapshot === 'function') ? getCurrentModelConfigsSnapshot() : deepClone(state.modelConfigs || {});
+    return {
+      ts: asTs(ts) || Date.now(),
+      modelo: state?.form?.modelo || DEFAULT_MODEL_KEY,
+      modelConfigs: deepClone(allConfigs || {}),
+      modelItemTemplates: deepClone(state?.modelItemTemplates || {}),
+      updatedBy: (typeof deviceId !== 'undefined' ? deviceId : 'local')
+    };
+  }
+  function readLocalSnapshot(){
+    try {
+      const raw = localStorage.getItem(MODEL_SYNC_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || !parsed.modelConfigs) return null;
+      parsed.ts = asTs(parsed.ts);
+      return parsed;
+    } catch(e){ return null; }
+  }
+  function writeLocalSnapshot(ts){
+    try { localStorage.setItem(MODEL_SYNC_KEY, JSON.stringify(makeSnapshot(ts))); } catch(e){}
+  }
+  function applySnapshotToState(snapshot, opts={}){
+    if (!snapshot || !snapshot.modelConfigs) return false;
+    try {
+      state.modelConfigs = deepClone(snapshot.modelConfigs);
+      if (snapshot.modelItemTemplates) state.modelItemTemplates = deepClone(snapshot.modelItemTemplates);
+      if (snapshot.modelo && state?.form) state.form.modelo = snapshot.modelo;
+      if (typeof state.updatedAt !== 'undefined') state.updatedAt = Math.max(asTs(state.updatedAt), asTs(snapshot.ts));
+      state.__modelConfigsUpdatedAt = Math.max(asTs(state.__modelConfigsUpdatedAt), asTs(snapshot.ts));
+      if (!opts.silentRender && typeof renderApp === 'function') renderApp();
+      return true;
+    } catch(e){ console.warn('Falha ao aplicar snapshot de modelos.', e); return false; }
+  }
+  async function pushSnapshotToCloud(ts){
+    if (!(window.firebaseReady && window.firestore && navigator.onLine)) return false;
+    try {
+      const payload = makeSnapshot(ts);
+      await firestore.doc(MODEL_SYNC_DOC).set(payload, { merge:true });
+      return true;
+    } catch(e){ console.warn('Falha ao sincronizar modelos na nuvem.', e); return false; }
+  }
+  async function pullSnapshotFromCloud(force=false){
+    if (!(window.firebaseReady && window.firestore && navigator.onLine)) return false;
+    try {
+      const snap = await firestore.doc(MODEL_SYNC_DOC).get();
+      if (!snap.exists) return false;
+      const payload = snap.data() || {};
+      const incomingTs = asTs(payload.ts);
+      const local = readLocalSnapshot();
+      const localTs = asTs(local && local.ts);
+      if (!payload.modelConfigs || !incomingTs) return false;
+      if (!force && localTs && incomingTs <= localTs) return false;
+      applySnapshotToState(payload);
+      writeLocalSnapshot(incomingTs);
+      if (typeof persistState === 'function') persistState();
+      return true;
+    } catch(e){ console.warn('Falha ao buscar modelos da nuvem.', e); return false; }
+  }
+  function getCurrentManageModelDraft(){
+    const all = (typeof getCurrentModelConfigsSnapshot === 'function') ? getCurrentModelConfigsSnapshot() : (state.modelConfigs || {});
+    if (!all[state.form.modelo]) all[state.form.modelo] = { key:state.form.modelo, label:state.form.modelo, reportLabel:state.form.modelo, usesStreetCounts:false, items:[], areaDefinitions:[], ncDefinitions:[], autoAreaMap:{} };
+    return all[state.form.modelo];
+  }
+  function sanitizeAreaDefinitions(defs){
+    return (Array.isArray(defs) ? defs : []).map((area, idx) => ({
+      key: String(area?.key || `area_${idx+1}`),
+      label: String(area?.label || `Área ${idx+1}`),
+      itemIds: Array.isArray(area?.itemIds) ? Array.from(new Set(area.itemIds.map(n=>Number(n)).filter(n=>n>0))).sort((a,b)=>a-b) : []
+    }));
+  }
+  function sanitizeNcDefinitions(defs){
+    return (Array.isArray(defs) ? defs : []).map((nc, idx) => ({
+      label: String(nc?.label || `NC ${idx+1}`),
+      itemIds: Array.isArray(nc?.itemIds) ? Array.from(new Set(nc.itemIds.map(n=>Number(n)).filter(n=>n>0))).sort((a,b)=>a-b) : []
+    }));
+  }
+  function commitManageChangesIntoState(){
+    const ts = Date.now();
+    if (!Array.isArray(manageDraftItems) || !manageDraftItems.length) manageDraftItems = (typeof makeDefaultItems === 'function') ? makeDefaultItems(state.form.modelo) : [];
+    const nextItems = (typeof reindexItems === 'function') ? reindexItems(deepClone(manageDraftItems), state.form.modelo) : deepClone(manageDraftItems);
+    state.items = nextItems;
+    const all = (typeof getCurrentModelConfigsSnapshot === 'function') ? getCurrentModelConfigsSnapshot() : (state.modelConfigs || {});
+    const current = getCurrentManageModelDraft();
+    current.items = nextItems.map(item => ({ description:String(item.description || ''), section:item.section === 'venda' ? 'venda' : 'deposito' }));
+    current.areaDefinitions = sanitizeAreaDefinitions(current.areaDefinitions || []);
+    current.ncDefinitions = sanitizeNcDefinitions(current.ncDefinitions || []);
+    all[state.form.modelo] = current;
+    state.modelConfigs = deepClone(all);
+    if (typeof normalizeModelItemTemplates === 'function') {
+      state.modelItemTemplates = normalizeModelItemTemplates({ ...(state.modelItemTemplates || {}), [state.form.modelo]: deepClone(nextItems) });
+    } else {
+      state.modelItemTemplates = { ...(state.modelItemTemplates || {}), [state.form.modelo]: deepClone(nextItems) };
+    }
+    if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state);
+    if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state);
+    state.updatedAt = Math.max(asTs(state.updatedAt), ts);
+    state.__updatedAt = Math.max(asTs(state.__updatedAt), ts);
+    state.__modelConfigsUpdatedAt = ts;
+    writeLocalSnapshot(ts);
+    return ts;
+  }
+
+  window.saveManageItems = async function(){
+    const ts = commitManageChangesIntoState();
+    try { if (typeof persistState === 'function') persistState(); } catch(e){}
+    try { if (typeof saveFailSafeCheckpoint === 'function') saveFailSafeCheckpoint('v30-manage-save'); } catch(e){}
+    try { if (typeof queueCloudDraftSync === 'function') await queueCloudDraftSync(true, ts); } catch(e){}
+    try { await pushSnapshotToCloud(ts); } catch(e){}
+    try { if (typeof renderApp === 'function') renderApp(); } catch(e){}
+    try {
+      const modal = document.getElementById('manageItemsModal');
+      if (modal){ modal.classList.remove('open'); modal.setAttribute('aria-hidden','true'); }
+      manageDraftItems = null;
+    } catch(e){}
+    try { if (typeof scheduleAutosave === 'function') scheduleAutosave(); } catch(e){}
+    try { if (typeof showToast === 'function') showToast('Itens, áreas avaliadas e NCs salvos com sucesso.'); } catch(e){}
+    return true;
+  };
+
+  const originalCreateNewEvaluation = window.createNewEvaluationFromApp;
+  if (typeof originalCreateNewEvaluation === 'function') {
+    window.createNewEvaluationFromApp = async function(){
+      const before = JSON.stringify((state && state.modelConfigs) || {});
+      const result = await originalCreateNewEvaluation.apply(this, arguments);
+      const after = JSON.stringify((state && state.modelConfigs) || {});
+      if (before !== after) {
+        const ts = Date.now();
+        state.updatedAt = Math.max(asTs(state.updatedAt), ts);
+        state.__modelConfigsUpdatedAt = ts;
+        writeLocalSnapshot(ts);
+        try { if (typeof persistState === 'function') persistState(); } catch(e){}
+        try { if (typeof queueCloudDraftSync === 'function') await queueCloudDraftSync(true, ts); } catch(e){}
+        try { await pushSnapshotToCloud(ts); } catch(e){}
+      }
+      return result;
+    };
+  }
+
+  const originalPersistState = window.persistState;
+  if (typeof originalPersistState === 'function') {
+    window.persistState = function(){
+      const result = originalPersistState.apply(this, arguments);
+      try { writeLocalSnapshot(asTs(state && (state.__modelConfigsUpdatedAt || state.updatedAt)) || Date.now()); } catch(e){}
+      return result;
+    };
+  }
+
+  const originalPullCloudDraftNow = window.pullCloudDraftNow;
+  if (typeof originalPullCloudDraftNow === 'function') {
+    window.pullCloudDraftNow = async function(forceApply=false){
+      const result = await originalPullCloudDraftNow.apply(this, arguments);
+      const local = readLocalSnapshot();
+      if (local && asTs(local.ts) > asTs(state && state.__modelConfigsUpdatedAt)) {
+        applySnapshotToState(local);
+      }
+      return result;
+    };
+  }
+
+  const originalStartCloudListeners = window.startCloudListeners;
+  if (typeof originalStartCloudListeners === 'function') {
+    window.startCloudListeners = function(){
+      const out = originalStartCloudListeners.apply(this, arguments);
+      try {
+        if (!window.__v30ModelConfigListener && window.firebaseReady && window.firestore) {
+          window.__v30ModelConfigListener = true;
+          firestore.doc(MODEL_SYNC_DOC).onSnapshot(snapshot => {
+            if (!snapshot.exists) return;
+            const payload = snapshot.data() || {};
+            const incomingTs = asTs(payload.ts);
+            const local = readLocalSnapshot();
+            const localTs = asTs(local && local.ts);
+            if (!payload.modelConfigs || !incomingTs) return;
+            if (payload.updatedBy === (typeof deviceId !== 'undefined' ? deviceId : 'local') && incomingTs <= localTs) return;
+            if (localTs && incomingTs <= localTs) return;
+            applySnapshotToState(payload);
+            writeLocalSnapshot(incomingTs);
+            try { if (typeof persistState === 'function') persistState(); } catch(e){}
+            try { if (typeof showToast === 'function') showToast('Modelos sincronizados com outro dispositivo.'); } catch(e){}
+          });
+        }
+      } catch(e){ console.warn('Falha ao iniciar listener de modelos.', e); }
+      return out;
+    };
+  }
+
+  setTimeout(async () => {
+    try {
+      const local = readLocalSnapshot();
+      if (local) applySnapshotToState(local, { silentRender:false });
+      const btn = document.getElementById('saveManageItemsBtn');
+      if (btn) btn.onclick = window.saveManageItems;
+      await pullSnapshotFromCloud(false);
+    } catch(e){ console.warn('Falha ao iniciar patch v30 de modelos.', e); }
+  }, 0);
+})();
+</script>
+
 </body>
 </html>

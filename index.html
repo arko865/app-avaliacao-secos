@@ -7805,5 +7805,391 @@ function bindNewConfigEvents(){
 })();
 </script>
 
+
+<script>
+(function(){
+  const LEGACY_KEY = 'arko_manage_core_v26';
+  const AUTH_KEY_V31 = 'arko_authoritative_model_configs_v31';
+  function ts(v){
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) return n;
+    const d = Date.parse(v || '');
+    return Number.isFinite(d) ? d : Date.now();
+  }
+  function clone(obj){
+    try { return JSON.parse(JSON.stringify(obj)); } catch(e){ return obj; }
+  }
+  function currentConfigs(){
+    try {
+      if (typeof getCurrentModelConfigsSnapshot === 'function') return clone(getCurrentModelConfigsSnapshot());
+    } catch(e){}
+    return clone((window.state && state.modelConfigs) || {});
+  }
+  function currentSelectedModel(){
+    return (window.state && state.form && state.form.modelo) ? state.form.modelo : (typeof DEFAULT_MODEL_KEY !== 'undefined' ? DEFAULT_MODEL_KEY : '');
+  }
+  function syncLegacySnapshot(stamp){
+    try {
+      const payload = {
+        updatedAt: ts(stamp),
+        selectedModel: currentSelectedModel(),
+        modelConfigs: currentConfigs()
+      };
+      localStorage.setItem(LEGACY_KEY, JSON.stringify(payload));
+      return true;
+    } catch(e) {
+      console.warn('Falha ao sincronizar snapshot legado do gerenciar.', e);
+      return false;
+    }
+  }
+  function readAuthSnapshot(){
+    try {
+      const raw = localStorage.getItem(AUTH_KEY_V31);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || !parsed.modelConfigs) return null;
+      return parsed;
+    } catch(e){ return null; }
+  }
+  function forceLegacyFromAuthoritative(){
+    try {
+      const auth = readAuthSnapshot();
+      if (!auth || !auth.modelConfigs) return false;
+      const stamp = ts(auth.ts || Date.now());
+      localStorage.setItem(LEGACY_KEY, JSON.stringify({
+        updatedAt: stamp,
+        selectedModel: auth.selectedModel || currentSelectedModel(),
+        modelConfigs: clone(auth.modelConfigs)
+      }));
+      return true;
+    } catch(e){
+      console.warn('Falha ao forçar snapshot legado a partir do autoritativo.', e);
+      return false;
+    }
+  }
+
+  const originalSaveManageItems = window.saveManageItems;
+  if (typeof originalSaveManageItems === 'function') {
+    window.saveManageItems = async function(){
+      const result = await originalSaveManageItems.apply(this, arguments);
+      try { syncLegacySnapshot(Date.now()); } catch(e){}
+      return result;
+    };
+  }
+
+  const originalCreateNewEvaluation = window.createNewEvaluationFromApp;
+  if (typeof originalCreateNewEvaluation === 'function') {
+    window.createNewEvaluationFromApp = async function(){
+      const result = await originalCreateNewEvaluation.apply(this, arguments);
+      try { syncLegacySnapshot(Date.now()); } catch(e){}
+      return result;
+    };
+  }
+
+  const originalPersistState = window.persistState;
+  if (typeof originalPersistState === 'function') {
+    window.persistState = function(){
+      const out = originalPersistState.apply(this, arguments);
+      try { syncLegacySnapshot(Date.now()); } catch(e){}
+      return out;
+    };
+  }
+
+  const originalRenderApp = window.renderApp;
+  if (typeof originalRenderApp === 'function') {
+    window.renderApp = function(){
+      const out = originalRenderApp.apply(this, arguments);
+      try {
+        const saveBtn = document.getElementById('saveManageItemsBtn');
+        if (saveBtn) saveBtn.onclick = window.saveManageItems;
+        const newBtn = document.getElementById('newEvaluationBtn');
+        if (newBtn) newBtn.onclick = window.createNewEvaluationFromApp;
+      } catch(e){}
+      return out;
+    };
+  }
+
+  setTimeout(function(){
+    try { forceLegacyFromAuthoritative(); } catch(e){}
+    try { syncLegacySnapshot(Date.now()); } catch(e){}
+  }, 0);
+})();
+</script>
+
+
+<script>
+(function(){
+  const AUTH_KEY = 'arko_manage_core_v33';
+  const LEGACY_KEY = 'arko_manage_core_v26';
+  const ts = (v) => { const n = Number(v); if (Number.isFinite(n) && n > 0) return n; const d = Date.parse(v || ''); return Number.isFinite(d) ? d : 0; };
+  const now = () => Date.now();
+  const clone = (v) => JSON.parse(JSON.stringify(v));
+  function safeAllConfigs(){
+    try {
+      if (typeof getCurrentModelConfigsSnapshot === 'function') return clone(getCurrentModelConfigsSnapshot());
+      if (typeof getAllModelConfigs === 'function') return clone(getAllModelConfigs());
+    } catch(e){}
+    return clone((window.state && state.modelConfigs) || {});
+  }
+  function deepSanitizeModelV33(model, key){
+    if (typeof deepSanitizeModel === 'function') return deepSanitizeModel(model, key);
+    if (typeof sanitizeModelConfig === 'function') return sanitizeModelConfig(model, key);
+    const next = clone(model || {});
+    next.key = String(next.key || key || '').trim() || String(key || 'modelo');
+    next.label = String(next.label || next.reportLabel || next.key).trim() || next.key;
+    next.reportLabel = String(next.reportLabel || next.label || next.key).trim() || next.label;
+    next.items = Array.isArray(next.items) ? next.items : [];
+    next.areaDefinitions = Array.isArray(next.areaDefinitions) ? next.areaDefinitions : [];
+    next.ncDefinitions = Array.isArray(next.ncDefinitions) ? next.ncDefinitions : [];
+    next.autoAreaMap = next.autoAreaMap && typeof next.autoAreaMap === 'object' ? next.autoAreaMap : {};
+    return next;
+  }
+  function writeSnapshots(stamp){
+    const payload = {
+      ts: stamp,
+      updatedAt: stamp,
+      selectedModel: state?.form?.modelo || (typeof DEFAULT_MODEL_KEY !== 'undefined' ? DEFAULT_MODEL_KEY : ''),
+      modelConfigs: safeAllConfigs(),
+      modelItemTemplates: clone((state && state.modelItemTemplates) || {})
+    };
+    try { localStorage.setItem(AUTH_KEY, JSON.stringify(payload)); } catch(e){}
+    try { localStorage.setItem(LEGACY_KEY, JSON.stringify({ updatedAt: stamp, selectedModel: payload.selectedModel, modelConfigs: payload.modelConfigs })); } catch(e){}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e){}
+    return payload;
+  }
+  function readSnapshot(){
+    try { return JSON.parse(localStorage.getItem(AUTH_KEY) || 'null'); } catch(e){ return null; }
+  }
+  function collectManagePayloadV33(){
+    const modelKey = (state && state.form && state.form.modelo) ? state.form.modelo : (typeof DEFAULT_MODEL_KEY !== 'undefined' ? DEFAULT_MODEL_KEY : '');
+    const all = safeAllConfigs();
+    const sourceModel = deepSanitizeModelV33((typeof getManageDraftModelConfig === 'function' ? getManageDraftModelConfig() : null) || all[modelKey] || {}, modelKey);
+    const modal = document.getElementById('manageItemsModal');
+    let items = Array.isArray(window.manageDraftItems) ? clone(window.manageDraftItems) : clone((state && state.items) || []);
+    if (!Array.isArray(items)) items = [];
+
+    if (modal) {
+      modal.querySelectorAll('textarea[data-manage-field="description"]').forEach((el) => {
+        const index = Number(el.dataset.manageIndex);
+        if (!Number.isFinite(index)) return;
+        if (!items[index]) items[index] = { id:index + 1, description:'', section:'deposito' };
+        items[index].description = String(el.value || '').trim() || `Item ${index + 1}`;
+      });
+      modal.querySelectorAll('select[data-manage-field="section"]').forEach((el) => {
+        const index = Number(el.dataset.manageIndex);
+        if (!Number.isFinite(index)) return;
+        if (!items[index]) items[index] = { id:index + 1, description:`Item ${index + 1}`, section:'deposito' };
+        items[index].section = el.value === 'venda' ? 'venda' : 'deposito';
+      });
+
+      const previousAreas = Array.isArray(sourceModel.areaDefinitions) ? sourceModel.areaDefinitions : [];
+      const areaInputs = Array.from(modal.querySelectorAll('[data-manage-area-field="label"]'));
+      sourceModel.areaDefinitions = areaInputs.map((el, index) => {
+        const prev = previousAreas[index] || {};
+        const label = String(el.value || '').trim() || String(prev.label || `Nova área ${index + 1}`);
+        const key = String(prev.key || ((typeof slugifyConfigKey === 'function' ? slugifyConfigKey(label) : `area_${index + 1}`))).trim() || `area_${index + 1}`;
+        return { key, label, itemIds: [] };
+      });
+
+      const previousNcs = Array.isArray(sourceModel.ncDefinitions) ? sourceModel.ncDefinitions : [];
+      const ncInputs = Array.from(modal.querySelectorAll('[data-manage-nc-field="label"]'));
+      sourceModel.ncDefinitions = ncInputs.map((el, index) => {
+        const prev = previousNcs[index] || {};
+        const label = String(el.value || '').trim() || String(prev.label || `Nova não conformidade ${index + 1}`);
+        return { label, itemIds: [] };
+      });
+
+      modal.querySelectorAll('[data-manage-link-area]').forEach((el) => {
+        if (!el.checked) return;
+        const itemIndex = Number(el.dataset.manageIndex);
+        const areaKey = String(el.dataset.manageLinkArea || '');
+        const area = sourceModel.areaDefinitions.find((entry) => String(entry.key) === areaKey);
+        if (area) area.itemIds.push(itemIndex + 1);
+      });
+      modal.querySelectorAll('[data-manage-link-nc]').forEach((el) => {
+        if (!el.checked) return;
+        const itemIndex = Number(el.dataset.manageIndex);
+        const ncIndex = Number(el.dataset.manageLinkNc);
+        const nc = sourceModel.ncDefinitions[ncIndex];
+        if (nc) nc.itemIds.push(itemIndex + 1);
+      });
+    }
+
+    items = items.map((item, index) => ({
+      ...item,
+      id: index + 1,
+      description: String((item && item.description) || `Item ${index + 1}`).trim() || `Item ${index + 1}`,
+      section: item && item.section === 'venda' ? 'venda' : 'deposito'
+    }));
+    if (typeof reindexItems === 'function') items = reindexItems(items, modelKey);
+    sourceModel.items = items.map((item) => ({ description:item.description, section:item.section }));
+    const model = deepSanitizeModelV33(sourceModel, modelKey);
+    return { modelKey, items, model };
+  }
+
+  window.applyAutomaticAreas = function applyAutomaticAreasV33(targetState = state){
+    if (!targetState || !Array.isArray(targetState.items)) return targetState;
+    targetState.items.forEach((item) => {
+      if (!item) return;
+      if (item.naoAvaliar) {
+        item.areaAvaliada = '';
+        item.naoConformes = '';
+        return;
+      }
+      item.areaAvaliada = String(item.areaAvaliada ?? '').trim();
+      item.naoConformes = String(item.naoConformes ?? '').trim();
+      if (toNumber(item.naoConformes) > toNumber(item.areaAvaliada)) {
+        item.naoConformes = item.areaAvaliada ? String(item.areaAvaliada) : '';
+      }
+    });
+    return targetState;
+  };
+
+  window.loadStreetCountsForStore = function loadStreetCountsForStoreV33(storeName, modelKey = state?.form?.modelo){
+    if (typeof isStreetCountEnabled === 'function' && !isStreetCountEnabled(modelKey)) {
+      state.streetCounts = [];
+      return;
+    }
+    const normalizedStore = String(storeName || '').trim();
+    const key = (typeof getStoreTemplateKey === 'function') ? getStoreTemplateKey(modelKey, normalizedStore) : `${modelKey}::${normalizedStore}`;
+    const templateRows = normalizedStore ? ((state.storeStreetTemplates || {})[key]) : null;
+    state.streetCounts = (typeof makeStreetCountsFromTemplateRows === 'function') ? makeStreetCountsFromTemplateRows(templateRows, modelKey) : (Array.isArray(templateRows) ? clone(templateRows) : []);
+    try { if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state); } catch(e){}
+  };
+
+  window.saveManageItems = async function saveManageItemsV33(){
+    try {
+      const payload = collectManagePayloadV33();
+      const all = safeAllConfigs();
+      all[payload.modelKey] = payload.model;
+      state.modelConfigs = (typeof migrateConfigurableModels === 'function') ? migrateConfigurableModels(all) : all;
+      state.items = payload.items;
+      if (!state.form) state.form = {};
+      state.form.modelo = payload.modelKey;
+      if (typeof syncItemLinkMetadata === 'function') syncItemLinkMetadata(payload.modelKey);
+      state.modelItemTemplates = (typeof normalizeModelItemTemplates === 'function')
+        ? normalizeModelItemTemplates({ ...(state.modelItemTemplates || {}), [payload.modelKey]: clone(payload.items) })
+        : { ...(state.modelItemTemplates || {}), [payload.modelKey]: clone(payload.items) };
+      try { if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state); } catch(e){}
+      try { if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state); } catch(e){}
+      const stamp = now();
+      state.__updatedAt = stamp;
+      state.updatedAt = stamp;
+      state.__modelConfigsUpdatedAt = stamp;
+      if (typeof persistState === 'function') persistState();
+      writeSnapshots(stamp);
+      try { if (typeof queueCloudDraftSync === 'function') await queueCloudDraftSync(true, stamp); } catch(e){}
+      try { if (typeof renderApp === 'function') renderApp(); } catch(e){}
+      try { if (typeof closeManageItemsModal === 'function') closeManageItemsModal(); } catch(e){}
+      try { window.manageDraftItems = null; } catch(e){}
+      try { if (typeof scheduleAutosave === 'function') scheduleAutosave(); } catch(e){}
+      try { if (typeof showToast === 'function') showToast('Gerenciar itens salvo com sucesso.'); } catch(e){}
+      return true;
+    } catch (err) {
+      console.error('Falha ao salvar Gerenciar itens v33.', err);
+      try { if (typeof showToast === 'function') showToast('Não foi possível salvar as alterações do menu Gerenciar.'); } catch(e){}
+      return false;
+    }
+  };
+
+  window.createNewEvaluationFromApp = async function createNewEvaluationFromAppV33(){
+    try {
+      const label = prompt('Digite o nome da nova avaliação:');
+      if (!label || !String(label).trim()) return false;
+      const cleanLabel = String(label).trim();
+      const all = safeAllConfigs();
+      const baseModel = (typeof getModelConfig === 'function' ? getModelConfig(state?.form?.modelo) : null) || {};
+      const baseKey = ((typeof slugifyConfigKey === 'function') ? slugifyConfigKey(cleanLabel) : cleanLabel.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'')) || ('avaliacao_' + now());
+      let key = baseKey, i = 2;
+      while (all[key]) key = `${baseKey}_${i++}`;
+      all[key] = deepSanitizeModelV33({
+        key,
+        label: cleanLabel,
+        reportLabel: cleanLabel,
+        usesStreetCounts: !!baseModel.usesStreetCounts,
+        items: [],
+        areaDefinitions: [],
+        ncDefinitions: [],
+        autoAreaMap: {}
+      }, key);
+      state.modelConfigs = (typeof migrateConfigurableModels === 'function') ? migrateConfigurableModels(all) : all;
+      state.modelItemTemplates = (typeof normalizeModelItemTemplates === 'function')
+        ? normalizeModelItemTemplates({ ...(state.modelItemTemplates || {}), [key]: [] })
+        : { ...(state.modelItemTemplates || {}), [key]: [] };
+      if (!state.form) state.form = {};
+      state.form.modelo = key;
+      state.form.produtosIdentificados = '';
+      state.form.impactoMercadoria = '';
+      state.items = [];
+      state.streetCounts = (all[key].usesStreetCounts && typeof makeDefaultStreetCounts === 'function') ? makeDefaultStreetCounts(key) : [];
+      const stamp = now();
+      state.__updatedAt = stamp;
+      state.updatedAt = stamp;
+      state.__modelConfigsUpdatedAt = stamp;
+      if (typeof persistState === 'function') persistState();
+      writeSnapshots(stamp);
+      try { if (typeof populateModelOptions === 'function') populateModelOptions(); } catch(e){}
+      try { if (typeof renderApp === 'function') renderApp(); } catch(e){}
+      try { if (typeof openManageItemsModal === 'function') openManageItemsModal(); } catch(e){}
+      const modelSelect = document.getElementById('modeloAvaliacao');
+      if (modelSelect) modelSelect.value = key;
+      try { if (typeof showToast === 'function') showToast('Nova avaliação criada e salva.'); } catch(e){}
+      return true;
+    } catch (err) {
+      console.error('Falha ao criar nova avaliação v33.', err);
+      try { if (typeof showToast === 'function') showToast('Não foi possível criar a nova avaliação.'); } catch(e){}
+      return false;
+    }
+  };
+
+  function rebindV33(){
+    try {
+      const saveBtn = document.getElementById('saveManageItemsBtn');
+      if (saveBtn) saveBtn.onclick = window.saveManageItems;
+      const newBtn = document.getElementById('newEvaluationBtn');
+      if (newBtn) newBtn.onclick = window.createNewEvaluationFromApp;
+    } catch(e){}
+  }
+
+  const originalRender = window.renderApp;
+  if (typeof originalRender === 'function') {
+    window.renderApp = function(){
+      const result = originalRender.apply(this, arguments);
+      rebindV33();
+      return result;
+    };
+  }
+
+  const originalPersist = window.persistState;
+  if (typeof originalPersist === 'function') {
+    window.persistState = function(){
+      const result = originalPersist.apply(this, arguments);
+      try { writeSnapshots(ts(state?.updatedAt) || now()); } catch(e){}
+      return result;
+    };
+  }
+
+  setTimeout(() => {
+    try {
+      const snap = readSnapshot();
+      if (snap && snap.modelConfigs) {
+        const incomingTs = ts(snap.ts || snap.updatedAt);
+        const currentTs = Math.max(ts(state?.__modelConfigsUpdatedAt), ts(state?.updatedAt), ts(state?.updatedAt));
+        if (incomingTs >= currentTs) {
+          state.modelConfigs = (typeof migrateConfigurableModels === 'function') ? migrateConfigurableModels(clone(snap.modelConfigs)) : clone(snap.modelConfigs);
+          if (snap.modelItemTemplates) {
+            state.modelItemTemplates = (typeof normalizeModelItemTemplates === 'function') ? normalizeModelItemTemplates(clone(snap.modelItemTemplates)) : clone(snap.modelItemTemplates);
+          }
+          const selected = (snap.selectedModel && state.modelConfigs[snap.selectedModel]) ? snap.selectedModel : (state?.form?.modelo || Object.keys(state.modelConfigs)[0]);
+          if (!state.form) state.form = {};
+          state.form.modelo = selected;
+        }
+      }
+      rebindV33();
+    } catch(e){ console.warn('Falha ao aplicar patch v33.', e); }
+  }, 0);
+})();
+</script>
+
 </body>
 </html>

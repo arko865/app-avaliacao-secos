@@ -4504,5 +4504,195 @@ function bindNewConfigEvents(){
 })();
 </script>
 
+
+<script>
+(function(){
+  const MANAGE_FIX_KEY = 'arko_manage_fix_snapshot_v25';
+  let manageFixTimer = null;
+
+  function safeClone(obj){
+    try { return typeof clone === 'function' ? clone(obj) : JSON.parse(JSON.stringify(obj)); }
+    catch(e){ return JSON.parse(JSON.stringify(obj || null)); }
+  }
+  function fixNowTs(){ return Date.now(); }
+  function getManageModelKey(){
+    return (window.state && state.form && state.form.modelo) ? state.form.modelo : (window.DEFAULT_MODEL_KEY || 'nova_era_secos');
+  }
+  function getManageModelRef(modelKey){
+    const all = (typeof getCurrentModelConfigsSnapshot === 'function') ? getCurrentModelConfigsSnapshot() : (state.modelConfigs || {});
+    if (!all[modelKey]) {
+      all[modelKey] = safeClone(typeof getModelConfig === 'function' ? getModelConfig(modelKey) : { key:modelKey, label:modelKey, items:[], areaDefinitions:[], ncDefinitions:[] });
+    }
+    if (!Array.isArray(all[modelKey].items)) all[modelKey].items = [];
+    if (!Array.isArray(all[modelKey].areaDefinitions)) all[modelKey].areaDefinitions = [];
+    if (!Array.isArray(all[modelKey].ncDefinitions)) all[modelKey].ncDefinitions = [];
+    state.modelConfigs = all;
+    return all[modelKey];
+  }
+  function normalizeIds(ids){
+    try { return typeof uniqueSortedNumbers === 'function' ? uniqueSortedNumbers(ids) : Array.from(new Set((ids || []).map(Number).filter(Boolean))).sort((a,b)=>a-b); }
+    catch(e){ return Array.from(new Set((ids || []).map(Number).filter(Boolean))).sort((a,b)=>a-b); }
+  }
+  function captureManageModelFromUi(){
+    const modal = document.getElementById('manageItemsModal');
+    const modelKey = getManageModelKey();
+    const model = safeClone(getManageModelRef(modelKey));
+    const draftItems = Array.isArray(window.manageDraftItems) && window.manageDraftItems.length ? safeClone(window.manageDraftItems) : safeClone(state.items || []);
+    const itemNodes = Array.from(document.querySelectorAll('#manageItemsModal [data-manage-index]'));
+    // descriptions and sections are already reflected in manageDraftItems via listeners, but we force one last read from DOM
+    Array.from(document.querySelectorAll('#manageItemsModal textarea[data-manage-field="description"]')).forEach(el => {
+      const idx = Number(el.dataset.manageIndex);
+      if (!draftItems[idx]) return;
+      draftItems[idx].description = String(el.value || '').trim() || `Item ${idx+1}`;
+    });
+    Array.from(document.querySelectorAll('#manageItemsModal select[data-manage-field="section"]')).forEach(el => {
+      const idx = Number(el.dataset.manageIndex);
+      if (!draftItems[idx]) return;
+      draftItems[idx].section = el.value === 'venda' ? 'venda' : 'deposito';
+    });
+    const normalizedItems = (typeof reindexItems === 'function') ? reindexItems(draftItems, modelKey) : draftItems.map((item, idx) => ({...item, id: idx + 1}));
+    model.items = normalizedItems.map(item => ({ description: String(item.description || '').trim() || 'Item', section: item.section === 'venda' ? 'venda' : 'deposito' }));
+
+    const currentAreas = Array.isArray(model.areaDefinitions) ? model.areaDefinitions : [];
+    model.areaDefinitions = currentAreas.map((area, idx) => {
+      const input = document.querySelector(`#manageItemsModal [data-manage-area-field="label"][data-manage-area-index="${idx}"]`);
+      const label = String(input ? input.value : area.label || `Área ${idx+1}`).trim() || `Área ${idx+1}`;
+      const key = area.key || (typeof slugifyConfigKey === 'function' ? slugifyConfigKey(label) : `area-${idx+1}`);
+      return { key, label, itemIds: normalizeIds(area.itemIds || []) };
+    });
+
+    const currentNcs = Array.isArray(model.ncDefinitions) ? model.ncDefinitions : [];
+    model.ncDefinitions = currentNcs.map((nc, idx) => {
+      const input = document.querySelector(`#manageItemsModal [data-manage-nc-field="label"][data-manage-nc-index="${idx}"]`);
+      const label = String(input ? input.value : nc.label || `Não conformidade ${idx+1}`).trim() || `Não conformidade ${idx+1}`;
+      return { label, itemIds: normalizeIds(nc.itemIds || []) };
+    });
+
+    return { modelKey, model, normalizedItems };
+  }
+  function writeManageSnapshot(payload){
+    try { localStorage.setItem(MANAGE_FIX_KEY, JSON.stringify(payload)); } catch(e) {}
+  }
+  function readManageSnapshot(){
+    try {
+      const raw = localStorage.getItem(MANAGE_FIX_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch(e){ return null; }
+  }
+  function persistManagePayload(payload, skipCloud){
+    const { modelKey, model, normalizedItems } = payload;
+    const all = (typeof getCurrentModelConfigsSnapshot === 'function') ? getCurrentModelConfigsSnapshot() : (state.modelConfigs || {});
+    all[modelKey] = safeClone(model);
+    state.modelConfigs = all;
+    if (state.form && state.form.modelo === modelKey) {
+      state.items = safeClone(normalizedItems);
+      try { if (typeof syncItemLinkMetadata === 'function') syncItemLinkMetadata(modelKey); } catch(e) {}
+      try { if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state); } catch(e) {}
+      try { if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state); } catch(e) {}
+    }
+    state.modelItemTemplates = (typeof normalizeModelItemTemplates === 'function')
+      ? normalizeModelItemTemplates({ ...(state.modelItemTemplates || {}), [modelKey]: safeClone(state.items) })
+      : { ...(state.modelItemTemplates || {}), [modelKey]: safeClone(state.items) };
+    const ts = fixNowTs();
+    state.__updatedAt = ts;
+    state.updatedAt = ts;
+    writeManageSnapshot({ updatedAt: ts, modelKey, modelConfig: safeClone(model), items: safeClone(normalizedItems) });
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) {}
+    try { if (typeof saveFailSafeCheckpoint === 'function') saveFailSafeCheckpoint('v25-manage-fix'); } catch(e) {}
+    try { if (typeof saveStateToIndexedDb === 'function') saveStateToIndexedDb(state); } catch(e) {}
+    if (!skipCloud) {
+      try { if (typeof queueCloudDraftSync === 'function') queueCloudDraftSync(true, ts); } catch(e) {}
+    }
+    return ts;
+  }
+  function applyManageSnapshotFromStorage(){
+    const snap = readManageSnapshot();
+    if (!snap || !snap.modelKey || !snap.modelConfig) return false;
+    const modelKey = String(snap.modelKey);
+    const snapTs = Number(snap.updatedAt || 0) || 0;
+    const localTs = Number((state && (state.__updatedAt || state.updatedAt)) || 0) || 0;
+    if (snapTs < localTs) return false;
+    const all = (typeof getCurrentModelConfigsSnapshot === 'function') ? getCurrentModelConfigsSnapshot() : (state.modelConfigs || {});
+    all[modelKey] = safeClone(snap.modelConfig);
+    state.modelConfigs = all;
+    if (state.form && state.form.modelo === modelKey) {
+      const freshItems = Array.isArray(snap.items) && snap.items.length ? safeClone(snap.items) : (typeof buildItemsFromModel === 'function' ? buildItemsFromModel(modelKey) : []);
+      state.items = (typeof reindexItems === 'function') ? reindexItems(freshItems, modelKey) : freshItems;
+      try { if (typeof syncItemLinkMetadata === 'function') syncItemLinkMetadata(modelKey); } catch(e) {}
+    }
+    state.__updatedAt = snapTs;
+    state.updatedAt = snapTs;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) {}
+    try { if (typeof renderApp === 'function') renderApp(); } catch(e) {}
+    return true;
+  }
+  function saveManageOnlyFix(){
+    const payload = captureManageModelFromUi();
+    persistManagePayload(payload, false);
+    try { if (typeof renderApp === 'function') renderApp(); } catch(e) {}
+    try { if (typeof closeManageItemsModal === 'function') closeManageItemsModal(); } catch(e) {}
+    try { if (typeof scheduleAutosave === 'function') scheduleAutosave(); } catch(e) {}
+    try { if (typeof showToast === 'function') showToast('Alterações do gerenciar salvas com sucesso.'); } catch(e) {}
+  }
+  function debounceDraftMirror(){
+    clearTimeout(manageFixTimer);
+    manageFixTimer = setTimeout(() => {
+      try {
+        if (!document.getElementById('manageItemsModal') || !document.getElementById('manageItemsModal').classList.contains('open')) return;
+        const payload = captureManageModelFromUi();
+        writeManageSnapshot({ updatedAt: fixNowTs(), modelKey: payload.modelKey, modelConfig: safeClone(payload.model), items: safeClone(payload.normalizedItems) });
+      } catch(e) {}
+    }, 120);
+  }
+
+  const previousSaveManageItems = window.saveManageItems;
+  window.saveManageItems = saveManageOnlyFix;
+
+  document.addEventListener('click', (event) => {
+    const saveBtn = event.target.closest('#saveManageItemsBtn');
+    if (saveBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      saveManageOnlyFix();
+      return false;
+    }
+  }, true);
+
+  document.addEventListener('input', (event) => {
+    if (event.target.closest('#manageItemsModal')) debounceDraftMirror();
+  }, true);
+  document.addEventListener('change', (event) => {
+    if (event.target.closest('#manageItemsModal')) debounceDraftMirror();
+  }, true);
+  window.addEventListener('pagehide', () => {
+    try {
+      if (document.getElementById('manageItemsModal') && document.getElementById('manageItemsModal').classList.contains('open')) {
+        const payload = captureManageModelFromUi();
+        persistManagePayload(payload, true);
+      }
+    } catch(e) {}
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      try {
+        if (document.getElementById('manageItemsModal') && document.getElementById('manageItemsModal').classList.contains('open')) {
+          const payload = captureManageModelFromUi();
+          persistManagePayload(payload, true);
+        }
+      } catch(e) {}
+    }
+  });
+
+  setTimeout(() => {
+    try {
+      applyManageSnapshotFromStorage();
+      const btn = document.getElementById('saveManageItemsBtn');
+      if (btn) btn.onclick = saveManageOnlyFix;
+    } catch(e) { console.warn('Falha ao aplicar correção v25 do gerenciar.', e); }
+  }, 0);
+})();
+</script>
+
 </body>
 </html>

@@ -8784,5 +8784,339 @@ function bindNewConfigEvents(){
 })();
 </script>
 
+
+<script>
+(function(){
+  const EXACT_DRAFT_KEY_V37 = 'arko_exact_refresh_state_v36';
+  function now(){ return Date.now(); }
+  function clone(v){ return JSON.parse(JSON.stringify(v)); }
+  function asTs(v){ const n = Number(v); if (Number.isFinite(n) && n > 0) return n; const d = Date.parse(v || ''); return Number.isFinite(d) ? d : 0; }
+  function readJson(key){ try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : null; } catch(e){ return null; } }
+  function writeJson(key, value){ try { localStorage.setItem(key, JSON.stringify(value)); } catch(e){} }
+  function hasVisibleManualValues(items){
+    return Array.isArray(items) && items.some(item => String(item?.areaAvaliada ?? '').trim() || String(item?.naoConformes ?? '').trim() || String(item?.observacao ?? '').trim() || !!item?.naoAvaliar);
+  }
+  function clearHiddenAutoSources(s){
+    if (!s || !Array.isArray(s.streetCounts)) return s;
+    s.streetCounts = s.streetCounts.map((row, idx) => {
+      const next = { ...(row || {}) };
+      const counts = (next.counts && typeof next.counts === 'object') ? { ...next.counts } : {};
+      Object.keys(counts).forEach(k => { counts[k] = ''; });
+      next.counts = counts;
+      if (Array.isArray(next.photos)) {
+        next.photos = next.photos.map(photo => ({ ...(photo || {}), areasNaoConformes: '' }));
+      }
+      if (!next.id) next.id = `row-${idx+1}`;
+      return next;
+    });
+    return s;
+  }
+  function sanitizeExactState(s){
+    if (!s || !Array.isArray(s.items)) return s;
+    s.items = s.items.map((item, index) => ({
+      ...(item || {}),
+      id: index + 1,
+      areaAvaliada: item?.naoAvaliar ? '' : String(item?.areaAvaliada ?? ''),
+      naoConformes: item?.naoAvaliar ? '' : String(item?.naoConformes ?? ''),
+      observacao: String(item?.observacao ?? '')
+    }));
+    if (!hasVisibleManualValues(s.items)) clearHiddenAutoSources(s);
+    return s;
+  }
+  function readBestState(){
+    const exact = readJson(EXACT_DRAFT_KEY_V37);
+    const storage = (typeof STORAGE_KEY !== 'undefined') ? readJson(STORAGE_KEY) : null;
+    const exactData = exact && exact.data && Array.isArray(exact.data.items) ? exact.data : null;
+    const storageData = storage && Array.isArray(storage.items) ? storage : null;
+    const exactTs = asTs(exact?.updatedAt || exact?.data?.updatedAt);
+    const storageTs = asTs(storage?.updatedAt || storage?.__updatedAt || storage?.__checklistsTs);
+    const best = (storageData && storageTs >= exactTs) ? storageData : (exactData || storageData);
+    return best ? sanitizeExactState(clone(best)) : null;
+  }
+  function writeExactState(reason){
+    try {
+      if (!window.state || !Array.isArray(state.items)) return;
+      const clean = sanitizeExactState(clone(state));
+      writeJson(EXACT_DRAFT_KEY_V37, { updatedAt: now(), reason: String(reason || 'v37'), data: clean });
+      if (typeof STORAGE_KEY !== 'undefined') writeJson(STORAGE_KEY, clean);
+    } catch(e){ console.warn('Falha ao gravar estado exato v37.', e); }
+  }
+  function restoreBestState(forceRender){
+    try {
+      const best = readBestState();
+      if (!best) return false;
+      window.state = best;
+      state = best;
+      if (typeof STORAGE_KEY !== 'undefined') writeJson(STORAGE_KEY, best);
+      if (forceRender && typeof renderApp === 'function') renderApp();
+      return true;
+    } catch(e){ console.warn('Falha ao restaurar estado exato v37.', e); return false; }
+  }
+  function freezeAutoDerivedFields(){
+    try {
+      window.applyAutomaticAreas = function(targetState = state){ return sanitizeExactState(targetState || state); };
+      applyAutomaticAreas = window.applyAutomaticAreas;
+    } catch(e){}
+    try {
+      window.applyAutomaticNonConformities = function(targetState = state){ return sanitizeExactState(targetState || state); };
+      applyAutomaticNonConformities = window.applyAutomaticNonConformities;
+    } catch(e){}
+  }
+  function wrapCriticalSaves(){
+    try {
+      const saveEval = document.getElementById('saveEvaluationBtn');
+      if (saveEval && !saveEval.__v37Wrapped) {
+        const old = saveEval.onclick;
+        saveEval.onclick = async function(){
+          const out = old ? old.apply(this, arguments) : undefined;
+          writeExactState('save-evaluation-v37');
+          return out;
+        };
+        saveEval.__v37Wrapped = true;
+      }
+    } catch(e){}
+    try {
+      const saveStreet = document.getElementById('saveStreetCountsBtn');
+      if (saveStreet && !saveStreet.__v37Wrapped) {
+        const old = saveStreet.onclick;
+        saveStreet.onclick = async function(){
+          const out = old ? old.apply(this, arguments) : undefined;
+          writeExactState('save-street-counts-v37');
+          return out;
+        };
+        saveStreet.__v37Wrapped = true;
+      }
+    } catch(e){}
+    try {
+      const saveManage = document.getElementById('saveManageItemsBtn');
+      if (saveManage && !saveManage.__v37Wrapped) {
+        const old = saveManage.onclick;
+        saveManage.onclick = async function(){
+          const out = old ? old.apply(this, arguments) : undefined;
+          writeExactState('save-manage-v37');
+          return out;
+        };
+        saveManage.__v37Wrapped = true;
+      }
+    } catch(e){}
+  }
+  function bindInputMirroring(){
+    if (window.__v37InputBound) return;
+    window.__v37InputBound = true;
+    document.addEventListener('input', function(ev){
+      const t = ev.target;
+      if (!t) return;
+      const field = t.dataset && t.dataset.field;
+      const id = Number(t.dataset && t.dataset.id);
+      if (field && id && Array.isArray(state?.items)) {
+        const item = state.items.find(x => Number(x.id) === id);
+        if (item) {
+          item[field] = field === 'naoAvaliar' ? !!t.checked : String(t.value ?? '');
+          writeExactState('item-input-v37');
+        }
+      }
+    }, true);
+    document.addEventListener('change', function(){ setTimeout(() => writeExactState('generic-change-v37'), 0); }, true);
+    window.addEventListener('beforeunload', function(){ writeExactState('beforeunload-v37'); });
+  }
+  if (typeof persistState === 'function') {
+    const oldPersist = persistState;
+    window.persistState = function(){
+      freezeAutoDerivedFields();
+      const out = oldPersist.apply(this, arguments);
+      writeExactState('persist-v37');
+      return out;
+    };
+    persistState = window.persistState;
+  }
+  if (typeof renderApp === 'function') {
+    const oldRender = renderApp;
+    window.renderApp = function(){
+      freezeAutoDerivedFields();
+      const out = oldRender.apply(this, arguments);
+      wrapCriticalSaves();
+      return out;
+    };
+    renderApp = window.renderApp;
+  }
+  setTimeout(() => {
+    freezeAutoDerivedFields();
+    bindInputMirroring();
+    const restored = restoreBestState(true);
+    wrapCriticalSaves();
+    writeExactState(restored ? 'startup-restored-v37' : 'startup-fresh-v37');
+  }, 0);
+})();
+</script>
+
+
+<script>
+(function(){
+  const V38_PATCH = 'v38-cross-device-sync-fix';
+  function ts(v){
+    try {
+      if (v == null) return 0;
+      if (typeof parseMillis === 'function') return parseMillis(v) || 0;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    } catch(e){ return 0; }
+  }
+  function getStateTs(candidate){
+    const s = candidate || window.state || {};
+    return Math.max(ts(s.updatedAt), ts(s.__updatedAt), ts(s.__manageCoreTs));
+  }
+  function stampState(reason){
+    try {
+      if (!window.state || typeof window.state !== 'object') return 0;
+      const now = Date.now();
+      state.updatedAt = now;
+      state.__updatedAt = now;
+      if (!state.__meta || typeof state.__meta !== 'object') state.__meta = {};
+      state.__meta.lastPatchedBy = V38_PATCH;
+      state.__meta.lastPatchedReason = String(reason || 'unspecified');
+      state.__meta.lastPatchedAt = now;
+      return now;
+    } catch(e){ return 0; }
+  }
+  function removeDuplicateNewEvaluationButtons(){
+    try {
+      const extra = document.getElementById('newEvaluationBtnV34');
+      if (extra) extra.remove();
+      const all = Array.from(document.querySelectorAll('button')).filter(btn => /nova avaliação/i.test((btn.textContent||'').trim()));
+      if (all.length > 1) {
+        all.slice(1).forEach(btn => { if (btn.id !== 'newEvaluationBtn') btn.remove(); });
+      }
+    } catch(e){}
+  }
+  async function resolveCloudVsLocalDraft(){
+    if (!window.firebaseReady || !window.firestore || !navigator.onLine) return false;
+    try {
+      const ref = firestore.doc(CLOUD_DRAFT_DOC_PATH);
+      const snap = await ref.get();
+      const localState = typeof normalizeState === 'function' ? normalizeState(window.state) : window.state;
+      const localTs = getStateTs(localState);
+      const cloudPayload = snap.exists ? (snap.data() || {}) : {};
+      const cloudState = cloudPayload && cloudPayload.data ? (typeof normalizeState === 'function' ? normalizeState(cloudPayload.data) : cloudPayload.data) : null;
+      const cloudTs = ts(cloudPayload.updatedAt) || getStateTs(cloudState);
+
+      if (!cloudState) {
+        const forced = localTs || Date.now();
+        stampState('seed-cloud-empty');
+        await ref.set({ data: normalizeState(state), updatedAt: forced, updatedBy: deviceId, version: 1 }, { merge:true });
+        window.lastCloudDraftAt = forced;
+        return true;
+      }
+
+      if (cloudTs > localTs) {
+        window.state = typeof normalizeState === 'function' ? normalizeState(cloudState) : cloudState;
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e){}
+        window.lastCloudDraftAt = cloudTs;
+        if (typeof renderApp === 'function') renderApp();
+        return true;
+      }
+
+      if (localTs >= cloudTs) {
+        const forced = localTs || Date.now();
+        stampState('push-local-newer');
+        await ref.set({ data: normalizeState(state), updatedAt: forced, updatedBy: deviceId, version: 1 }, { merge:true });
+        window.lastCloudDraftAt = forced;
+        return true;
+      }
+      return false;
+    } catch(err){
+      console.warn('Falha v38 ao conciliar rascunho local x nuvem.', err);
+      return false;
+    }
+  }
+
+  if (typeof persistState === 'function') {
+    const oldPersist = persistState;
+    window.persistState = function persistStateV38(){
+      stampState('persist');
+      const result = oldPersist.apply(this, arguments);
+      return result;
+    };
+    persistState = window.persistState;
+  }
+
+  if (typeof queueCloudDraftSync === 'function') {
+    const oldQueue = queueCloudDraftSync;
+    window.queueCloudDraftSync = function queueCloudDraftSyncV38(immediate=false, forcedUpdatedAt=0){
+      const stamped = forcedUpdatedAt || stampState(immediate ? 'cloud-immediate' : 'cloud-queued') || Date.now();
+      return oldQueue.call(this, immediate, stamped);
+    };
+    queueCloudDraftSync = window.queueCloudDraftSync;
+  }
+
+  if (typeof saveManageItems === 'function') {
+    const oldSaveManage = saveManageItems;
+    window.saveManageItems = async function saveManageItemsV38(){
+      const result = await oldSaveManage.apply(this, arguments);
+      try {
+        stampState('save-manage-items');
+        if (typeof persistState === 'function') persistState();
+        if (typeof queueCloudDraftSync === 'function') await queueCloudDraftSync(true, getStateTs(state) || Date.now());
+      } catch(e){}
+      return result;
+    };
+    saveManageItems = window.saveManageItems;
+  }
+
+  if (typeof window.createNewEvaluationFromApp === 'function') {
+    const oldCreate = window.createNewEvaluationFromApp;
+    window.createNewEvaluationFromApp = async function createNewEvaluationFromAppV38(){
+      const result = await oldCreate.apply(this, arguments);
+      try {
+        stampState('new-evaluation');
+        if (typeof persistState === 'function') persistState();
+        if (typeof queueCloudDraftSync === 'function') await queueCloudDraftSync(true, getStateTs(state) || Date.now());
+      } catch(e){}
+      removeDuplicateNewEvaluationButtons();
+      return result;
+    };
+  }
+
+  window.initializeFirebaseSync = async function initializeFirebaseSyncV38(){
+    try {
+      if (!window.firebase || !firebase.apps) return false;
+      if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+      window.firestore = firebase.firestore();
+      window.firebaseReady = true;
+      await resolveCloudVsLocalDraft();
+      if (typeof startCloudListeners === 'function' && !startCloudListeners.started) startCloudListeners();
+      if (typeof startHistoryListener === 'function' && !window.historyListenerStarted) startHistoryListener();
+      if (typeof pullCloudDraftNow === 'function') await pullCloudDraftNow(true);
+      if (typeof pullCloudHistoryNow === 'function') await pullCloudHistoryNow();
+      return true;
+    } catch(err) {
+      window.firebaseReady = false;
+      window.firestore = null;
+      console.warn('Firebase indisponível na correção v38.', err);
+      return false;
+    }
+  };
+
+  if (!window.__v38PeriodicSyncStarted) {
+    window.__v38PeriodicSyncStarted = true;
+    setInterval(() => {
+      if (!navigator.onLine) return;
+      if (typeof pullCloudDraftNow === 'function') pullCloudDraftNow(false);
+      if (typeof pullCloudHistoryNow === 'function') pullCloudHistoryNow();
+    }, 5000);
+  }
+
+  setTimeout(async () => {
+    removeDuplicateNewEvaluationButtons();
+    try {
+      const saveManageBtn = document.getElementById('saveManageItemsBtn');
+      if (saveManageBtn) saveManageBtn.onclick = window.saveManageItems || saveManageItems;
+      const newBtn = document.getElementById('newEvaluationBtn');
+      if (newBtn && typeof window.createNewEvaluationFromApp === 'function') newBtn.onclick = window.createNewEvaluationFromApp;
+    } catch(e){}
+    try { await window.initializeFirebaseSync(); } catch(e){}
+  }, 0);
+})();
+</script>
+
 </body>
 </html>

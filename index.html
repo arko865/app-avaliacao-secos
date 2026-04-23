@@ -343,6 +343,7 @@
               <button id="saveEvaluationBtn" class="btn secondary" type="button">Salvar avaliação</button>
               <button id="downloadBackupBtn" class="btn secondary" type="button">Exportar backup</button>
               <button id="manageItemsBtn" class="btn secondary" type="button">Gerenciar itens</button>
+              <button id="installShortcutBtn" class="btn secondary" type="button">Instalar atalho</button>
               <button id="streetCountsBtn" class="btn evaluate-btn" type="button">Avaliar</button>
               <button id="resetBtn" class="btn ghost-danger" type="button">Limpar avaliação</button>
             </div>
@@ -2821,6 +2822,7 @@ function init() {
   });
 }
 document.getElementById('configureModelsBtn')?.remove();
+init();
 </script>
 
 <script>
@@ -3957,187 +3959,479 @@ function bindNewConfigEvents(){
 
 <script>
 (function(){
-  const originalNormalizeState = normalizeState;
-  normalizeState = function patchedNormalizeState(candidate){
-    const result = originalNormalizeState(candidate);
-    const candidateTs = Number(candidate && (candidate.__updatedAt || candidate.updatedAt || (candidate.meta && candidate.meta.updatedAt))) || 0;
-    result.__updatedAt = Math.max(Number(result.__updatedAt)||0, candidateTs);
-    return result;
-  };
+  const PATCH_TAG = 'arko_patch_v11_persist_new_eval';
+  if (window[PATCH_TAG]) return;
+  window[PATCH_TAG] = true;
 
-  const originalRenderManageItems = renderManageItems;
-  renderManageItems = function patchedRenderManageItems(){
-    originalRenderManageItems();
-    document.querySelectorAll('[data-manage-area-field="label"]').forEach(el => {
-      el.oninput = e => {
-        const idx = Number(e.target.dataset.manageAreaIndex);
-        const areas = getManageDraftModelConfig().areaDefinitions || [];
-        const area = areas[idx];
-        if (!area) return;
-        const prevKey = area.key;
-        const value = String(e.target.value || '').trim();
-        area.label = value || `Nova área ${idx + 1}`;
-        area.key = prevKey || slugifyConfigKey(area.label || `nova-area-${idx+1}`);
-      };
+  function cloneSafe(v){ try { return JSON.parse(JSON.stringify(v)); } catch(e){ return v; } }
+
+  function persistNow(){
+    try { if (typeof syncStreetDraftToState === 'function') syncStreetDraftToState(); } catch (e) {}
+    try { if (typeof syncManageDraftToState === 'function') syncManageDraftToState(); } catch (e) {}
+    try { if (typeof persistState === 'function') persistState(); } catch (e) {}
+  }
+
+  function debouncePersistNow(){
+    clearTimeout(window.__arkoInstantPersistTimer);
+    window.__arkoInstantPersistTimer = setTimeout(persistNow, 0);
+  }
+
+  function attachStreetDraftGuards(){
+    const modal = document.getElementById('streetCountsModal');
+    if (!modal || modal.dataset.patchBound === '1') return;
+    modal.dataset.patchBound = '1';
+
+    ['input','change','keyup','blur','focusout'].forEach(evt => {
+      modal.addEventListener(evt, function(e){
+        if (!e.target.closest('[data-count-key],[data-count-field],[data-draft-field],[data-draft-check],[data-remove-draft-nc],[data-save-draft],[data-clear-draft],[data-remove-photo],[data-remove-count-row],#saveStreetCountsBtn,#addStreetCountRowBtn,.camera-input')) return;
+        debouncePersistNow();
+      }, true);
     });
-    document.querySelectorAll('[data-manage-nc-field="label"]').forEach(el => {
-      el.oninput = e => {
-        const idx = Number(e.target.dataset.manageNcIndex);
-        const ncs = getManageDraftModelConfig().ncDefinitions || [];
-        const nc = ncs[idx];
-        if (!nc) return;
-        nc.label = String(e.target.value || '').trim() || `Nova não conformidade ${idx + 1}`;
+  }
+
+  function attachGlobalBackgroundGuards(){
+    const saveOnBackground = () => { debouncePersistNow(); };
+    window.addEventListener('blur', saveOnBackground, true);
+    window.addEventListener('pagehide', saveOnBackground, true);
+    window.addEventListener('beforeunload', saveOnBackground, true);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') saveOnBackground();
+    }, true);
+  }
+
+  function injectNewEvaluationButton(){
+    const footer = document.querySelector('#manageItemsModal .manage-footer');
+    if (!footer || document.getElementById('newEvaluationBtn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'newEvaluationBtn';
+    btn.type = 'button';
+    btn.className = 'btn highlight';
+    btn.textContent = 'Nova avaliação';
+    btn.onclick = createNewEvaluationFromApp;
+    footer.insertBefore(btn, footer.firstChild);
+  }
+
+  function createNewEvaluationFromApp(){
+    const baseModel = (typeof getModelConfig === 'function' ? getModelConfig(state?.form?.modelo) : null) || {};
+    const label = prompt('Digite o nome da nova avaliação:');
+    if (!label || !String(label).trim()) return;
+    const cleanLabel = String(label).trim();
+    const baseKey = (typeof slugifyConfigKey === 'function' ? slugifyConfigKey(cleanLabel) : cleanLabel.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'')) || `avaliacao_${Date.now()}`;
+    const all = typeof getCurrentModelConfigsSnapshot === 'function' ? getCurrentModelConfigsSnapshot() : cloneSafe(state.modelConfigs || {});
+    let key = baseKey;
+    let counter = 2;
+    while (all[key]) key = `${baseKey}_${counter++}`;
+
+    all[key] = {
+      key,
+      label: cleanLabel,
+      reportLabel: cleanLabel,
+      usesStreetCounts: !!baseModel.usesStreetCounts,
+      items: [],
+      areaDefinitions: [],
+      ncDefinitions: [],
+      autoAreaMap: {}
+    };
+
+    state.modelConfigs = (typeof migrateConfigurableModels === 'function') ? migrateConfigurableModels(all) : all;
+    state.modelItemTemplates = (typeof normalizeModelItemTemplates === 'function')
+      ? normalizeModelItemTemplates({ ...(state.modelItemTemplates || {}), [key]: [] })
+      : { ...(state.modelItemTemplates || {}), [key]: [] };
+
+    state.form.modelo = key;
+    state.form.produtosIdentificados = '';
+    state.form.impactoMercadoria = '';
+    state.items = [];
+    state.streetCounts = all[key].usesStreetCounts && typeof makeDefaultStreetCounts === 'function' ? makeDefaultStreetCounts(key) : [];
+
+    try { if (typeof persistState === 'function') persistState(); } catch (e) {}
+    try { if (typeof populateModelOptions === 'function') populateModelOptions(); } catch (e) {}
+    try { if (typeof renderApp === 'function') renderApp(); } catch (e) {}
+    try { if (typeof openManageItemsModal === 'function') openManageItemsModal(); } catch (e) {}
+    const modelSelect = document.getElementById('modeloAvaliacao');
+    if (modelSelect) modelSelect.value = key;
+    if (typeof showToast === 'function') showToast('Nova avaliação criada. Agora cadastre itens, áreas avaliadas e NCs no menu Gerenciar.');
+  }
+
+  function ensurePatchedOpenManage(){
+    if (typeof openManageItemsModal !== 'function' || window.__arkoOpenManagePatched) return;
+    const original = openManageItemsModal;
+    window.openManageItemsModal = function(){
+      const result = original.apply(this, arguments);
+      injectNewEvaluationButton();
+      return result;
+    };
+    window.__arkoOpenManagePatched = true;
+  }
+
+  function initPatch(){
+    attachStreetDraftGuards();
+    attachGlobalBackgroundGuards();
+    ensurePatchedOpenManage();
+    injectNewEvaluationButton();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPatch, { once:true });
+  } else {
+    initPatch();
+  }
+})();
+</script>
+
+
+<script>
+(function(){
+  const PATCH_TAG = 'arko_patch_v12_install_shortcut';
+  if (window[PATCH_TAG]) return;
+  window[PATCH_TAG] = true;
+
+  let deferredInstallPrompt = null;
+  let manifestUrl = null;
+  let swUrl = null;
+
+  function isStandaloneMode(){
+    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  }
+
+  function isIos(){
+    return /iphone|ipad|ipod/i.test(navigator.userAgent || '');
+  }
+
+  function isAndroid(){
+    return /android/i.test(navigator.userAgent || '');
+  }
+
+  function buildManifest(){
+    try {
+      const manifest = {
+        name: 'Avaliação de Inventário',
+        short_name: 'Avaliação',
+        start_url: './',
+        scope: './',
+        display: 'standalone',
+        background_color: '#f8fafc',
+        theme_color: '#d71920',
+        description: 'App de avaliação de inventário Arko.',
+        icons: [
+          { src: LOGO_DATA, sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+          { src: LOGO_DATA, sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+        ]
       };
+      const blob = new Blob([JSON.stringify(manifest)], { type:'application/manifest+json' });
+      manifestUrl = URL.createObjectURL(blob);
+      let link = document.querySelector('link[rel="manifest"]');
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'manifest';
+        document.head.appendChild(link);
+      }
+      link.href = manifestUrl;
+    } catch (e) {}
+  }
+
+  function applyIcons(){
+    try {
+      const ensureLink = (rel) => {
+        let el = document.querySelector(`link[rel="${rel}"]`);
+        if (!el) {
+          el = document.createElement('link');
+          el.rel = rel;
+          document.head.appendChild(el);
+        }
+        return el;
+      };
+      const iconLink = ensureLink('icon');
+      iconLink.type = 'image/png';
+      iconLink.href = LOGO_DATA;
+      const appleLink = ensureLink('apple-touch-icon');
+      appleLink.href = LOGO_DATA;
+      const appleCapable = document.querySelector('meta[name="apple-mobile-web-app-capable"]') || document.createElement('meta');
+      appleCapable.name = 'apple-mobile-web-app-capable';
+      appleCapable.content = 'yes';
+      if (!appleCapable.parentNode) document.head.appendChild(appleCapable);
+      const appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]') || document.createElement('meta');
+      appleTitle.name = 'apple-mobile-web-app-title';
+      appleTitle.content = 'Avaliação';
+      if (!appleTitle.parentNode) document.head.appendChild(appleTitle);
+    } catch (e) {}
+  }
+
+  async function registerInlineServiceWorker(){
+    if (!('serviceWorker' in navigator) || !window.isSecureContext) return false;
+    try {
+      const swCode = `
+        self.addEventListener('install', event => { self.skipWaiting(); });
+        self.addEventListener('activate', event => { event.waitUntil(self.clients.claim()); });
+        self.addEventListener('fetch', event => {});
+      `;
+      const blob = new Blob([swCode], { type:'text/javascript' });
+      swUrl = URL.createObjectURL(blob);
+      await navigator.serviceWorker.register(swUrl, { scope: './' });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function updateInstallButton(){
+    const btn = document.getElementById('installShortcutBtn');
+    if (!btn) return;
+    if (isStandaloneMode()) {
+      btn.textContent = 'Atalho instalado';
+      btn.disabled = true;
+      btn.style.opacity = '.7';
+      btn.style.cursor = 'default';
+      return;
+    }
+    btn.disabled = false;
+    btn.style.opacity = '';
+    btn.style.cursor = '';
+    if (deferredInstallPrompt) {
+      btn.textContent = isAndroid() ? 'Instalar na tela inicial' : 'Instalar atalho';
+      return;
+    }
+    if (isIos()) {
+      btn.textContent = 'Criar atalho no iPhone/iPad';
+      return;
+    }
+    btn.textContent = 'Instalar atalho';
+  }
+
+  async function promptInstall(){
+    if (isStandaloneMode()) {
+      if (typeof showToast === 'function') showToast('O atalho deste app já está instalado neste dispositivo.');
+      return;
+    }
+
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      try {
+        await deferredInstallPrompt.userChoice;
+      } catch (e) {}
+      deferredInstallPrompt = null;
+      setTimeout(updateInstallButton, 300);
+      return;
+    }
+
+    if (isIos()) {
+      alert('No iPhone/iPad, abra este app no Safari e toque em Compartilhar → Adicionar à Tela de Início. O ícone usará a logo do cabeçalho.');
+      return;
+    }
+
+    alert('Neste navegador, a instalação automática pode não estar disponível agora. Se estiver no Chrome ou Edge, abra o menu do navegador e procure por “Instalar app”, “Instalar site” ou “Criar atalho”.');
+  }
+
+  function bindInstallButton(){
+    const btn = document.getElementById('installShortcutBtn');
+    if (!btn || btn.dataset.bound === '1') return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', promptInstall);
+    updateInstallButton();
+  }
+
+  function wireInstallEvents(){
+    window.addEventListener('beforeinstallprompt', (event) => {
+      event.preventDefault();
+      deferredInstallPrompt = event;
+      updateInstallButton();
+      if (typeof showToast === 'function') showToast('Instalação disponível neste dispositivo.');
     });
-    const saveManageBtn = document.getElementById('saveManageItemsBtn');
-    if (saveManageBtn) saveManageBtn.onclick = saveManageItems;
-  };
 
-  function markStateUpdated(ts){
-    state.__updatedAt = Number(ts) || Date.now();
-    return state.__updatedAt;
+    window.addEventListener('appinstalled', () => {
+      deferredInstallPrompt = null;
+      updateInstallButton();
+      if (typeof showToast === 'function') showToast('Atalho instalado com sucesso.');
+    });
   }
 
-  function getLocalDraftTs(){
-    return Number(state && state.__updatedAt) || 0;
+  async function initInstallShortcutPatch(){
+    applyIcons();
+    buildManifest();
+    await registerInlineServiceWorker();
+    bindInstallButton();
+    wireInstallEvents();
+    updateInstallButton();
   }
 
-  async function persistIndexedMirror(payload){
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initInstallShortcutPatch, { once:true });
+  } else {
+    initInstallShortcutPatch();
+  }
+})();
+</script>
+
+
+<script>
+(function(){
+  const MANAGE_CONFIGS_KEY = 'arko_manage_model_configs_snapshot_v24';
+
+  function nowTs(){ return Date.now(); }
+  function toTs(v){
     try {
-      const req = indexedDB.open('arko_avaliacao_offline_db_v1', 1);
-      const db = await new Promise((resolve, reject) => {
-        req.onupgradeneeded = () => {
-          const db = req.result;
-          if (!db.objectStoreNames.contains('drafts')) db.createObjectStore('drafts');
-        };
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      });
-      await new Promise((resolve, reject) => {
-        const tx = db.transaction('drafts', 'readwrite');
-        tx.objectStore('drafts').put({ savedAt: Date.now(), payload }, 'current');
-        tx.oncomplete = () => resolve(true);
-        tx.onerror = () => reject(tx.error);
-      });
-      db.close();
-    } catch (err) { console.warn('Falha ao salvar espelho local.', err); }
+      if (typeof parseMillis === 'function') return parseMillis(v);
+    } catch(e) {}
+    return Number(v) || 0;
   }
-
-  const originalCloudDraftPayload = cloudDraftPayload;
-  cloudDraftPayload = function patchedCloudDraftPayload(forcedUpdatedAt = 0){
-    const ts = Number(forcedUpdatedAt) || getLocalDraftTs() || Date.now();
-    state.__updatedAt = ts;
-    const payload = originalCloudDraftPayload(ts);
-    payload.data = normalizeState({ ...clone(state), __updatedAt: ts });
-    payload.data.__updatedAt = ts;
-    payload.updatedAt = ts;
-    return payload;
-  };
-
-  persistState = function patchedPersistState(skipCloud){
-    const ts = markStateUpdated(Date.now());
-    try { saveFailSafeCheckpoint('autosave'); } catch (e) {}
+  function getLocalStateTs(){
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeState({ ...clone(state), __updatedAt: ts })));
-    } catch (err) { console.warn('Não foi possível salvar o rascunho.', err); }
-    try { persistIndexedMirror(normalizeState({ ...clone(state), __updatedAt: ts })); } catch (err) {}
-    if (!skipCloud) {
-      try { queueCloudDraftSync(true, ts); } catch (err) {}
-    }
-  };
-
-  scheduleAutosave = function patchedScheduleAutosave(){
-    clearTimeout(autosaveTimer);
-    autosaveTimer = setTimeout(() => persistState(), 80);
-  };
-
-  function commitManageModelDraft(){
-    const modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY;
-    if (!Array.isArray(manageDraftItems) || !manageDraftItems.length) {
-      manageDraftItems = makeDefaultItems(modelKey);
-    }
-    const all = getCurrentModelConfigsSnapshot();
-    const model = all[modelKey] ? clone(all[modelKey]) : clone(getModelConfig(modelKey));
-    const idMap = {};
-    manageDraftItems.forEach((item, index) => { idMap[Number(item.id) || (index + 1)] = index + 1; });
-
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return 0;
+      const parsed = JSON.parse(raw);
+      return Math.max(toTs(parsed && parsed.__updatedAt), toTs(parsed && parsed.updatedAt));
+    } catch (e) { return 0; }
+  }
+  function sanitizeModelConfig(cfg){
+    const model = clone(cfg || {});
+    model.key = String(model.key || 'modelo_custom');
+    model.label = String(model.label || model.key || 'Modelo personalizado');
+    model.reportLabel = String(model.reportLabel || 'Formulário de Avaliação');
+    model.usesStreetCounts = !!model.usesStreetCounts;
+    model.items = (Array.isArray(model.items) ? model.items : []).map((item, idx) => ({
+      description: String((item && item.description) || `Item ${idx+1}`).trim() || `Item ${idx+1}`,
+      section: item && item.section === 'venda' ? 'venda' : 'deposito'
+    }));
     model.areaDefinitions = (Array.isArray(model.areaDefinitions) ? model.areaDefinitions : []).map((area, idx) => ({
-      ...area,
-      key: area.key || slugifyConfigKey(area.label || `nova-area-${idx+1}`),
-      label: String(area.label || '').trim() || `Nova área ${idx + 1}`,
-      itemIds: uniqueSortedNumbers(area.itemIds)
-    })).filter(area => area.label);
+      key: String(area && area.key || slugifyConfigKey((area && area.label) || `area-${idx+1}`) || `area-${idx+1}`),
+      label: String((area && area.label) || `Área ${idx+1}`).trim() || `Área ${idx+1}`,
+      itemIds: uniqueSortedNumbers(area && area.itemIds)
+    }));
     model.ncDefinitions = (Array.isArray(model.ncDefinitions) ? model.ncDefinitions : []).map((nc, idx) => ({
-      ...nc,
-      label: String(nc.label || '').trim() || `Nova não conformidade ${idx + 1}`,
-      itemIds: uniqueSortedNumbers(nc.itemIds)
-    })).filter(nc => nc.label);
-
-    ['areaDefinitions','ncDefinitions'].forEach(bucket => {
-      (model[bucket] || []).forEach(entry => {
-        entry.itemIds = uniqueSortedNumbers((entry.itemIds || []).map(oldId => idMap[oldId]).filter(Boolean));
-      });
+      label: String((nc && nc.label) || `Não conformidade ${idx+1}`).trim() || `Não conformidade ${idx+1}`,
+      itemIds: uniqueSortedNumbers(nc && nc.itemIds)
+    }));
+    return model;
+  }
+  function saveManageConfigsSnapshot(ts){
+    try {
+      const payload = {
+        updatedAt: ts || nowTs(),
+        selectedModel: state && state.form ? state.form.modelo : DEFAULT_MODEL_KEY,
+        modelConfigs: clone(getCurrentModelConfigsSnapshot())
+      };
+      localStorage.setItem(MANAGE_CONFIGS_KEY, JSON.stringify(payload));
+    } catch (e) { console.warn('Falha ao salvar snapshot do gerenciar.', e); }
+  }
+  function loadManageConfigsSnapshot(){
+    try {
+      const raw = localStorage.getItem(MANAGE_CONFIGS_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !parsed.modelConfigs || typeof parsed.modelConfigs !== 'object') return null;
+      return parsed;
+    } catch (e) { return null; }
+  }
+  function mergeModelConfigsIntoState(snapshot){
+    if (!snapshot || !snapshot.modelConfigs || typeof snapshot.modelConfigs !== 'object') return false;
+    const current = getCurrentModelConfigsSnapshot();
+    const merged = clone(current);
+    Object.entries(snapshot.modelConfigs).forEach(([key, cfg]) => {
+      merged[key] = sanitizeModelConfig(cfg);
     });
+    state.modelConfigs = migrateConfigurableModels(merged);
+    state.modelItemTemplates = normalizeModelItemTemplates({ ...(state.modelItemTemplates || {}), [state.form.modelo]: clone(state.items) });
+    return true;
+  }
+  function rebindStateItemsToModel(modelKey){
+    const fresh = buildItemsFromModel(modelKey);
+    const currentItems = Array.isArray(state.items) ? state.items : [];
+    state.items = reindexItems(fresh.map((item, idx) => ({
+      ...item,
+      areaAvaliada: String(currentItems[idx] && currentItems[idx].areaAvaliada || ''),
+      naoConformes: String(currentItems[idx] && currentItems[idx].naoConformes || ''),
+      observacao: String(currentItems[idx] && currentItems[idx].observacao || ''),
+      naoAvaliar: !!(currentItems[idx] && currentItems[idx].naoAvaliar)
+    })), modelKey);
+  }
+  function stampAndPersist(skipCloud){
+    const ts = nowTs();
+    state.__updatedAt = ts;
+    state.updatedAt = ts;
+    try { lastCloudDraftAt = Math.max(Number(lastCloudDraftAt || 0), ts); } catch(e) {}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) {}
+    try { saveFailSafeCheckpoint('v24-persist'); } catch(e) {}
+    try { saveManageConfigsSnapshot(ts); } catch(e) {}
+    if (!skipCloud) {
+      try { queueCloudDraftSync(true, ts); } catch(e) {}
+    }
+    return ts;
+  }
 
+  const originalPersistState = persistState;
+  persistState = function patchedPersistState(skipCloud){
+    return stampAndPersist(!!skipCloud);
+  };
+
+  function commitManageEdits(){
+    const modelKey = state && state.form && state.form.modelo ? state.form.modelo : DEFAULT_MODEL_KEY;
+    if (!Array.isArray(manageDraftItems) || !manageDraftItems.length) {
+      manageDraftItems = clone(state.items || buildItemsFromModel(modelKey));
+    }
+    const all = clone(getCurrentModelConfigsSnapshot());
+    const model = sanitizeModelConfig(all[modelKey] || getModelConfig(modelKey));
+    const idMap = {};
+    manageDraftItems.forEach((item, index) => { idMap[Number(item && item.id) || (index + 1)] = index + 1; });
+    model.areaDefinitions = model.areaDefinitions.map(area => ({
+      ...area,
+      itemIds: uniqueSortedNumbers((area.itemIds || []).map(oldId => idMap[oldId]).filter(Boolean))
+    }));
+    model.ncDefinitions = model.ncDefinitions.map(nc => ({
+      ...nc,
+      itemIds: uniqueSortedNumbers((nc.itemIds || []).map(oldId => idMap[oldId]).filter(Boolean))
+    }));
     state.items = reindexItems(clone(manageDraftItems), modelKey);
-    model.items = state.items.map(item => ({ description:item.description, section:item.section }));
+    model.items = state.items.map(item => ({ description: item.description, section: item.section === 'venda' ? 'venda' : 'deposito' }));
     all[modelKey] = model;
-    state.modelConfigs = all;
+    state.modelConfigs = migrateConfigurableModels(all);
     syncItemLinkMetadata(modelKey);
     state.modelItemTemplates = normalizeModelItemTemplates({ ...(state.modelItemTemplates || {}), [modelKey]: clone(state.items) });
     applyAutomaticAreas(state);
     applyAutomaticNonConformities(state);
-    persistState();
+    const ts = stampAndPersist(false);
+    return ts;
   }
 
-  saveManageItems = function patchedSaveManageItems(){
-    commitManageModelDraft();
+  saveManageItems = function saveManageItemsV24(){
+    commitManageEdits();
     renderApp();
     closeManageItemsModal();
-    showToast('Itens salvos com sucesso.');
+    scheduleAutosave();
+    showToast('Itens, áreas avaliadas e NCs salvos com sucesso.');
   };
 
-  window.syncManageDraftToState = function patchedSyncManageDraftToState(){
-    if (!document.getElementById('manageItemsModal')?.classList.contains('open')) return;
-    commitManageModelDraft();
+  window.syncManageDraftToState = function(){
+    if (!document.getElementById('manageItemsModal') || !document.getElementById('manageItemsModal').classList.contains('open')) return;
+    commitManageEdits();
   };
-
-  async function getCloudDraftSnapshot(){
-    if (!firebaseReady || !firestore || !navigator.onLine) return null;
-    try {
-      const snapshot = await firestore.doc(CLOUD_DRAFT_DOC_PATH).get();
-      if (!snapshot.exists) return null;
-      const payload = snapshot.data() || {};
-      if (!payload.data) return null;
-      return { data: payload.data, updatedAt: Number(parseMillis(payload.updatedAt)) || 0, updatedBy: payload.updatedBy || '' };
-    } catch (err) {
-      console.warn('Falha ao buscar rascunho da nuvem.', err);
-      return null;
-    }
-  }
 
   seedCloudFromLocal = async function patchedSeedCloudFromLocal(){
     if (!firebaseReady || !firestore || !navigator.onLine) return false;
     try {
-      const localTs = getLocalDraftTs();
-      const incoming = await getCloudDraftSnapshot();
-      if (!incoming) {
-        await queueCloudDraftSync(true, localTs || Date.now());
-        lastCloudDraftAt = getLocalDraftTs();
+      const ref = firestore.doc(CLOUD_DRAFT_DOC_PATH);
+      const snap = await ref.get();
+      const localTs = getLocalStateTs();
+      if (!snap.exists || !snap.data() || !snap.data().data) {
+        if (localTs) await queueCloudDraftSync(true, localTs);
         cloudDraftInitialized = true;
+        lastCloudDraftAt = localTs || 0;
         return true;
       }
-      if (localTs >= incoming.updatedAt) {
-        await queueCloudDraftSync(true, localTs || Date.now());
-        lastCloudDraftAt = getLocalDraftTs();
+      const payload = snap.data() || {};
+      const cloudTs = toTs(payload.updatedAt);
+      if (localTs >= cloudTs) {
+        await queueCloudDraftSync(true, localTs || nowTs());
         cloudDraftInitialized = true;
+        lastCloudDraftAt = localTs || cloudTs;
         return true;
       }
-      lastCloudDraftAt = incoming.updatedAt;
+      lastCloudDraftAt = cloudTs;
       cloudDraftInitialized = true;
-      state = normalizeState({ ...incoming.data, __updatedAt: incoming.updatedAt });
-      persistState(true);
-      renderApp();
+      if (payload.data) {
+        state = normalizeState(payload.data);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        renderApp();
+      }
       return true;
     } catch (err) {
       console.warn('Não foi possível iniciar a sincronização na nuvem.', err);
@@ -4146,17 +4440,24 @@ function bindNewConfigEvents(){
   };
 
   pullCloudDraftNow = async function patchedPullCloudDraftNow(forceApply = false){
-    const incoming = await getCloudDraftSnapshot();
-    if (!incoming) return false;
-    const localTs = getLocalDraftTs();
-    if (!forceApply && incoming.updatedAt <= localTs) return false;
-    lastCloudDraftAt = incoming.updatedAt;
-    state = normalizeState({ ...incoming.data, __updatedAt: incoming.updatedAt });
-    persistState(true);
-    if (document.getElementById('manageItemsModal')?.classList.contains('open')) manageDraftItems = null;
-    if (document.getElementById('streetCountsModal')?.classList.contains('open')) manageStreetCounts = null;
-    renderApp();
-    return true;
+    if (!firebaseReady || !firestore || !navigator.onLine) return false;
+    try {
+      const snapshot = await firestore.doc(CLOUD_DRAFT_DOC_PATH).get();
+      if (!snapshot.exists) return false;
+      const payload = snapshot.data() || {};
+      const incomingTs = toTs(payload.updatedAt);
+      const localTs = getLocalStateTs();
+      if (!payload.data || !incomingTs) return false;
+      if (!forceApply && incomingTs <= Math.max(lastCloudDraftAt || 0, localTs || 0)) return false;
+      lastCloudDraftAt = incomingTs;
+      state = normalizeState(payload.data);
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (err) {}
+      renderApp();
+      return true;
+    } catch (err) {
+      console.warn('Não foi possível buscar o rascunho da nuvem.', err);
+      return false;
+    }
   };
 
   startCloudListeners = function patchedStartCloudListeners(){
@@ -4165,32 +4466,41 @@ function bindNewConfigEvents(){
     firestore.doc(CLOUD_DRAFT_DOC_PATH).onSnapshot(snapshot => {
       if (!snapshot.exists) return;
       const payload = snapshot.data() || {};
-      const incomingTs = Number(parseMillis(payload.updatedAt)) || 0;
+      const incomingTs = toTs(payload.updatedAt);
+      const localTs = getLocalStateTs();
       if (!payload.data || !incomingTs) return;
-      if (payload.updatedBy === deviceId && incomingTs <= getLocalDraftTs()) return;
-      if (incomingTs <= getLocalDraftTs()) return;
+      if (incomingTs <= Math.max(lastCloudDraftAt || 0, localTs || 0)) return;
       lastCloudDraftAt = incomingTs;
-      state = normalizeState({ ...payload.data, __updatedAt: incomingTs });
-      persistState(true);
-      if (document.getElementById('manageItemsModal')?.classList.contains('open')) manageDraftItems = null;
-      if (document.getElementById('streetCountsModal')?.classList.contains('open')) manageStreetCounts = null;
+      state = normalizeState(payload.data);
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (err) {}
       renderApp();
       showToast('Sincronizado com outro dispositivo.');
     }, err => console.warn('Falha ao ouvir atualizações em tempo real.', err));
   };
 
-  const originalLoadDraft = loadDraft;
-  loadDraft = function patchedLoadDraft(){
-    originalLoadDraft();
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (parsed && parsed.form && Array.isArray(parsed.items)) state = normalizeState(parsed);
-    } catch (err) {}
-  };
+  function restoreSavedManageConfigs(){
+    const snap = loadManageConfigsSnapshot();
+    if (!snap) return false;
+    const snapTs = toTs(snap.updatedAt);
+    const localTs = getLocalStateTs();
+    if (!snapTs && !snap.modelConfigs) return false;
+    if (snapTs >= localTs || !state.modelConfigs) {
+      mergeModelConfigsIntoState(snap);
+      rebindStateItemsToModel(state.form.modelo || DEFAULT_MODEL_KEY);
+      stampAndPersist(true);
+      renderApp();
+      return true;
+    }
+    return false;
+  }
 
-  init();
+  setTimeout(() => {
+    try {
+      restoreSavedManageConfigs();
+      const saveManageBtn = document.getElementById('saveManageItemsBtn');
+      if (saveManageBtn) saveManageBtn.onclick = saveManageItems;
+    } catch (e) { console.warn('Falha ao aplicar correção v24.', e); }
+  }, 0);
 })();
 </script>
 

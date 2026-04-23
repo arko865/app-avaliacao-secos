@@ -5700,3 +5700,399 @@ function bindNewConfigEvents(){
   }
 })();
 </script>
+
+
+<script>
+(function(){
+  const PATCH_TAG = 'arko_patch_v20_definitivo_gerenciar';
+  if (window[PATCH_TAG]) return;
+  window[PATCH_TAG] = true;
+
+  const HARD_KEY = 'arko_manage_hard_snapshot_v20';
+  const HARD_CLOUD_DOC = 'shared/manageHardState';
+
+  function deepClone(v){ try { return JSON.parse(JSON.stringify(v)); } catch(e){ return v; } }
+  function nowTs(){ return Date.now(); }
+  function parseTs(v){
+    if (v == null) return 0;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+    if (typeof v === 'string') {
+      const n = Number(v);
+      if (Number.isFinite(n) && n > 0) return n;
+      const d = Date.parse(v);
+      return Number.isFinite(d) ? d : 0;
+    }
+    if (v && typeof v.toMillis === 'function') { try { return Number(v.toMillis()) || 0; } catch(e){} }
+    return 0;
+  }
+  function ensureModel(modelKey){
+    const all = (typeof getAllModelConfigs === 'function') ? getAllModelConfigs() : deepClone(state.modelConfigs || {});
+    if (!all[modelKey]) {
+      all[modelKey] = {
+        key: modelKey,
+        label: modelKey,
+        reportLabel: 'Formulário de Avaliação',
+        usesStreetCounts: true,
+        items: [],
+        areaDefinitions: [],
+        ncDefinitions: []
+      };
+    }
+    all[modelKey].items = Array.isArray(all[modelKey].items) ? all[modelKey].items : [];
+    all[modelKey].areaDefinitions = Array.isArray(all[modelKey].areaDefinitions) ? all[modelKey].areaDefinitions : [];
+    all[modelKey].ncDefinitions = Array.isArray(all[modelKey].ncDefinitions) ? all[modelKey].ncDefinitions : [];
+    state.modelConfigs = (typeof migrateConfigurableModels === 'function') ? migrateConfigurableModels(all) : all;
+    return state.modelConfigs[modelKey] || all[modelKey];
+  }
+  function rebuildVisibleItemsFromModel(modelKey){
+    const model = ensureModel(modelKey);
+    const previousItems = Array.isArray(state.items) ? deepClone(state.items) : [];
+    const rebuilt = (model.items || []).map((definition, index) => {
+      const previous = previousItems[index] || {};
+      const merged = Object.assign({}, previous, {
+        id: index + 1,
+        description: String(definition && definition.description || `Item ${index + 1}`),
+        section: definition && definition.section === 'venda' ? 'venda' : 'deposito'
+      });
+      return (typeof normalizeItem === 'function') ? normalizeItem(merged, index, modelKey) : merged;
+    });
+    state.items = (typeof reindexItems === 'function') ? reindexItems(rebuilt, modelKey) : rebuilt;
+    if (typeof normalizeModelItemTemplates === 'function') {
+      state.modelItemTemplates = normalizeModelItemTemplates({
+        ...(state.modelItemTemplates || {}),
+        [modelKey]: deepClone(state.items)
+      });
+    }
+    if (typeof syncItemLinkMetadata === 'function') syncItemLinkMetadata(modelKey);
+    if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state);
+    if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state);
+  }
+  function captureManageDomIntoState(){
+    const modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY;
+    const modal = document.getElementById('manageItemsModal');
+    const model = ensureModel(modelKey);
+
+    if (!Array.isArray(manageDraftItems) || !manageDraftItems.length) {
+      manageDraftItems = Array.isArray(state.items) && state.items.length
+        ? deepClone(state.items)
+        : ((typeof makeDefaultItems === 'function') ? makeDefaultItems(modelKey) : []);
+    }
+
+    if (modal) {
+      modal.querySelectorAll('textarea[data-manage-field="description"]').forEach((el) => {
+        const idx = Number(el.dataset.manageIndex);
+        if (manageDraftItems[idx]) manageDraftItems[idx].description = String(el.value || '');
+      });
+      modal.querySelectorAll('select[data-manage-field="section"]').forEach((el) => {
+        const idx = Number(el.dataset.manageIndex);
+        if (manageDraftItems[idx]) manageDraftItems[idx].section = el.value === 'venda' ? 'venda' : 'deposito';
+      });
+    }
+
+    manageDraftItems = (typeof reindexItems === 'function') ? reindexItems(deepClone(manageDraftItems), modelKey) : deepClone(manageDraftItems);
+    state.items = deepClone(manageDraftItems);
+    model.items = state.items.map((item) => ({
+      description: String(item.description || ''),
+      section: item.section === 'venda' ? 'venda' : 'deposito'
+    }));
+
+    let areaDefinitions = deepClone(model.areaDefinitions || []);
+    let ncDefinitions = deepClone(model.ncDefinitions || []);
+
+    if (modal) {
+      areaDefinitions = areaDefinitions.map((area, idx) => {
+        const input = modal.querySelector(`[data-manage-area-field="label"][data-manage-area-index="${idx}"]`);
+        const label = String(input ? input.value : area.label || '').trim() || `Nova área ${idx + 1}`;
+        return {
+          key: (typeof slugifyConfigKey === 'function') ? slugifyConfigKey(label) : label,
+          label,
+          itemIds: []
+        };
+      });
+
+      ncDefinitions = ncDefinitions.map((nc, idx) => {
+        const input = modal.querySelector(`[data-manage-nc-field="label"][data-manage-nc-index="${idx}"]`);
+        const label = String(input ? input.value : nc.label || '').trim() || `Nova não conformidade ${idx + 1}`;
+        return { label, itemIds: [] };
+      });
+
+      modal.querySelectorAll('[data-manage-link-area]').forEach((el) => {
+        if (!el.checked) return;
+        const itemId = Number(el.dataset.manageIndex) + 1;
+        const key = String(el.dataset.manageLinkArea || '');
+        const area = areaDefinitions.find((entry) => String(entry.key) === key);
+        if (!area || !itemId) return;
+        area.itemIds.push(itemId);
+      });
+
+      modal.querySelectorAll('[data-manage-link-nc]').forEach((el) => {
+        if (!el.checked) return;
+        const itemId = Number(el.dataset.manageIndex) + 1;
+        const ncIdx = Number(el.dataset.manageLinkNc);
+        if (!Number.isFinite(ncIdx) || !ncDefinitions[ncIdx] || !itemId) return;
+        ncDefinitions[ncIdx].itemIds.push(itemId);
+      });
+    }
+
+    areaDefinitions = areaDefinitions.map((area, idx) => ({
+      key: (typeof slugifyConfigKey === 'function') ? slugifyConfigKey(area.key || area.label || `area_${idx+1}`) : String(area.key || area.label || `area_${idx+1}`),
+      label: String(area.label || `Nova área ${idx + 1}`),
+      itemIds: Array.from(new Set((area.itemIds || []).map(Number).filter(Boolean))).sort((a,b)=>a-b)
+    }));
+    ncDefinitions = ncDefinitions.map((nc, idx) => ({
+      label: String(nc.label || `Nova não conformidade ${idx + 1}`),
+      itemIds: Array.from(new Set((nc.itemIds || []).map(Number).filter(Boolean))).sort((a,b)=>a-b)
+    }));
+
+    model.areaDefinitions = areaDefinitions;
+    model.ncDefinitions = ncDefinitions;
+    state.modelConfigs[modelKey] = model;
+
+    if (typeof normalizeModelItemTemplates === 'function') {
+      state.modelItemTemplates = normalizeModelItemTemplates({
+        ...(state.modelItemTemplates || {}),
+        [modelKey]: deepClone(state.items)
+      });
+    }
+    if (typeof syncItemLinkMetadata === 'function') syncItemLinkMetadata(modelKey);
+    if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state);
+    if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state);
+    state = (typeof normalizeState === 'function') ? normalizeState(state) : state;
+    return true;
+  }
+
+  function buildHardPayload(ts){
+    const modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY;
+    return {
+      updatedAt: Number(ts) || nowTs(),
+      updatedBy: (typeof deviceId !== 'undefined' ? deviceId : 'unknown'),
+      snapshot: {
+        currentModel: modelKey,
+        modelConfigs: deepClone(state.modelConfigs || {}),
+        modelItemTemplates: deepClone(state.modelItemTemplates || {}),
+        fullState: deepClone(state)
+      }
+    };
+  }
+
+  function persistHardLocal(ts){
+    const payload = buildHardPayload(ts);
+    try { localStorage.setItem(HARD_KEY, JSON.stringify(payload)); } catch(e){ console.warn('Falha ao salvar snapshot local definitivo.', e); }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(payload.snapshot.fullState)); } catch(e){}
+    try { if (typeof saveStateToIndexedDb === 'function') saveStateToIndexedDb(payload.snapshot.fullState); } catch(e){}
+    try { if (typeof saveFailSafeCheckpoint === 'function') saveFailSafeCheckpoint('v20-manage-save'); } catch(e){}
+    return payload;
+  }
+
+  async function persistHardCloud(ts){
+    if (!navigator.onLine || !window.firebaseReady || !window.firestore) return false;
+    try {
+      const payload = buildHardPayload(ts);
+      await window.firestore.doc(HARD_CLOUD_DOC).set({
+        updatedAt: payload.updatedAt,
+        updatedBy: payload.updatedBy,
+        snapshot: payload.snapshot,
+        version: 20
+      }, { merge: true });
+      return true;
+    } catch(e){
+      console.warn('Falha ao salvar snapshot definitivo na nuvem.', e);
+      return false;
+    }
+  }
+
+  function getLocalHard(){
+    try {
+      const raw = localStorage.getItem(HARD_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch(e){ return null; }
+  }
+
+  function applyHardPayload(payload){
+    if (!payload || !payload.snapshot) return false;
+    const snap = payload.snapshot;
+    if (snap.fullState) {
+      state = (typeof normalizeState === 'function') ? normalizeState(snap.fullState) : snap.fullState;
+    }
+    if (snap.modelConfigs) {
+      state.modelConfigs = (typeof migrateConfigurableModels === 'function') ? migrateConfigurableModels(snap.modelConfigs) : snap.modelConfigs;
+    }
+    if (snap.modelItemTemplates && typeof normalizeModelItemTemplates === 'function') {
+      state.modelItemTemplates = normalizeModelItemTemplates(snap.modelItemTemplates);
+    }
+    if (!state.form) state.form = {};
+    if (snap.currentModel) state.form.modelo = snap.currentModel;
+    rebuildVisibleItemsFromModel(state.form.modelo || DEFAULT_MODEL_KEY);
+    state = (typeof normalizeState === 'function') ? normalizeState(state) : state;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e){}
+    try { if (typeof saveStateToIndexedDb === 'function') saveStateToIndexedDb(state); } catch(e){}
+    try { renderApp(); } catch(e){}
+    return true;
+  }
+
+  async function reconcileHardSnapshots(){
+    let local = getLocalHard();
+    let localTs = parseTs(local && local.updatedAt);
+
+    if (local && local.snapshot) applyHardPayload(local);
+
+    if (!navigator.onLine || !window.firebaseReady || !window.firestore) return !!local;
+    try {
+      const snap = await window.firestore.doc(HARD_CLOUD_DOC).get();
+      if (!snap.exists) {
+        if (local && local.snapshot) await persistHardCloud(localTs || nowTs());
+        return !!local;
+      }
+      const cloud = snap.data() || {};
+      const cloudTs = parseTs(cloud.updatedAt);
+      if (cloudTs > localTs && cloud.snapshot) {
+        const payload = { updatedAt: cloudTs, snapshot: cloud.snapshot };
+        applyHardPayload(payload);
+        try { localStorage.setItem(HARD_KEY, JSON.stringify(payload)); } catch(e){}
+        return true;
+      }
+      if (localTs >= cloudTs && local && local.snapshot) {
+        await persistHardCloud(localTs || nowTs());
+        return true;
+      }
+      return !!local;
+    } catch(e){
+      console.warn('Falha ao reconciliar snapshot definitivo.', e);
+      return !!local;
+    }
+  }
+
+  let listenerStarted = false;
+  function startHardListener(){
+    if (listenerStarted || !navigator.onLine || !window.firebaseReady || !window.firestore) return;
+    listenerStarted = true;
+    try {
+      window.firestore.doc(HARD_CLOUD_DOC).onSnapshot((snap) => {
+        if (!snap.exists) return;
+        const cloud = snap.data() || {};
+        const cloudTs = parseTs(cloud.updatedAt);
+        const localTs = parseTs(getLocalHard() && getLocalHard().updatedAt);
+        if (!cloud.snapshot || cloudTs <= localTs) return;
+        const payload = { updatedAt: cloudTs, snapshot: cloud.snapshot };
+        applyHardPayload(payload);
+        try { localStorage.setItem(HARD_KEY, JSON.stringify(payload)); } catch(e){}
+      }, (err) => console.warn('Falha no listener definitivo do gerenciar.', err));
+    } catch(e){ console.warn('Falha ao iniciar listener definitivo do gerenciar.', e); }
+  }
+
+  async function saveManageItemsDefinitivo(){
+    captureManageDomIntoState();
+    const ts = nowTs();
+    persistHardLocal(ts);
+    try { if (typeof queueCloudDraftSync === 'function') await queueCloudDraftSync(true, ts); } catch(e){}
+    await persistHardCloud(ts);
+    try { renderApp(); } catch(e){}
+    try { if (typeof closeManageItemsModal === 'function') closeManageItemsModal(); } catch(e){}
+    try { if (typeof showToast === 'function') showToast('Gerenciar itens salvo com sucesso.'); } catch(e){}
+  }
+
+  window.saveManageItems = saveManageItemsDefinitivo;
+  window.syncManageDraftToState = captureManageDomIntoState;
+
+  function bindFinalSaveButton(){
+    const btn = document.getElementById('saveManageItemsBtn');
+    if (!btn || btn.dataset.v20Bound === '1') return;
+    btn.dataset.v20Bound = '1';
+    btn.onclick = saveManageItemsDefinitivo;
+  }
+
+  function bindHardAutosave(){
+    const modal = document.getElementById('manageItemsModal');
+    if (!modal || modal.dataset.v20Autosave === '1') return;
+    modal.dataset.v20Autosave = '1';
+    let timer = null;
+    const flush = () => {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        try {
+          captureManageDomIntoState();
+          const ts = nowTs();
+          persistHardLocal(ts);
+          try { if (typeof queueCloudDraftSync === 'function') await queueCloudDraftSync(true, ts); } catch(e){}
+          await persistHardCloud(ts);
+        } catch(e){ console.warn('Falha no autosave definitivo do gerenciar.', e); }
+      }, 180);
+    };
+    const selector = [
+      'textarea[data-manage-field]',
+      'select[data-manage-field]',
+      'input[data-manage-area-field]',
+      'input[data-manage-nc-field]',
+      'input[data-manage-link-area]',
+      'input[data-manage-link-nc]',
+      'input[data-manage-position]',
+      'button[data-apply-position]',
+      'button[data-delete-item]',
+      'button[data-move-up]',
+      'button[data-move-down]',
+      'button[data-remove-manage-area]',
+      'button[data-remove-manage-nc]',
+      '#addDepositoItemBtn',
+      '#addVendaItemBtn',
+      '#addAreaDefinitionBtn',
+      '#addNcDefinitionBtn',
+      '#saveManageItemsBtn'
+    ].join(',');
+    ['input','change','click','blur','focusout'].forEach((evt) => {
+      modal.addEventListener(evt, (e) => {
+        if (!e.target.closest(selector)) return;
+        flush();
+      }, true);
+    });
+  }
+
+  function patchOpenManage(){
+    if (window.__arkoV20OpenManagePatched || typeof openManageItemsModal !== 'function') return;
+    const original = openManageItemsModal;
+    window.openManageItemsModal = function(){
+      const result = original.apply(this, arguments);
+      bindFinalSaveButton();
+      bindHardAutosave();
+      return result;
+    };
+    window.__arkoV20OpenManagePatched = true;
+  }
+
+  const originalInit = window.initializeFirebaseSync;
+  if (typeof originalInit === 'function' && !window.__arkoV20InitPatched) {
+    window.initializeFirebaseSync = async function(){
+      const result = await originalInit.apply(this, arguments);
+      await reconcileHardSnapshots();
+      startHardListener();
+      return result;
+    };
+    window.__arkoV20InitPatched = true;
+  }
+
+  window.addEventListener('beforeunload', () => { try { captureManageDomIntoState(); persistHardLocal(nowTs()); } catch(e){} }, true);
+  window.addEventListener('pagehide', () => { try { captureManageDomIntoState(); persistHardLocal(nowTs()); } catch(e){} }, true);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') {
+      try { captureManageDomIntoState(); persistHardLocal(nowTs()); } catch(e){}
+    }
+  }, true);
+  window.addEventListener('online', () => { reconcileHardSnapshots(); startHardListener(); });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      patchOpenManage();
+      bindFinalSaveButton();
+      bindHardAutosave();
+      reconcileHardSnapshots();
+      startHardListener();
+    }, { once: true });
+  } else {
+    patchOpenManage();
+    bindFinalSaveButton();
+    bindHardAutosave();
+    reconcileHardSnapshots();
+    startHardListener();
+  }
+})();
+</script>

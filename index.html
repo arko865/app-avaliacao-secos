@@ -5530,6 +5530,308 @@ function bindNewConfigEvents(){
 })();
 </script>
 
+
+<script>
+(function(){
+  const PATCH = 'arko_patch_v21_clean_manage_persistence';
+  if (window[PATCH]) return;
+  window[PATCH] = true;
+
+  const MANAGE_V21_KEY = 'arko_manage_v21_full_snapshot';
+  const MANAGE_V21_CLOUD_DOC = 'shared/manageV21FullSnapshot';
+
+  function clone(v){ try { return JSON.parse(JSON.stringify(v)); } catch(e){ return v; } }
+  function nowTs(){ return Date.now(); }
+  function toTs(v){
+    if (v == null) return 0;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+    if (typeof v === 'string') {
+      const n = Number(v);
+      if (Number.isFinite(n)) return n;
+      const d = Date.parse(v);
+      return Number.isFinite(d) ? d : 0;
+    }
+    if (v && typeof v.toMillis === 'function') { try { return Number(v.toMillis()) || 0; } catch(e){} }
+    return 0;
+  }
+  function toast(msg){ try { if (typeof showToast === 'function') showToast(msg); } catch(e){} }
+  function ensureAllConfigs(){
+    const all = (typeof getAllModelConfigs === 'function') ? clone(getAllModelConfigs()) : clone(state.modelConfigs || {});
+    if (!all || typeof all !== 'object') return {};
+    Object.keys(all).forEach((key) => {
+      const cfg = all[key] || {};
+      cfg.key = cfg.key || key;
+      cfg.label = cfg.label || key;
+      cfg.reportLabel = cfg.reportLabel || 'Formulário de Avaliação';
+      cfg.usesStreetCounts = !!cfg.usesStreetCounts;
+      cfg.items = Array.isArray(cfg.items) ? cfg.items.map((item, idx) => ({
+        description: String((item && item.description) || `Item ${idx+1}`),
+        section: item && item.section === 'venda' ? 'venda' : 'deposito'
+      })) : [];
+      cfg.areaDefinitions = Array.isArray(cfg.areaDefinitions) ? cfg.areaDefinitions.map((area, idx) => ({
+        key: String((area && (area.key || area.label)) || `area_${idx+1}`),
+        label: String((area && area.label) || `Nova área ${idx+1}`),
+        itemIds: Array.from(new Set(((area && area.itemIds) || []).map(Number).filter(Boolean))).sort((a,b)=>a-b)
+      })) : [];
+      cfg.ncDefinitions = Array.isArray(cfg.ncDefinitions) ? cfg.ncDefinitions.map((nc, idx) => ({
+        label: String((nc && nc.label) || `Nova não conformidade ${idx+1}`),
+        itemIds: Array.from(new Set(((nc && nc.itemIds) || []).map(Number).filter(Boolean))).sort((a,b)=>a-b)
+      })) : [];
+      all[key] = cfg;
+    });
+    return all;
+  }
+  function currentModelKey(){ return state?.form?.modelo || DEFAULT_MODEL_KEY; }
+  function buildStateItemsFromModel(modelKey){
+    const all = ensureAllConfigs();
+    const cfg = all[modelKey] || all[DEFAULT_MODEL_KEY] || { items: [] };
+    const prev = Array.isArray(state.items) ? clone(state.items) : [];
+    const items = (cfg.items || []).map((def, idx) => {
+      const previous = prev[idx] || {};
+      const merged = Object.assign({}, previous, {
+        id: idx + 1,
+        description: String((def && def.description) || `Item ${idx+1}`),
+        section: def && def.section === 'venda' ? 'venda' : 'deposito'
+      });
+      return (typeof normalizeItem === 'function') ? normalizeItem(merged, idx, modelKey) : merged;
+    });
+    return (typeof reindexItems === 'function') ? reindexItems(items, modelKey) : items;
+  }
+  function persistLocalPayload(payload){
+    try { localStorage.setItem(MANAGE_V21_KEY, JSON.stringify(payload)); } catch(e) {}
+  }
+  async function persistCloudPayload(payload){
+    if (!navigator.onLine || !window.firebaseReady || !window.firestore) return false;
+    try {
+      await window.firestore.doc(MANAGE_V21_CLOUD_DOC).set(payload, { merge:true });
+      return true;
+    } catch(e){
+      console.warn('Falha ao gravar snapshot v21 na nuvem.', e);
+      return false;
+    }
+  }
+  function readLocalPayload(){
+    try {
+      const raw = localStorage.getItem(MANAGE_V21_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch(e){ return null; }
+  }
+  async function readCloudPayload(){
+    if (!navigator.onLine || !window.firebaseReady || !window.firestore) return null;
+    try {
+      const snap = await window.firestore.doc(MANAGE_V21_CLOUD_DOC).get();
+      return snap.exists ? (snap.data() || null) : null;
+    } catch(e){
+      console.warn('Falha ao ler snapshot v21 da nuvem.', e);
+      return null;
+    }
+  }
+  function applyPayloadToState(payload){
+    if (!payload || !payload.modelConfigs) return false;
+    const all = clone(payload.modelConfigs);
+    state.modelConfigs = all;
+    if (typeof migrateConfigurableModels === 'function') {
+      state.modelConfigs = migrateConfigurableModels(state.modelConfigs);
+    }
+    if (!state.form) state.form = {};
+    state.form.modelo = payload.currentModel || state.form.modelo || DEFAULT_MODEL_KEY;
+    const modelKey = currentModelKey();
+    state.items = buildStateItemsFromModel(modelKey);
+    if (typeof normalizeModelItemTemplates === 'function') {
+      state.modelItemTemplates = normalizeModelItemTemplates({
+        ...(state.modelItemTemplates || {}),
+        [modelKey]: clone(state.items)
+      });
+    }
+    if (typeof syncItemLinkMetadata === 'function') syncItemLinkMetadata(modelKey);
+    if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state);
+    if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state);
+    state = (typeof normalizeState === 'function') ? normalizeState(state) : state;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) {}
+    try { if (typeof saveStateToIndexedDb === 'function') saveStateToIndexedDb(state); } catch(e) {}
+    try { renderApp(); } catch(e) {}
+    try { if (document.getElementById('manageItemsModal')?.classList.contains('open') && typeof renderManageItems === 'function') renderManageItems(); } catch(e) {}
+    return true;
+  }
+  function collectManageModalToConfigs(){
+    const modelKey = currentModelKey();
+    const modal = document.getElementById('manageItemsModal');
+    const all = ensureAllConfigs();
+    const cfg = clone(all[modelKey] || { key:modelKey, label:modelKey, reportLabel:'Formulário de Avaliação', usesStreetCounts:true, items:[], areaDefinitions:[], ncDefinitions:[] });
+
+    let items = [];
+    if (modal) {
+      const itemNodes = Array.from(modal.querySelectorAll('.manage-item'));
+      items = itemNodes.map((node, idx) => {
+        const descEl = node.querySelector('textarea[data-manage-field="description"]');
+        const sectionEl = node.querySelector('select[data-manage-field="section"]');
+        return {
+          description: String(descEl ? descEl.value : ((cfg.items[idx] && cfg.items[idx].description) || `Item ${idx+1}`)).trim() || `Item ${idx+1}`,
+          section: sectionEl && sectionEl.value === 'venda' ? 'venda' : 'deposito'
+        };
+      });
+      if (!items.length && Array.isArray(manageDraftItems) && manageDraftItems.length) {
+        items = clone(manageDraftItems).map((item, idx) => ({
+          description: String(item.description || `Item ${idx+1}`),
+          section: item.section === 'venda' ? 'venda' : 'deposito'
+        }));
+      }
+      const areaInputs = Array.from(modal.querySelectorAll('[data-manage-area-field="label"]'));
+      const areas = areaInputs.map((input, idx) => ({
+        key: (typeof slugifyConfigKey === 'function') ? slugifyConfigKey(String(input.value || `Nova área ${idx+1}`)) : String(input.value || `Nova área ${idx+1}`),
+        label: String(input.value || `Nova área ${idx+1}`).trim() || `Nova área ${idx+1}`,
+        itemIds: []
+      }));
+      modal.querySelectorAll('[data-manage-link-area]').forEach((el) => {
+        if (!el.checked) return;
+        const itemId = Number(el.dataset.manageIndex) + 1;
+        const key = String(el.dataset.manageLinkArea || '');
+        const found = areas.find((a) => String(a.key) === key);
+        if (found && itemId) found.itemIds.push(itemId);
+      });
+      cfg.areaDefinitions = areas.map((area, idx) => ({
+        key: String(area.key || `area_${idx+1}`),
+        label: String(area.label || `Nova área ${idx+1}`),
+        itemIds: Array.from(new Set((area.itemIds || []).map(Number).filter(Boolean))).sort((a,b)=>a-b)
+      }));
+
+      const ncInputs = Array.from(modal.querySelectorAll('[data-manage-nc-field="label"]'));
+      const ncs = ncInputs.map((input, idx) => ({
+        label: String(input.value || `Nova não conformidade ${idx+1}`).trim() || `Nova não conformidade ${idx+1}`,
+        itemIds: []
+      }));
+      modal.querySelectorAll('[data-manage-link-nc]').forEach((el) => {
+        if (!el.checked) return;
+        const itemId = Number(el.dataset.manageIndex) + 1;
+        const ncIdx = Number(el.dataset.manageLinkNc);
+        if (ncs[ncIdx] && itemId) ncs[ncIdx].itemIds.push(itemId);
+      });
+      cfg.ncDefinitions = ncs.map((nc, idx) => ({
+        label: String(nc.label || `Nova não conformidade ${idx+1}`),
+        itemIds: Array.from(new Set((nc.itemIds || []).map(Number).filter(Boolean))).sort((a,b)=>a-b)
+      }));
+    } else {
+      items = Array.isArray(state.items) ? clone(state.items).map((item, idx) => ({
+        description: String(item.description || `Item ${idx+1}`),
+        section: item.section === 'venda' ? 'venda' : 'deposito'
+      })) : clone(cfg.items || []);
+      cfg.areaDefinitions = clone(cfg.areaDefinitions || []);
+      cfg.ncDefinitions = clone(cfg.ncDefinitions || []);
+    }
+
+    cfg.items = items;
+    all[modelKey] = cfg;
+    return { modelKey, modelConfigs: all };
+  }
+  async function saveManageV21(closeAfter){
+    const collected = collectManageModalToConfigs();
+    state.modelConfigs = collected.modelConfigs;
+    if (typeof migrateConfigurableModels === 'function') {
+      state.modelConfigs = migrateConfigurableModels(state.modelConfigs);
+    }
+    if (!state.form) state.form = {};
+    state.form.modelo = collected.modelKey;
+    state.items = buildStateItemsFromModel(collected.modelKey);
+    if (typeof normalizeModelItemTemplates === 'function') {
+      state.modelItemTemplates = normalizeModelItemTemplates({
+        ...(state.modelItemTemplates || {}),
+        [collected.modelKey]: clone(state.items)
+      });
+    }
+    if (typeof syncItemLinkMetadata === 'function') syncItemLinkMetadata(collected.modelKey);
+    if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state);
+    if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state);
+    state = (typeof normalizeState === 'function') ? normalizeState(state) : state;
+
+    const payload = {
+      updatedAt: nowTs(),
+      currentModel: collected.modelKey,
+      modelConfigs: clone(state.modelConfigs || {})
+    };
+    persistLocalPayload(payload);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) {}
+    try { if (typeof saveStateToIndexedDb === 'function') saveStateToIndexedDb(state); } catch(e) {}
+    try { renderApp(); } catch(e) {}
+    await persistCloudPayload(payload);
+    if (closeAfter) {
+      try { if (typeof closeManageItemsModal === 'function') closeManageItemsModal(); } catch(e) {}
+      toast('Gerenciar itens salvo com sucesso.');
+    }
+    return true;
+  }
+  async function reconcileManageV21(){
+    const local = readLocalPayload();
+    const cloud = await readCloudPayload();
+    const localTs = toTs(local && local.updatedAt);
+    const cloudTs = toTs(cloud && cloud.updatedAt);
+    const winner = cloudTs > localTs ? cloud : local;
+    if (!winner || !winner.modelConfigs) return false;
+    applyPayloadToState(winner);
+    if (winner === cloud) persistLocalPayload(winner);
+    if (winner === local && cloudTs < localTs) { await persistCloudPayload(local); }
+    return true;
+  }
+  function bindSaveButton(){
+    const btn = document.getElementById('saveManageItemsBtn');
+    if (!btn || btn.dataset.v21Bound === '1') return;
+    btn.dataset.v21Bound = '1';
+    btn.onclick = function(){ saveManageV21(true); };
+  }
+  function bindAutosave(){
+    const modal = document.getElementById('manageItemsModal');
+    if (!modal || modal.dataset.v21Autosave === '1') return;
+    modal.dataset.v21Autosave = '1';
+    let timer = null;
+    const schedule = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { saveManageV21(false); }, 220);
+    };
+    ['input','change','click','blur','focusout'].forEach((evt) => {
+      modal.addEventListener(evt, (e) => {
+        if (!e.target.closest('[data-manage-field],[data-manage-area-field],[data-manage-nc-field],[data-manage-link-area],[data-manage-link-nc],#addAreaDefinitionBtn,#addNcDefinitionBtn,#addDepositoItemBtn,#addVendaItemBtn,[data-remove-manage-area],[data-remove-manage-nc],[data-delete-item],[data-move-up],[data-move-down],[data-apply-position]')) return;
+        schedule();
+      }, true);
+    });
+  }
+  function patchOpenManageV21(){
+    if (window.__arkoV21OpenManagePatched || typeof openManageItemsModal !== 'function') return;
+    const original = openManageItemsModal;
+    window.openManageItemsModal = function(){
+      const result = original.apply(this, arguments);
+      bindSaveButton();
+      bindAutosave();
+      setTimeout(() => { try { applyPayloadToState(readLocalPayload() || {}); } catch(e){} }, 0);
+      return result;
+    };
+    window.__arkoV21OpenManagePatched = true;
+  }
+
+  window.saveManageItems = function(){ return saveManageV21(true); };
+  window.syncManageDraftToState = function(){ return collectManageModalToConfigs(); };
+
+  window.addEventListener('beforeunload', () => { try { saveManageV21(false); } catch(e){} }, true);
+  window.addEventListener('pagehide', () => { try { saveManageV21(false); } catch(e){} }, true);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') { try { saveManageV21(false); } catch(e){} }
+  }, true);
+  window.addEventListener('online', () => { reconcileManageV21(); });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', async () => {
+      patchOpenManageV21();
+      bindSaveButton();
+      bindAutosave();
+      await reconcileManageV21();
+    }, { once:true });
+  } else {
+    patchOpenManageV21();
+    bindSaveButton();
+    bindAutosave();
+    reconcileManageV21();
+  }
+})();
+</script>
+
 </body>
 </html>
 <script>

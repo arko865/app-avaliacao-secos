@@ -6915,5 +6915,124 @@ function bindNewConfigEvents(){
 })();
 </script>
 
+
+<script>
+(function(){
+  function uniqueSortedNumbersSafe(values){
+    if (typeof uniqueSortedNumbers === 'function') return uniqueSortedNumbers(values);
+    return Array.from(new Set((Array.isArray(values)?values:[]).map(v=>Number(v)).filter(v=>Number.isFinite(v)&&v>0))).sort((a,b)=>a-b);
+  }
+  function stableAreaKey(existingKey, index){
+    const raw = String(existingKey || '').trim();
+    return raw || `area_${index + 1}`;
+  }
+  function patchManageLabelInputs(){
+    try {
+      const modal = document.getElementById('manageItemsModal');
+      if (!modal) return;
+      const model = typeof getManageDraftModelConfig === 'function' ? getManageDraftModelConfig() : null;
+      if (!model) return;
+      model.areaDefinitions = Array.isArray(model.areaDefinitions) ? model.areaDefinitions : [];
+      model.ncDefinitions = Array.isArray(model.ncDefinitions) ? model.ncDefinitions : [];
+
+      modal.querySelectorAll('#manageAreasList [data-manage-area-field="label"]').forEach((el) => {
+        el.oninput = (e) => {
+          const idx = Number(e.target.dataset.manageAreaIndex);
+          const area = model.areaDefinitions[idx];
+          if (!area) return;
+          area.key = stableAreaKey(area.key, idx); // preserva a chave antiga
+          area.label = String(e.target.value || '').trim() || `Nova área ${idx + 1}`;
+          area.itemIds = uniqueSortedNumbersSafe(area.itemIds);
+        };
+      });
+
+      modal.querySelectorAll('#manageNcList [data-manage-nc-field="label"]').forEach((el) => {
+        el.oninput = (e) => {
+          const idx = Number(e.target.dataset.manageNcIndex);
+          const nc = model.ncDefinitions[idx];
+          if (!nc) return;
+          nc.label = String(e.target.value || '').trim() || `Nova não conformidade ${idx + 1}`;
+          nc.itemIds = uniqueSortedNumbersSafe(nc.itemIds);
+        };
+      });
+    } catch(err) {
+      console.warn('Falha ao aplicar patch de rótulos.', err);
+    }
+  }
+
+  function captureAndPersistCurrentLabels(){
+    const modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY;
+    const all = typeof getCurrentModelConfigsSnapshot === 'function'
+      ? getCurrentModelConfigsSnapshot()
+      : (state.modelConfigs || {});
+    const sourceModel = typeof getManageDraftModelConfig === 'function'
+      ? getManageDraftModelConfig()
+      : ((all && all[modelKey]) || null);
+    if (!sourceModel) return false;
+
+    sourceModel.areaDefinitions = (Array.isArray(sourceModel.areaDefinitions) ? sourceModel.areaDefinitions : []).map((area, idx) => ({
+      key: stableAreaKey(area?.key, idx),
+      label: String(area?.label || '').trim() || `Nova área ${idx + 1}`,
+      itemIds: uniqueSortedNumbersSafe(area?.itemIds)
+    }));
+    sourceModel.ncDefinitions = (Array.isArray(sourceModel.ncDefinitions) ? sourceModel.ncDefinitions : []).map((nc, idx) => ({
+      label: String(nc?.label || '').trim() || `Nova não conformidade ${idx + 1}`,
+      itemIds: uniqueSortedNumbersSafe(nc?.itemIds)
+    }));
+
+    all[modelKey] = sourceModel;
+    state.modelConfigs = all;
+    if (typeof syncItemLinkMetadata === 'function') syncItemLinkMetadata(modelKey);
+    return true;
+  }
+
+  // Impede que nomes antigos sejam recriados a partir de metadados legados dos itens.
+  if (typeof recoverLegacyDefinitionsFromItems === 'function') {
+    window.recoverLegacyDefinitionsFromItems = function(candidate, configs){
+      return configs;
+    };
+  }
+
+  const originalRenderManageItems = window.renderManageItems;
+  if (typeof originalRenderManageItems === 'function') {
+    window.renderManageItems = function(){
+      const result = originalRenderManageItems.apply(this, arguments);
+      patchManageLabelInputs();
+      return result;
+    };
+  }
+
+  const originalSaveManageItems = window.saveManageItems;
+  if (typeof originalSaveManageItems === 'function') {
+    window.saveManageItems = async function(){
+      captureAndPersistCurrentLabels();
+      const result = await originalSaveManageItems.apply(this, arguments);
+      captureAndPersistCurrentLabels();
+      try {
+        const ts = Date.now();
+        state.updatedAt = ts;
+        state.__updatedAt = ts;
+        if (typeof persistState === 'function') persistState();
+        if (typeof saveFailSafeCheckpoint === 'function') saveFailSafeCheckpoint('rename-labels');
+        if (typeof queueCloudDraftSync === 'function') await queueCloudDraftSync(true, ts);
+      } catch (err) {
+        console.warn('Falha ao persistir renomeação de áreas/NCs.', err);
+      }
+      return result;
+    };
+  }
+
+  setTimeout(() => {
+    try {
+      patchManageLabelInputs();
+      const saveManageBtn = document.getElementById('saveManageItemsBtn');
+      if (saveManageBtn) saveManageBtn.onclick = window.saveManageItems;
+    } catch (err) {
+      console.warn('Falha ao aplicar patch final de renomeação.', err);
+    }
+  }, 0);
+})();
+</script>
+
 </body>
 </html>

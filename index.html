@@ -3395,5 +3395,170 @@ function saveConfigModels(){
 })();
 </script>
 
+
+<script>
+/* === Redesenho: Configurar avaliação exclusivamente para criar do zero === */
+(function redesignConfigEvaluationFromScratch(){
+  let newEvalDraft = null;
+  const TEMP_NEW_MODEL_KEY = '__nova_avaliacao_do_zero__';
+
+  function makeEmptyNewEvaluationDraft(){
+    return { key: TEMP_NEW_MODEL_KEY, label: '', reportLabel: 'Relatório de Avaliação de Inventário', usesStreetCounts: true, areaDefinitions: [], ncDefinitions: [], templates: [] };
+  }
+  function getNewEvalModel(){ if (!newEvalDraft) newEvalDraft = makeEmptyNewEvaluationDraft(); return newEvalDraft; }
+
+  window.injectConfigButtonAndModal = function(){
+    if (!document.getElementById('configureModelsBtn')) {
+      const anchor = document.getElementById('streetCountsBtn') || document.querySelector('.top-actions');
+      const btn = document.createElement('button');
+      btn.id = 'configureModelsBtn'; btn.className = 'btn secondary'; btn.type = 'button'; btn.textContent = 'Configurar avaliação';
+      anchor?.parentNode?.insertBefore(btn, anchor.nextSibling);
+    }
+    document.getElementById('configModelsModal')?.remove();
+    const modal = document.createElement('div');
+    modal.id = 'configModelsModal'; modal.className = 'manage-modal'; modal.setAttribute('aria-hidden','true');
+    modal.innerHTML = `
+      <div class="manage-panel" style="max-width:1180px;">
+        <div class="manage-header">
+          <div><div class="manage-title">Configurar nova avaliação</div><div class="manage-help">Crie uma avaliação totalmente do zero. Este menu não edita nem duplica avaliações existentes. Para editar modelos já criados, use <strong>Gerenciar itens</strong>.</div></div>
+          <button id="closeConfigModelsBtn" class="btn secondary" type="button">Fechar</button>
+        </div>
+        <div class="manage-body">
+          <div class="card" style="box-shadow:none;"><div class="card-header"><h3 class="card-title" style="font-size:18px;">Dados da nova avaliação</h3></div><div class="card-content"><div class="grid-2"><div class="field"><label>Nome da nova avaliação</label><input id="configModelLabel" type="text" placeholder="Ex.: CD Perecíveis - Câmara" /></div><div class="field"><label>Título do relatório PDF</label><input id="configReportLabel" type="text" placeholder="Relatório de Avaliação de Inventário" /></div></div><div class="muted-note">Após salvar, a nova avaliação aparecerá no seletor de modelo da tela principal e sincronizará com os demais dispositivos conectados.</div></div></div>
+          <div class="grid-2" style="margin-top:16px;">
+            <div class="card" style="box-shadow:none;"><div class="card-header"><h3 class="card-title" style="font-size:18px;">Áreas avaliadas</h3></div><div class="card-content"><div id="configAreasList" class="manage-list"></div><div class="actions"><button id="addConfigAreaBtn" class="btn secondary" type="button">+ Criar área avaliada</button></div></div></div>
+            <div class="card" style="box-shadow:none;"><div class="card-header"><h3 class="card-title" style="font-size:18px;">Áreas não conformidades</h3></div><div class="card-content"><div id="configNcList" class="manage-list"></div><div class="actions"><button id="addConfigNcBtn" class="btn secondary" type="button">+ Criar NC</button></div></div></div>
+          </div>
+          <div class="card" style="box-shadow:none; margin-top:16px;"><div class="card-header"><h3 class="card-title" style="font-size:18px;">Criar item da avaliação</h3></div><div class="card-content"><div class="grid-2"><div class="field"><label>Descrição do item</label><input id="newConfigItemDescription" type="text" placeholder="Ex.: Câmara organizada por categoria" /></div><div class="field"><label>Seção</label><select id="newConfigItemSection"><option value="deposito">Depósito / Aéreo</option><option value="venda">Área de Venda</option></select></div></div><div class="field" style="margin-top:12px;"><label>Área avaliada deste item</label><div id="newConfigItemAreas" class="check-chip-group"></div></div><div class="field" style="margin-top:12px;"><label>NCs deste item</label><div id="newConfigItemNcs" class="check-chip-group"></div></div><div class="grid-2" style="margin-top:12px;"><div class="field"><label>Criar nova área e já vincular</label><input id="newConfigInlineArea" type="text" placeholder="Ex.: Câmara" /></div><div class="field"><label>Criar nova NC e já vincular</label><input id="newConfigInlineNc" type="text" placeholder="Ex.: Fora do padrão" /></div></div><div class="actions"><button id="addConfiguredItemBtn" class="btn" type="button">Adicionar item</button></div></div></div>
+          <div class="card" style="box-shadow:none; margin-top:16px;"><div class="card-header"><h3 class="card-title" style="font-size:18px;">Itens criados</h3></div><div class="card-content"><div id="configItemsPreview" class="manage-list"></div></div></div>
+          <div class="manage-footer"><button id="resetNewConfigBtn" class="btn secondary" type="button">Limpar criação</button><button id="saveConfigModelsBtn" class="btn" type="button">Salvar nova avaliação</button></div>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+  };
+
+  window.openConfigModal = function(){ newEvalDraft = makeEmptyNewEvaluationDraft(); renderConfigModal(); const modal = document.getElementById('configModelsModal'); modal.classList.add('open'); modal.setAttribute('aria-hidden','false'); };
+  window.closeConfigModal = function(){ document.getElementById('configModelsModal')?.classList.remove('open'); document.getElementById('configModelsModal')?.setAttribute('aria-hidden','true'); newEvalDraft = null; };
+  window.ensureConfigDraftModel = function(){ return getNewEvalModel(); };
+
+  window.renderConfigModal = function(){
+    injectConfigButtonAndModal();
+    const model = getNewEvalModel();
+    const labelInput = document.getElementById('configModelLabel'); const reportInput = document.getElementById('configReportLabel');
+    if (!labelInput || !reportInput) return;
+    labelInput.value = model.label || ''; reportInput.value = model.reportLabel || 'Relatório de Avaliação de Inventário';
+    labelInput.oninput = (e)=>{ model.label = e.target.value; }; reportInput.oninput = (e)=>{ model.reportLabel = e.target.value; };
+    const areasList = document.getElementById('configAreasList');
+    areasList.innerHTML = (model.areaDefinitions || []).map((area, index)=>`<div class="manage-item"><div class="field"><label>Nome da área avaliada</label><input data-config-area-index="${index}" value="${escapeHtml(area.label || '')}" placeholder="Ex.: Câmara" /></div><div class="history-actions"><button class="icon-btn danger" type="button" data-remove-config-area="${index}">Excluir área</button></div></div>`).join('') || '<div class="manage-empty">Nenhuma área avaliada criada.</div>';
+    const ncList = document.getElementById('configNcList');
+    ncList.innerHTML = (model.ncDefinitions || []).map((nc, index)=>`<div class="manage-item"><div class="field"><label>Descrição da NC</label><input data-config-nc-index="${index}" value="${escapeHtml(nc.label || '')}" placeholder="Ex.: Fora do padrão" /></div><div class="history-actions"><button class="icon-btn danger" type="button" data-remove-config-nc="${index}">Excluir NC</button></div></div>`).join('') || '<div class="manage-empty">Nenhuma área não conforme criada.</div>';
+    document.getElementById('newConfigItemAreas').innerHTML = (model.areaDefinitions || []).map(area=>`<label class="check-chip"><input type="checkbox" value="${escapeHtml(area.key)}" data-config-new-item-area /> <span>${escapeHtml(area.label)}</span></label>`).join('') || '<span class="muted-note">Crie uma área avaliada ou use o campo “Criar nova área e já vincular”.</span>';
+    document.getElementById('newConfigItemNcs').innerHTML = (model.ncDefinitions || []).map((nc, idx)=>`<label class="check-chip"><input type="checkbox" value="${idx}" data-config-new-item-nc /> <span>${escapeHtml(nc.label)}</span></label>`).join('') || '<span class="muted-note">Crie uma NC ou use o campo “Criar nova NC e já vincular”.</span>';
+    const preview = document.getElementById('configItemsPreview');
+    preview.innerHTML = (model.templates || []).map((item, idx)=>{ const itemId = idx + 1; const linkedAreas = (model.areaDefinitions || []).filter(area => (area.itemIds || []).includes(itemId)).map(area => area.label).join(', ') || 'Sem área vinculada'; const linkedNcs = (model.ncDefinitions || []).filter(nc => (nc.itemIds || []).includes(itemId)).map(nc => nc.label).join(', ') || 'Sem NC vinculada'; return `<div class="manage-item"><div class="manage-item-top"><div class="manage-item-id">Item ${itemId}</div><button class="icon-btn danger" type="button" data-remove-config-item="${idx}">Excluir item</button></div><div style="font-weight:800;line-height:1.35;">${escapeHtml(item.description || '')}</div><div class="muted-note">Seção: ${item.section === 'venda' ? 'Área de Venda' : 'Depósito / Aéreo'}</div><div class="linked-tags"><span class="linked-tag">Área: ${escapeHtml(linkedAreas)}</span><span class="linked-tag">NCs: ${escapeHtml(linkedNcs)}</span></div></div>`; }).join('') || '<div class="manage-empty">Nenhum item criado ainda.</div>';
+    areasList.querySelectorAll('[data-config-area-index]').forEach(input => input.oninput = (e)=>{ const index = Number(e.target.dataset.configAreaIndex); model.areaDefinitions[index].label = e.target.value; if (!model.areaDefinitions[index].key || model.areaDefinitions[index].key.startsWith('nova_area_')) model.areaDefinitions[index].key = slugifyConfigKey(e.target.value || `area_${index + 1}`); });
+    areasList.querySelectorAll('[data-remove-config-area]').forEach(btn => btn.onclick = ()=>{ model.areaDefinitions.splice(Number(btn.dataset.removeConfigArea), 1); renderConfigModal(); });
+    ncList.querySelectorAll('[data-config-nc-index]').forEach(input => input.oninput = (e)=>{ model.ncDefinitions[Number(e.target.dataset.configNcIndex)].label = e.target.value; });
+    ncList.querySelectorAll('[data-remove-config-nc]').forEach(btn => btn.onclick = ()=>{ model.ncDefinitions.splice(Number(btn.dataset.removeConfigNc), 1); renderConfigModal(); });
+    preview.querySelectorAll('[data-remove-config-item]').forEach(btn => btn.onclick = ()=>{ const idx = Number(btn.dataset.removeConfigItem); const removedItemId = idx + 1; model.templates.splice(idx, 1); [...model.areaDefinitions, ...model.ncDefinitions].forEach(entry => { entry.itemIds = (entry.itemIds || []).filter(id => id !== removedItemId).map(id => id > removedItemId ? id - 1 : id); }); renderConfigModal(); });
+  };
+
+  window.addConfigArea = function(){ const model = getNewEvalModel(); const nextLabel = `Nova área ${model.areaDefinitions.length + 1}`; model.areaDefinitions.push({ key: slugifyConfigKey(nextLabel), label: nextLabel, itemIds: [] }); renderConfigModal(); };
+  window.addConfigNc = function(){ const model = getNewEvalModel(); model.ncDefinitions.push({ label:`Nova NC ${model.ncDefinitions.length + 1}`, itemIds: [] }); renderConfigModal(); };
+  window.createNewConfigModel = function(){ openConfigModal(); };
+
+  window.addConfiguredItem = function(){
+    const model = getNewEvalModel();
+    model.label = document.getElementById('configModelLabel')?.value?.trim() || model.label || ''; model.reportLabel = document.getElementById('configReportLabel')?.value?.trim() || 'Relatório de Avaliação de Inventário';
+    const description = document.getElementById('newConfigItemDescription').value.trim(); if (!description) { showToast('Informe a descrição do item.'); return; }
+    const section = document.getElementById('newConfigItemSection').value === 'venda' ? 'venda' : 'deposito';
+    const selectedAreas = Array.from(document.querySelectorAll('[data-config-new-item-area]:checked')).map(el=>el.value);
+    const selectedNcs = Array.from(document.querySelectorAll('[data-config-new-item-nc]:checked')).map(el=>Number(el.value));
+    const inlineArea = document.getElementById('newConfigInlineArea').value.trim(); const inlineNc = document.getElementById('newConfigInlineNc').value.trim();
+    const nextId = model.templates.length + 1; model.templates.push({ id: nextId, description, section, areaAvaliada:'', naoConformes:'', observacao:'', naoAvaliar:false });
+    if (inlineArea) { let key = slugifyConfigKey(inlineArea); const existing = model.areaDefinitions.find(area => area.key === key || (area.label || '').toLowerCase() === inlineArea.toLowerCase()); if (existing) existing.itemIds = uniqueSortedNumbers([...(existing.itemIds || []), nextId]); else model.areaDefinitions.push({ key, label:inlineArea, itemIds:[nextId] }); }
+    selectedAreas.forEach(key => { const area = model.areaDefinitions.find(entry => entry.key === key); if (area) area.itemIds = uniqueSortedNumbers([...(area.itemIds || []), nextId]); });
+    if (inlineNc) model.ncDefinitions.push({ label:inlineNc, itemIds:[nextId] });
+    selectedNcs.forEach(idx => { const nc = model.ncDefinitions[idx]; if (nc) nc.itemIds = uniqueSortedNumbers([...(nc.itemIds || []), nextId]); });
+    document.getElementById('newConfigItemDescription').value = ''; document.getElementById('newConfigInlineArea').value = ''; document.getElementById('newConfigInlineNc').value = '';
+    renderConfigModal(); showToast('Item adicionado à nova avaliação.');
+  };
+
+  window.saveConfigModels = function(){
+    const model = getNewEvalModel();
+    model.label = document.getElementById('configModelLabel')?.value?.trim() || model.label || ''; model.reportLabel = document.getElementById('configReportLabel')?.value?.trim() || 'Relatório de Avaliação de Inventário';
+    model.areaDefinitions = (model.areaDefinitions || []).filter(area => (area.label || '').trim()).map((area, idx)=>({ ...area, key: area.key || slugifyConfigKey(area.label || `area_${idx+1}`), label: area.label.trim(), itemIds: uniqueSortedNumbers(area.itemIds || []) }));
+    model.ncDefinitions = (model.ncDefinitions || []).filter(nc => (nc.label || '').trim()).map(nc=>({ ...nc, label:nc.label.trim(), itemIds: uniqueSortedNumbers(nc.itemIds || []) }));
+    if (!model.label) { showToast('Informe o nome da nova avaliação.'); return; }
+    if (!model.templates.length) { showToast('Adicione ao menos um item antes de salvar.'); return; }
+    const existingConfigs = migrateConfigurableModels(state.modelConfigs || buildInitialConfigurableModels()); const existingTemplates = normalizeModelItemTemplates(state.modelItemTemplates || {});
+    const baseKey = slugifyConfigKey(model.label); let key = baseKey || `avaliacao_${Date.now()}`; let counter = 2; while (existingConfigs[key]) key = `${baseKey}_${counter++}`;
+    const templates = model.templates.map((item, idx)=>({ ...item, id: idx + 1 }));
+    existingConfigs[key] = { key, label: model.label, reportLabel: model.reportLabel, usesStreetCounts: true, autoAreaMap: {}, items: templates.map(item=>({ description:item.description, section:item.section })), areaDefinitions: model.areaDefinitions, ncDefinitions: model.ncDefinitions };
+    existingTemplates[key] = templates;
+    state.modelConfigs = migrateConfigurableModels(existingConfigs); state.modelItemTemplates = normalizeModelItemTemplates(existingTemplates); state.form.modelo = key; state.items = clearEvaluationValuesFromItems(state.modelItemTemplates[key] || templates, key); state.streetCounts = isStreetCountEnabled(key) ? makeDefaultStreetCounts(key) : [];
+    applyAutomaticAreas(state); applyAutomaticNonConformities(state); persistState(); if (typeof syncModelConfigsToCloud === 'function') syncModelConfigsToCloud(true); renderApp(); closeConfigModal(); showToast('Nova avaliação criada e pronta para uso em campo.');
+  };
+
+  window.bindNewConfigEvents = function(){
+    injectConfigButtonAndModal();
+    document.getElementById('configureModelsBtn').onclick = openConfigModal;
+    document.getElementById('closeConfigModelsBtn').onclick = closeConfigModal;
+    document.getElementById('configModelsModal').onclick = (e)=>{ if (e.target.id === 'configModelsModal') closeConfigModal(); };
+    document.getElementById('addConfigAreaBtn').onclick = addConfigArea; document.getElementById('addConfigNcBtn').onclick = addConfigNc; document.getElementById('addConfiguredItemBtn').onclick = addConfiguredItem; document.getElementById('saveConfigModelsBtn').onclick = saveConfigModels;
+    document.getElementById('resetNewConfigBtn').onclick = ()=>{ newEvalDraft = makeEmptyNewEvaluationDraft(); renderConfigModal(); showToast('Criação limpa.'); };
+  };
+
+  injectConfigButtonAndModal(); bindNewConfigEvents();
+})();
+</script>
+
+<script>
+/* === Correção pontual: botão Fechar do Configurar avaliação === */
+(function fixConfigModalCloseButton(){
+  function forceCloseConfigModal(){
+    const modal = document.getElementById('configModelsModal');
+    if (modal) {
+      modal.classList.remove('open');
+      modal.setAttribute('aria-hidden', 'true');
+    }
+    if (typeof window.newEvalDraft !== 'undefined') window.newEvalDraft = null;
+  }
+
+  document.addEventListener('click', function(event){
+    const closeBtn = event.target.closest('#closeConfigModelsBtn');
+    if (closeBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof window.closeConfigModal === 'function') {
+        window.closeConfigModal();
+      } else {
+        forceCloseConfigModal();
+      }
+      return;
+    }
+
+    const modal = document.getElementById('configModelsModal');
+    if (modal && event.target === modal) {
+      event.preventDefault();
+      if (typeof window.closeConfigModal === 'function') {
+        window.closeConfigModal();
+      } else {
+        forceCloseConfigModal();
+      }
+    }
+  }, true);
+
+  document.addEventListener('keydown', function(event){
+    if (event.key === 'Escape') {
+      const modal = document.getElementById('configModelsModal');
+      if (modal && modal.classList.contains('open')) {
+        if (typeof window.closeConfigModal === 'function') window.closeConfigModal();
+        else forceCloseConfigModal();
+      }
+    }
+  });
+})();
+</script>
 </body>
 </html>

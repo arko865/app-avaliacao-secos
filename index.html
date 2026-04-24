@@ -3651,5 +3651,390 @@ function saveConfigModels(){
   });
 })();
 </script>
+
+<style>
+/* === Ajustes de campo/mobile: Avaliar, Add NC+, Fotos Salvas e Resumo === */
+@media (max-width: 640px) {
+  .count-fields-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+  .count-fields-grid .field:first-child {
+    grid-column: 1 / -1;
+  }
+  .count-fields-grid label,
+  .photo-fields-grid label {
+    font-size: 12px;
+    letter-spacing: .01em;
+  }
+  .count-fields-grid input,
+  .count-fields-grid select {
+    padding: 10px 12px !important;
+    font-size: 15px !important;
+    min-height: 46px;
+  }
+  .photo-fields-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .photo-fields-grid .field[style*="grid-column"] {
+    grid-column: 1 / -1 !important;
+  }
+  .dropdown-option,
+  .check-chip {
+    display: grid !important;
+    grid-template-columns: 22px minmax(0, 1fr) !important;
+    align-items: start !important;
+    gap: 10px !important;
+    line-height: 1.28 !important;
+    border-radius: 14px !important;
+    padding: 10px 12px !important;
+  }
+  .dropdown-option input,
+  .check-chip input {
+    width: 18px !important;
+    height: 18px !important;
+    margin: 1px 0 0 !important;
+    flex-shrink: 0 !important;
+  }
+  .dropdown-option span,
+  .check-chip span {
+    min-width: 0 !important;
+    word-break: normal !important;
+    overflow-wrap: anywhere !important;
+  }
+  .selected-nc-chip {
+    max-width: 100%;
+    white-space: normal;
+    align-items: flex-start;
+    border-radius: 14px;
+  }
+}
+.field-collapse-card {
+  border:1px solid var(--border);
+  border-radius:16px;
+  background:#fff;
+  overflow:hidden;
+}
+.field-collapse-toggle {
+  width:100%;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  border:none;
+  background:#f8fafc;
+  color:var(--text);
+  padding:13px 14px;
+  font-size:15px;
+  font-weight:900;
+  cursor:pointer;
+  text-align:left;
+}
+.field-collapse-toggle span:last-child {
+  width:30px;
+  height:30px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border:1px solid var(--border);
+  border-radius:999px;
+  background:#fff;
+}
+.field-collapse-content {
+  display:none;
+  padding:12px;
+}
+.field-collapse-card.open .field-collapse-content { display:block; }
+.count-summary {
+  margin-top:14px;
+}
+.count-summary-inner {
+  display:grid;
+  gap:10px;
+  grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+}
+.count-summary-tile {
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:12px;
+  background:#fff;
+}
+.count-summary-label { font-size:12px; font-weight:900; color:var(--muted); }
+.count-summary-value { margin-top:4px; font-size:24px; font-weight:900; color:var(--text); }
+.dropdown-panel .dropdown-option { border:1px solid transparent; }
+.dropdown-panel .dropdown-option:hover { border-color:var(--border); }
+</style>
+<script>
+/* === Ajustes finais para uso em campo === */
+(function(){
+  const FIELD_TEMP_KEY = 'arko_avaliacao_campo_modal_temp_v1';
+  function tempKey(){
+    try { return `${FIELD_TEMP_KEY}:${state?.form?.modelo || ''}:${state?.form?.nomeLoja || ''}`; }
+    catch(e){ return FIELD_TEMP_KEY; }
+  }
+  function saveFieldModalTemp(){
+    try {
+      if (Array.isArray(window.manageStreetCounts || manageStreetCounts)) {
+        localStorage.setItem(tempKey(), JSON.stringify(window.manageStreetCounts || manageStreetCounts));
+      }
+    } catch(e) {}
+  }
+  function loadFieldModalTemp(){
+    try {
+      const raw = localStorage.getItem(tempKey());
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch(e) { return null; }
+  }
+  function clearFieldModalTemp(){ try { localStorage.removeItem(tempKey()); } catch(e){} }
+
+  async function normalizeImageFileToDataUrl(file){
+    if (!file) return '';
+    try {
+      if ('createImageBitmap' in window) {
+        const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+        const canvas = document.createElement('canvas');
+        canvas.width = bmp.width;
+        canvas.height = bmp.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(bmp, 0, 0);
+        if (bmp.close) bmp.close();
+        return canvas.toDataURL('image/jpeg', 0.88);
+      }
+    } catch(e) {}
+    return await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth || img.width;
+            canvas.height = img.naturalHeight || img.height;
+            canvas.getContext('2d').drawImage(img, 0, 0);
+            resolve(canvas.toDataURL('image/jpeg', 0.88));
+          } catch(e) { resolve(String(reader.result || '')); }
+        };
+        img.onerror = () => resolve(String(reader.result || ''));
+        img.src = String(reader.result || '');
+      };
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    });
+  }
+
+  window.renderStreetCounts = function renderStreetCounts(){
+    const list = document.getElementById('streetCountsList');
+    const summary = document.getElementById('streetCountsSummary');
+    if (!list || !summary) return;
+    const rows = Array.isArray(manageStreetCounts) ? manageStreetCounts : state.streetCounts;
+    const areaDefs = getAreaDefinitions(state.form.modelo);
+    list.innerHTML = '';
+    if (!rows.length) {
+      list.innerHTML = '<div class="manage-empty">Nenhuma área cadastrada.</div>';
+    } else {
+      rows.forEach((row, index) => {
+        row.counts = row.counts || getEmptyCountsForModel(state.form.modelo);
+        const wrap = document.createElement('div');
+        wrap.className = 'count-row';
+        const areaNameRaw = row.rua || `Área ${index+1}`;
+        const areaName = escapeHtml(areaNameRaw);
+        const draftPhoto = getDraftPhotoForRow(row);
+        const fieldsHtml = areaDefs.map(def => `
+          <div class="field">
+            <label>${escapeHtml(def.label)}</label>
+            <input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-count-key="${escapeHtml(def.key)}" value="${escapeHtml(row.counts?.[def.key] ?? '')}" />
+          </div>`).join('');
+        const savedPhotosHtml = Array.isArray(row.photos) && row.photos.length ? `
+          <div class="saved-photo-grid">
+            ${row.photos.map((photo, photoIndex) => {
+              const ncText = Array.isArray(photo.nonConformities) && photo.nonConformities.length ? photo.nonConformities.join('; ') : '-';
+              return `
+                <div class="saved-photo-card">
+                  <img class="saved-photo-thumb" src="${photo.dataUrl}" alt="Foto ${photoIndex + 1} da ${areaName}" />
+                  <div class="saved-photo-meta"><strong>Foto ${photoIndex + 1}</strong></div>
+                  <div class="saved-photo-meta"><strong>NC:</strong> ${escapeHtml(ncText)}</div>
+                  <div class="saved-photo-meta"><strong>Áreas NC:</strong> ${escapeHtml(photo.areasNaoConformes || '-')}</div>
+                  <div class="saved-photo-meta"><strong>Setor:</strong> ${escapeHtml(photo.setor || row.rua || '-')}</div>
+                  ${photo.observacao ? `<div class="saved-photo-meta"><strong>Obs.:</strong> ${escapeHtml(photo.observacao)}</div>` : ''}
+                  <div class="photo-card-actions"><button class="btn secondary" type="button" data-edit-photo="${index}" data-photo-index="${photoIndex}">Editar foto</button><button class="btn danger" type="button" data-remove-photo="${index}" data-photo-index="${photoIndex}">Excluir foto</button></div>
+                </div>`;
+            }).join('')}
+          </div>` : '<div class="manage-empty">Nenhuma foto registrada nesta área.</div>';
+        wrap.innerHTML = `
+          <div>
+            <div class="count-stage-title">1. Informe as quantidades avaliadas</div>
+            <div class="count-fields-grid">
+              <div class="field"><label>Rua / Área</label><input type="text" data-count-index="${index}" data-count-field="rua" value="${areaName}" placeholder="Ex.: Rua Biscoitos" /></div>
+              ${fieldsHtml}
+            </div>
+          </div>
+          <div>
+            <div class="count-stage-title">2. Registre a foto atual</div>
+            <div class="photo-draft-panel" data-photo-work-area="${index}">
+              <div class="photo-draft-top">
+                <div class="muted-note">Área: <strong>${areaName}</strong> · Fotos registradas: <strong>${(Array.isArray(row.photos) ? row.photos.length : 0)}</strong></div>
+                <div class="actions" style="margin-top:0;">
+                  <button class="btn secondary" type="button" data-open-camera="${index}">Tirar foto</button>
+                  <button class="btn secondary" type="button" data-clear-draft="${index}">Nova foto</button>
+                  <button class="btn" type="button" data-save-draft="${index}" ${draftPhoto.dataUrl ? '' : 'disabled'}>${Number.isInteger(draftPhoto.editPhotoIndex) ? 'Atualizar foto' : 'Salvar foto'}</button>
+                  <input class="camera-input" type="file" accept="image/*" capture="environment" data-camera-input="${index}" />
+                </div>
+              </div>
+              ${Number.isInteger(draftPhoto.editPhotoIndex) ? `<div class="editing-photo-alert">Editando a foto ${draftPhoto.editPhotoIndex + 1}. Ajuste as NCs, áreas não conformes ou observação e clique em Atualizar foto.</div>` : ''}
+              ${draftPhoto.dataUrl ? `<img class="photo-draft-preview" src="${draftPhoto.dataUrl}" alt="Prévia da foto atual da ${areaName}" />` : '<div class="photo-draft-empty">Tire uma foto para registrar a não conformidade desta área.</div>'}
+              <div class="photo-fields-grid">
+                <div class="field dropdown-wrap" style="grid-column:1 / -1;">
+                  <label>Não conformidades</label>
+                  <button class="btn secondary add-nc-toggle" type="button" data-nc-toggle="${index}">Add NC+</button>
+                  <div class="dropdown-panel" data-nc-panel="${index}">
+                    ${getPhotoOptionsForModel(state.form.modelo).map(option => `
+                      <label class="dropdown-option">
+                        <input type="checkbox" data-draft-check="${escapeHtml(option)}" data-count-index="${index}" ${Array.isArray(draftPhoto.nonConformities) && draftPhoto.nonConformities.includes(option) ? 'checked' : ''} />
+                        <span>${escapeHtml(option)}</span>
+                      </label>`).join('')}
+                  </div>
+                  <div class="selected-nc-list">
+                    ${Array.isArray(draftPhoto.nonConformities) && draftPhoto.nonConformities.length ? draftPhoto.nonConformities.map(option => `<span class="selected-nc-chip"><span>${escapeHtml(option)}</span><button type="button" data-remove-draft-nc="${escapeHtml(option)}" data-count-index="${index}">×</button></span>`).join('') : '<span class="muted-note">Nenhuma NC adicionada.</span>'}
+                  </div>
+                </div>
+                <div class="field">
+                  <label>Áreas não conformes</label>
+                  <input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-draft-field="areasNaoConformes" value="${escapeHtml(draftPhoto.areasNaoConformes ?? '')}" />
+                </div>
+                <div class="field" style="grid-column:1 / -1;">
+                  <label>Observação complementar</label>
+                  <textarea data-count-index="${index}" data-draft-field="observacao" placeholder="Detalhe complementar da não conformidade">${escapeHtml(draftPhoto.observacao || '')}</textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="field-collapse-card" data-collapse-card="photos-${index}">
+            <button class="field-collapse-toggle" type="button" data-collapse-toggle="photos-${index}"><span>Fotos Salvas (${Array.isArray(row.photos) ? row.photos.length : 0})</span><span>+</span></button>
+            <div class="field-collapse-content">${savedPhotosHtml}</div>
+          </div>
+          <div class="count-row-actions"><button class="btn danger remove-count-row" type="button" data-remove-count-row="${index}">Excluir área</button></div>`;
+        list.appendChild(wrap);
+      });
+    }
+
+    list.querySelectorAll('[data-collapse-toggle]').forEach(btn => btn.onclick = () => {
+      const card = btn.closest('.field-collapse-card');
+      card?.classList.toggle('open');
+      const icon = btn.querySelector('span:last-child');
+      if (icon) icon.textContent = card?.classList.contains('open') ? '−' : '+';
+    });
+    list.querySelectorAll('[data-count-field]').forEach(el => el.addEventListener('input', e => {
+      const row = manageStreetCounts?.[Number(e.target.dataset.countIndex)]; if (!row) return;
+      row[e.target.dataset.countField] = e.target.value ?? ''; saveFieldModalTemp();
+    }));
+    list.querySelectorAll('[data-count-key]').forEach(el => el.addEventListener('input', e => {
+      const row = manageStreetCounts?.[Number(e.target.dataset.countIndex)]; if (!row) return;
+      const key = e.target.dataset.countKey; const value = String(e.target.value ?? '').replace(/[^\d]/g, '');
+      if (e.target.value !== value) e.target.value = value;
+      row.counts = row.counts || getEmptyCountsForModel(state.form.modelo); row.counts[key] = value;
+      updateStreetCountsSummary(); saveFieldModalTemp();
+    }));
+    list.querySelectorAll('[data-open-camera]').forEach(btn => btn.onclick = () => list.querySelector(`[data-camera-input="${Number(btn.dataset.openCamera)}"]`)?.click());
+    list.querySelectorAll('[data-camera-input]').forEach(input => {
+      input.onchange = async e => {
+        const index = Number(e.target.dataset.cameraInput); const row = manageStreetCounts?.[index]; const file = e.target.files && e.target.files[0];
+        if (!row || !file) return;
+        const draft = getDraftPhotoForRow(row);
+        draft.dataUrl = await normalizeImageFileToDataUrl(file);
+        saveFieldModalTemp(); renderStreetCounts();
+      };
+    });
+    list.querySelectorAll('[data-draft-field]').forEach(el => el.addEventListener('input', e => {
+      const row = manageStreetCounts?.[Number(e.target.dataset.countIndex)]; const draft = getDraftPhotoForRow(row);
+      const field = e.target.dataset.draftField; let value = e.target.value ?? '';
+      if (field === 'areasNaoConformes') { value = String(value).replace(/[^\d]/g, ''); if (e.target.value !== value) e.target.value = value; }
+      draft[field] = value; saveFieldModalTemp();
+    }));
+    list.querySelectorAll('[data-nc-toggle]').forEach(btn => btn.onclick = (e) => {
+      e.stopPropagation(); const panel = list.querySelector(`[data-nc-panel="${btn.dataset.ncToggle}"]`);
+      list.querySelectorAll('[data-nc-panel]').forEach(p => { if (p !== panel) p.classList.remove('open'); }); panel?.classList.toggle('open');
+    });
+    list.querySelectorAll('[data-draft-check]').forEach(el => el.onchange = e => {
+      const index = Number(e.target.dataset.countIndex); const option = e.target.dataset.draftCheck;
+      const draft = getDraftPhotoForRow(manageStreetCounts?.[index]); const current = new Set(Array.isArray(draft.nonConformities) ? draft.nonConformities : []);
+      if (e.target.checked) current.add(option); else current.delete(option); draft.nonConformities = Array.from(current);
+      list.querySelector(`[data-nc-panel="${index}"]`)?.classList.remove('open'); saveFieldModalTemp(); renderStreetCounts();
+    });
+    list.querySelectorAll('[data-remove-draft-nc]').forEach(btn => btn.onclick = () => {
+      const draft = getDraftPhotoForRow(manageStreetCounts?.[Number(btn.dataset.countIndex)]);
+      draft.nonConformities = (Array.isArray(draft.nonConformities) ? draft.nonConformities : []).filter(v => v !== String(btn.dataset.removeDraftNc || ''));
+      saveFieldModalTemp(); renderStreetCounts();
+    });
+    list.querySelectorAll('.dropdown-panel').forEach(panel => panel.onclick = e => e.stopPropagation());
+    document.onclick = () => { list.querySelectorAll('[data-nc-panel]').forEach(p => p.classList.remove('open')); };
+    list.querySelectorAll('[data-clear-draft]').forEach(btn => btn.onclick = () => {
+      const row = manageStreetCounts?.[Number(btn.dataset.clearDraft)]; if (!row) return; row.draftPhoto = makeDefaultPhoto(row.rua || ''); saveFieldModalTemp(); renderStreetCounts();
+    });
+    list.querySelectorAll('[data-save-draft]').forEach(btn => btn.onclick = () => {
+      const row = manageStreetCounts?.[Number(btn.dataset.saveDraft)]; if (!row) return;
+      const draft = getDraftPhotoForRow(row); if (!draft.dataUrl) { showToast('Tire uma foto antes de salvar.'); return; }
+      row.photos = Array.isArray(row.photos) ? row.photos : [];
+      const normalizedPhoto = { ...draft, setor: draft.setor || row.rua || '', nonConformities: Array.isArray(draft.nonConformities) ? draft.nonConformities.filter(Boolean) : [], areasNaoConformes: String(draft.areasNaoConformes ?? ''), observacao: String(draft.observacao ?? '') };
+      delete normalizedPhoto.editPhotoIndex;
+      const editIndex = Number.isInteger(draft.editPhotoIndex) ? draft.editPhotoIndex : -1;
+      if (editIndex >= 0 && row.photos[editIndex]) { row.photos[editIndex] = { ...row.photos[editIndex], ...normalizedPhoto }; showToast('Foto atualizada nesta área.'); }
+      else { row.photos.push({ ...normalizedPhoto, id: `photo-${Date.now()}-${Math.random().toString(36).slice(2,7)}` }); showToast('Foto salva nesta área.'); }
+      row.draftPhoto = makeDefaultPhoto(row.rua || ''); saveFieldModalTemp(); renderStreetCounts();
+    });
+    list.querySelectorAll('[data-edit-photo]').forEach(btn => btn.onclick = () => {
+      const rowIndex = Number(btn.dataset.editPhoto); const photoIndex = Number(btn.dataset.photoIndex); const row = manageStreetCounts?.[rowIndex]; const photo = row?.photos?.[photoIndex];
+      if (!row || !photo) return;
+      row.draftPhoto = { ...makeDefaultPhoto(row.rua || ''), ...photo, nonConformities: Array.isArray(photo.nonConformities) ? [...photo.nonConformities] : [], areasNaoConformes: String(photo.areasNaoConformes ?? ''), observacao: String(photo.observacao ?? ''), setor: photo.setor || row.rua || '', editPhotoIndex: photoIndex };
+      saveFieldModalTemp(); renderStreetCounts(); setTimeout(()=>document.querySelector(`[data-photo-work-area="${rowIndex}"]`)?.scrollIntoView({behavior:'smooth', block:'start'}), 80); showToast('Foto carregada para edição.');
+    });
+    list.querySelectorAll('[data-remove-photo]').forEach(btn => btn.onclick = () => {
+      const row = manageStreetCounts?.[Number(btn.dataset.removePhoto)]; if (!row?.photos) return; row.photos.splice(Number(btn.dataset.photoIndex),1); saveFieldModalTemp(); renderStreetCounts();
+    });
+    list.querySelectorAll('[data-remove-count-row]').forEach(btn => btn.onclick = () => {
+      manageStreetCounts.splice(Number(btn.dataset.removeCountRow), 1); if (!manageStreetCounts.length) manageStreetCounts = makeDefaultStreetCounts(state.form.modelo); saveFieldModalTemp(); renderStreetCounts();
+    });
+    updateStreetCountsSummary();
+  };
+
+  window.updateStreetCountsSummary = function updateStreetCountsSummary(){
+    const summary = document.getElementById('streetCountsSummary'); if (!summary) return;
+    const totals = getStreetCountTotals(Array.isArray(manageStreetCounts) ? manageStreetCounts : state.streetCounts, state.form.modelo);
+    const tiles = getAreaDefinitions(state.form.modelo).map(area => `<div class="count-summary-tile"><div class="count-summary-label">${escapeHtml(area.label)}</div><div class="count-summary-value">${totals[area.key] || 0}</div></div>`).join('');
+    summary.innerHTML = `<div class="field-collapse-card" data-collapse-card="summary"><button class="field-collapse-toggle" type="button" data-summary-toggle><span>Resumo</span><span>+</span></button><div class="field-collapse-content"><div class="count-summary-inner">${tiles}<div class="count-summary-tile"><div class="count-summary-label">Fotos registradas</div><div class="count-summary-value">${totals.photos || 0}</div></div></div></div></div>`;
+    summary.querySelector('[data-summary-toggle]')?.addEventListener('click', function(){
+      const card = this.closest('.field-collapse-card'); card?.classList.toggle('open'); const icon=this.querySelector('span:last-child'); if(icon) icon.textContent = card?.classList.contains('open') ? '−' : '+';
+    });
+  };
+
+  window.openStreetCountsModal = function openStreetCountsModal(){
+    const temp = loadFieldModalTemp();
+    manageStreetCounts = clone(temp || state.streetCounts || makeDefaultStreetCounts(state.form.modelo));
+    renderStreetCounts();
+    const modal = document.getElementById('streetCountsModal');
+    modal.classList.add('open'); modal.setAttribute('aria-hidden', 'false');
+    setTimeout(() => {
+      const panel = modal.querySelector('.manage-panel'); if (panel) panel.scrollTop = 0;
+      const target = modal.querySelector('.photo-draft-panel') || modal.querySelector('.count-row');
+      target?.scrollIntoView({ behavior:'smooth', block:'start' });
+    }, 120);
+  };
+
+  const originalSaveStreetCounts = window.saveStreetCounts || saveStreetCounts;
+  window.saveStreetCounts = function(){
+    if (typeof originalSaveStreetCounts === 'function') originalSaveStreetCounts();
+    clearFieldModalTemp();
+  };
+
+  function rebindFieldButtons(){
+    const streetBtn = document.getElementById('streetCountsBtn'); if (streetBtn) streetBtn.onclick = window.openStreetCountsModal;
+    const saveBtn = document.getElementById('saveStreetCountsBtn'); if (saveBtn) saveBtn.onclick = window.saveStreetCounts;
+  }
+  rebindFieldButtons();
+  document.addEventListener('DOMContentLoaded', rebindFieldButtons);
+})();
+</script>
+
 </body>
 </html>

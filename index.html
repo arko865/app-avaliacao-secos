@@ -3268,5 +3268,132 @@ function bindNewConfigEvents(){
 })();
 </script>
 
+
+<script>
+/* === Patch: Configurar avaliação do zero + sincronização entre dispositivos === */
+const CLOUD_MODEL_CONFIG_DOC_PATH = 'shared/modelConfigurations';
+let modelConfigSyncTimer = null;
+let modelConfigListenerStarted = false;
+let lastModelConfigSyncAt = 0;
+
+function getSyncedModelConfigPayload(){
+  return {
+    modelConfigs: migrateConfigurableModels(state.modelConfigs || buildInitialConfigurableModels()),
+    modelItemTemplates: normalizeModelItemTemplates(state.modelItemTemplates || {}),
+    selectedModel: state?.form?.modelo || DEFAULT_MODEL_KEY
+  };
+}
+function applySyncedModelConfigPayload(payload){
+  if (!payload || typeof payload !== 'object') return false;
+  const nextConfigs = migrateConfigurableModels(payload.modelConfigs || {});
+  const nextTemplates = normalizeModelItemTemplates(payload.modelItemTemplates || {});
+  if (!Object.keys(nextConfigs).length) return false;
+  const currentModel = state?.form?.modelo || DEFAULT_MODEL_KEY;
+  state.modelConfigs = nextConfigs;
+  state.modelItemTemplates = nextTemplates;
+  if (!state.modelConfigs[currentModel]) {
+    state.form.modelo = payload.selectedModel && state.modelConfigs[payload.selectedModel] ? payload.selectedModel : (Object.keys(state.modelConfigs)[0] || DEFAULT_MODEL_KEY);
+    state.items = clearEvaluationValuesFromItems(state.modelItemTemplates[state.form.modelo] || buildItemsFromModel(state.form.modelo), state.form.modelo);
+    state.streetCounts = isStreetCountEnabled(state.form.modelo) ? makeDefaultStreetCounts(state.form.modelo) : [];
+  }
+  persistState();
+  renderApp();
+  return true;
+}
+function syncModelConfigsToCloud(immediate = false){
+  if (!firebaseReady || !firestore) return;
+  clearTimeout(modelConfigSyncTimer);
+  const run = async () => {
+    try {
+      const now = Date.now();
+      lastModelConfigSyncAt = now;
+      await firestore.doc(CLOUD_MODEL_CONFIG_DOC_PATH).set({
+        ...getSyncedModelConfigPayload(),
+        updatedAt: now,
+        updatedBy: deviceId
+      }, { merge:true });
+    } catch (err) {
+      console.warn('Não foi possível sincronizar a configuração dos modelos.', err);
+    }
+  };
+  modelConfigSyncTimer = setTimeout(run, immediate ? 0 : 350);
+}
+function startModelConfigCloudListener(){
+  if (!firebaseReady || !firestore || modelConfigListenerStarted) return;
+  modelConfigListenerStarted = true;
+  firestore.doc(CLOUD_MODEL_CONFIG_DOC_PATH).onSnapshot(snapshot => {
+    if (!snapshot.exists) {
+      syncModelConfigsToCloud(true);
+      return;
+    }
+    const data = snapshot.data() || {};
+    const updatedAt = parseMillis(data.updatedAt);
+    if (data.updatedBy === deviceId || updatedAt <= lastModelConfigSyncAt) return;
+    lastModelConfigSyncAt = updatedAt;
+    if (applySyncedModelConfigPayload(data)) showToast('Configuração de avaliação sincronizada.');
+  }, err => console.warn('Listener de configuração indisponível.', err));
+}
+async function initializeFirebaseSync(){
+  try {
+    if (!window.firebase || !firebaseConfig) return;
+    if (!firebase.apps || !firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    firestore = firebase.firestore();
+    firebaseReady = true;
+    startModelConfigCloudListener();
+  } catch (err) {
+    firebaseReady = false;
+    firestore = null;
+    console.warn('Firebase indisponível para sincronização de modelos.', err);
+  }
+}
+
+function createNewConfigModel(duplicateCurrent){
+  const source = ensureConfigDraftModel(configEditorModelKey);
+  const label = prompt('Nome do novo modelo de avaliação:');
+  if (!label) return;
+  const keyBase = slugifyConfigKey(label);
+  let key = keyBase, counter = 2;
+  while (configDraft.models[key]) key = `${keyBase}_${counter++}`;
+  configDraft.models[key] = duplicateCurrent
+    ? clone(source)
+    : { key, label, reportLabel:'Relatório de Avaliação de Inventário', usesStreetCounts:true, items:[], areaDefinitions:[], ncDefinitions:[] };
+  configDraft.models[key].key = key;
+  configDraft.models[key].label = label;
+  configDraft.models[key].reportLabel = duplicateCurrent ? `${label}` : 'Relatório de Avaliação de Inventário';
+  configDraft.templates[key] = duplicateCurrent ? clone(configDraft.templates[configEditorModelKey] || []) : [];
+  configEditorModelKey = key;
+  renderConfigModal();
+}
+
+function saveConfigModels(){
+  if (!configDraft) return;
+  state.modelConfigs = migrateConfigurableModels(configDraft.models);
+  state.modelItemTemplates = normalizeModelItemTemplates(configDraft.templates);
+  Object.values(state.modelConfigs).forEach(model=>{
+    const templates = state.modelItemTemplates[model.key] || [];
+    model.items = templates.map(item=>({ description:item.description, section:item.section }));
+  });
+  if (state.modelConfigs[configEditorModelKey]) state.form.modelo = configEditorModelKey;
+  if (!state.modelConfigs[state.form.modelo]) state.form.modelo = Object.keys(state.modelConfigs)[0] || DEFAULT_MODEL_KEY;
+  const currentTemplates = state.modelItemTemplates[state.form.modelo] || buildItemsFromModel(state.form.modelo);
+  state.items = clearEvaluationValuesFromItems(currentTemplates, state.form.modelo);
+  state.streetCounts = isStreetCountEnabled(state.form.modelo) ? makeDefaultStreetCounts(state.form.modelo) : [];
+  if (state.form.nomeLoja && isStreetCountEnabled(state.form.modelo)) loadStreetCountsForStore(state.form.nomeLoja, state.form.modelo);
+  applyAutomaticAreas(state);
+  applyAutomaticNonConformities(state);
+  persistState();
+  syncModelConfigsToCloud(true);
+  renderApp();
+  closeConfigModal();
+  showToast('Configuração salva, aplicada e enviada para sincronização.');
+}
+
+(function applyConfigSyncPatch(){
+  injectConfigButtonAndModal();
+  bindNewConfigEvents();
+  initializeFirebaseSync();
+})();
+</script>
+
 </body>
 </html>

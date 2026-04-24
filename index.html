@@ -504,6 +504,7 @@ const STATUS_THRESHOLD = 84.5;
 const STORE_OPTIONS = ["01 Matriz", "07 Compensa", "10 Flores", "100 TG Foods", "11 G. Circular", "12 Djalma", "13 Via Norte", "18 Viver Melhor", "20 Adrianópolis", "22 Morada", "31 Torres", "32 Centro", "33 Barreira", "34 Silves", "35 Cid Deus", "36 Ponte C", "44 Ponta Negra", "48 Galpão Cd", "52 Alvorada", "53 Cid. Nova", "54 Max Teixeira", "55 Dom Pedro", "56 Coroado", "57 Parque10", "58 Nilton Lins"];
 const STORAGE_KEY = 'arko_avaliacao_rascunho_v2';
 const HISTORY_KEY = 'arko_avaliacao_historico_v2';
+const PENDING_HISTORY_SYNC_KEY = 'arko_avaliacao_historico_pendente_sync_v1';
 const SAFETY_KEY = 'arko_avaliacao_fail_safe_v1';
 const firebaseConfig = {
   apiKey: "AIzaSyDMMNvtmoaVmsSXHUplibVSGuMf9CkMiUY",
@@ -961,26 +962,112 @@ function parseMillis(value) {
   if (typeof value.toMillis === 'function') return value.toMillis();
   return 0;
 }
+
+function getPendingHistorySync() {
+  try { return JSON.parse(localStorage.getItem(PENDING_HISTORY_SYNC_KEY) || '[]'); } catch (err) { return []; }
+}
+function setPendingHistorySync(list) {
+  try { localStorage.setItem(PENDING_HISTORY_SYNC_KEY, JSON.stringify((list || []).slice(0, 100))); } catch (err) { console.warn('Não foi possível salvar a fila de sincronização local.', err); }
+}
+function enqueueHistorySync(entry) {
+  if (!entry || !entry.id) return;
+  const list = getPendingHistorySync();
+  const next = [entry, ...list.filter(x => String(x.id) !== String(entry.id))].slice(0, 100);
+  setPendingHistorySync(next);
+}
+async function flushPendingHistorySync() {
+  if (!firebaseReady || !firestore || !navigator.onLine) return;
+  const list = getPendingHistorySync();
+  if (!list.length) return;
+  const remaining = [];
+  for (const entry of list) {
+    try {
+      await firestore.collection(CLOUD_HISTORY_COLLECTION).doc(String(entry.id)).set({
+        ...entry,
+        syncedAt: Date.now(),
+        updatedBy: deviceId
+      }, { merge:true });
+    } catch (err) {
+      remaining.push(entry);
+      console.warn('Não foi possível sincronizar uma avaliação finalizada.', err);
+    }
+  }
+  setPendingHistorySync(remaining);
+  if (!remaining.length) showToast('Avaliações finalizadas sincronizadas.');
+}
+function mergeHistoryEntries(localList, remoteList) {
+  const map = new Map();
+  [...(remoteList || []), ...(localList || [])].forEach(entry => {
+    if (!entry || !entry.id) return;
+    const id = String(entry.id);
+    const current = map.get(id);
+    const entryTime = Date.parse(entry.createdAt || '') || Number(entry.id) || 0;
+    const currentTime = current ? (Date.parse(current.createdAt || '') || Number(current.id) || 0) : -1;
+    if (!current || entryTime >= currentTime) map.set(id, entry);
+  });
+  return Array.from(map.values()).sort((a,b) => (Date.parse(b.createdAt || '') || Number(b.id) || 0) - (Date.parse(a.createdAt || '') || Number(a.id) || 0)).slice(0, 50);
+}
 function queueCloudDraftSync(immediate = false, forcedUpdatedAt = 0) {
+  // Salvamento da avaliação em andamento é 100% local. Não sincronizar rascunho evita
+  // que um dispositivo sobrescreva o preenchimento feito offline em campo.
   return;
 }
 async function syncHistoryEntryToCloud(entry) {
-  return;
+  if (!entry || !entry.id) return;
+  if (!firebaseReady || !firestore || !navigator.onLine) {
+    enqueueHistorySync(entry);
+    return;
+  }
+  try {
+    await firestore.collection(CLOUD_HISTORY_COLLECTION).doc(String(entry.id)).set({
+      ...entry,
+      finalized:true,
+      syncedAt: Date.now(),
+      updatedBy: deviceId
+    }, { merge:true });
+  } catch (err) {
+    enqueueHistorySync(entry);
+    console.warn('Avaliação finalizada mantida localmente para sincronizar depois.', err);
+  }
 }
 async function deleteHistoryEntryFromCloud(id) {
-  return;
+  if (!firebaseReady || !firestore || !navigator.onLine || !id) return;
+  try { await firestore.collection(CLOUD_HISTORY_COLLECTION).doc(String(id)).delete(); } catch (err) { console.warn('Não foi possível excluir avaliação na nuvem.', err); }
 }
 async function seedCloudFromLocal() {
-  return;
+  const local = getLocalHistory();
+  local.forEach(enqueueHistorySync);
+  await flushPendingHistorySync();
 }
 function startCloudListeners() {
-  return;
+  if (!firebaseReady || !firestore || cloudHistoryInitialized) return;
+  cloudHistoryInitialized = true;
+  firestore.collection(CLOUD_HISTORY_COLLECTION).orderBy('createdAt', 'desc').limit(50).onSnapshot(snapshot => {
+    const remote = [];
+    snapshot.forEach(doc => remote.push({ id: doc.id, ...(doc.data() || {}) }));
+    const merged = mergeHistoryEntries(getLocalHistory(), remote);
+    historyCache = merged;
+    setLocalHistory(merged);
+    renderHistory();
+  }, err => console.warn('Histórico remoto indisponível.', err));
+  flushPendingHistorySync();
 }
 async function initializeFirebaseSync() {
   firebaseReady = false;
   firestore = null;
-  return;
+  try {
+    if (!window.firebase || !firebaseConfig) return;
+    if (!firebase.apps || !firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    firestore = firebase.firestore();
+    firebaseReady = true;
+    startCloudListeners();
+  } catch (err) {
+    firebaseReady = false;
+    firestore = null;
+    console.warn('Firebase indisponível. O app continuará salvando localmente.', err);
+  }
 }
+
 
 function sectionTotals(rows) { let area=0,nc=0; rows.forEach(r=>{ area += r.areaAvaliada; nc += r.naoConformes; }); return { area, nc, nota: area > 0 ? clampPercent(((area - nc) / area) * 100) : 0 }; }
 function smartFileName() {
@@ -1054,6 +1141,8 @@ function saveHistorySnapshot() {
     title: state.form.nomeLoja || 'Loja sem nome',
     subtitle: `${getModelConfig(state.form.modelo).label} • ${state.form.setor || 'Sem setor'} • ${state.form.visita || 'Sem visita'} • ${formatDateBR(state.form.data)}`,
     notaFinal: summary.notaFinal,
+    finalized: true,
+    syncStatus: navigator.onLine ? 'pending_cloud_sync' : 'local_offline',
     data: clone(state)
   };
   const list = getHistory();
@@ -1891,7 +1980,7 @@ function bindInputs() {
     try { localStorage.removeItem(STORAGE_KEY); } catch (err) {}
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (err) { console.warn('Não foi possível limpar o rascunho local.', err); }
     renderApp();
-    queueCloudDraftSync(true, resetTimestamp);
+    // Limpeza afeta apenas o rascunho local; não sobrescreve outros dispositivos.
     saveFailSafeCheckpoint('reset');
     showToast('Avaliação limpa com sucesso.');
   };
@@ -2289,7 +2378,7 @@ function init() {
       event.preventDefault();
     }, { passive:false });
   }
-  window.addEventListener('online', () => { updateNetworkBadge(); persistState(); });
+  window.addEventListener('online', () => { updateNetworkBadge(); persistState(); flushPendingHistorySync(); showToast('Conexão restabelecida. Rascunho mantido localmente.'); });
   window.addEventListener('offline', () => { updateNetworkBadge(); persistState(); });
   window.addEventListener('beforeunload', () => { persistState(); });
   document.addEventListener('visibilitychange', () => {
@@ -3339,7 +3428,9 @@ async function initializeFirebaseSync(){
     if (!firebase.apps || !firebase.apps.length) firebase.initializeApp(firebaseConfig);
     firestore = firebase.firestore();
     firebaseReady = true;
+    startCloudListeners();
     startModelConfigCloudListener();
+    flushPendingHistorySync();
   } catch (err) {
     firebaseReady = false;
     firestore = null;

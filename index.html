@@ -4314,5 +4314,502 @@ function saveConfigModels(){
   window.deleteCurrentEvaluationModel = deleteCurrentEvaluationModel;
 })();
 </script>
+
+
+<style id="accessControlPatchStyle">
+  .login-overlay { position:fixed; inset:0; z-index:9999; background:linear-gradient(135deg,#f8fafc,#e2e8f0); display:flex; align-items:center; justify-content:center; padding:18px; }
+  .login-overlay.hidden { display:none !important; }
+  .login-card { width:min(430px,100%); background:#fff; border:1px solid var(--border,#dbe2ea); border-radius:24px; box-shadow:0 18px 55px rgba(15,23,42,.16); padding:22px; }
+  .login-title { font-size:26px; font-weight:900; margin:0 0 6px; color:#0f172a; }
+  .login-subtitle { margin:0 0 18px; color:#64748b; font-size:14px; line-height:1.45; }
+  .login-form { display:grid; gap:12px; }
+  .login-actions { display:flex; gap:10px; align-items:center; justify-content:space-between; margin-top:4px; flex-wrap:wrap; }
+  .login-error { color:#991b1b; background:#fff1f2; border:1px solid #fecaca; border-radius:12px; padding:10px 12px; font-size:13px; font-weight:800; display:none; }
+  .login-error.show { display:block; }
+  .access-badge { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:999px; background:#f8fafc; border:1px solid var(--border,#dbe2ea); color:#334155; font-size:13px; font-weight:900; }
+  .access-badge::before { content:''; width:9px; height:9px; border-radius:999px; background:#16a34a; }
+  .user-manager-grid { display:grid; gap:12px; grid-template-columns:1.2fr 160px 140px 140px auto; align-items:end; }
+  .user-row { display:grid; gap:10px; grid-template-columns:1.1fr 130px 120px 120px auto auto; align-items:end; border:1px solid var(--border,#dbe2ea); border-radius:14px; padding:12px; background:#fff; margin-bottom:10px; }
+  .user-row .field { gap:6px; }
+  .user-row label { font-size:12px; }
+  .user-row input, .user-row select { padding:10px 11px; font-size:14px; border-radius:12px; }
+  .role-chip { display:inline-flex; width:max-content; align-items:center; justify-content:center; border-radius:999px; background:#f1f5f9; border:1px solid #e2e8f0; padding:7px 10px; font-weight:900; font-size:12px; color:#0f172a; }
+  .sync-note { margin-top:10px; color:#64748b; font-size:13px; line-height:1.45; }
+  @media (max-width: 920px) { .user-manager-grid, .user-row { grid-template-columns:1fr; } }
+</style>
+
+<div id="loginOverlay" class="login-overlay" aria-hidden="false">
+  <div class="login-card">
+    <h2 class="login-title">Acesso ao app</h2>
+    <p class="login-subtitle">Entre com CPF e senha. O acesso define se o usuário verá a versão completa ou apenas o menu Avaliar.</p>
+    <div id="loginError" class="login-error"></div>
+    <div class="login-form">
+      <div class="field"><label for="loginCpf">CPF</label><input id="loginCpf" type="tel" inputmode="numeric" autocomplete="username" placeholder="Somente números" /></div>
+      <div class="field"><label for="loginPassword">Senha</label><input id="loginPassword" type="password" autocomplete="current-password" placeholder="Senha" /></div>
+      <div class="login-actions">
+        <button id="loginBtn" class="btn" type="button">Entrar</button>
+        <span class="muted-note" style="margin:0;">Funciona offline com usuários já salvos neste aparelho.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="userManagerModal" class="manage-modal" aria-hidden="true">
+  <div class="manage-panel" style="max-width:1120px;">
+    <div class="manage-header">
+      <div>
+        <div class="manage-title">Gerenciar usuários</div>
+        <div class="manage-help">Somente gerente pode criar usuários, editar nomes, alterar senhas, definir perfil e excluir usuários. As avaliações finalizadas são salvas como registros independentes para permitir vários celulares trabalhando ao mesmo tempo.</div>
+      </div>
+      <button id="closeUserManagerBtn" class="btn secondary" type="button">Fechar</button>
+    </div>
+    <div class="manage-body">
+      <div class="manage-section-block" style="margin-top:0;">
+        <h3 class="manage-section-title">Adicionar usuário</h3>
+        <div class="user-manager-grid">
+          <div class="field"><label for="newUserName">Nome</label><input id="newUserName" type="text" placeholder="Nome do usuário" /></div>
+          <div class="field"><label for="newUserCpf">CPF</label><input id="newUserCpf" type="tel" inputmode="numeric" placeholder="Somente números" /></div>
+          <div class="field"><label for="newUserPass">Senha</label><input id="newUserPass" type="text" placeholder="Senha inicial" /></div>
+          <div class="field"><label for="newUserRole">Perfil</label><select id="newUserRole"><option value="supervisor">Supervisor</option><option value="gerente">Gerente</option></select></div>
+          <button id="addUserBtn" class="btn" type="button">Adicionar</button>
+        </div>
+        <div class="sync-note">Dica: para redefinir uma senha, edite o usuário abaixo e informe a nova senha. Deixe a senha em branco quando quiser manter a atual.</div>
+      </div>
+      <div class="manage-section-block">
+        <h3 class="manage-section-title">Usuários cadastrados</h3>
+        <div id="usersList"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script id="accessControlPatchScript">
+(function(){
+  const USERS_KEY = 'arko_access_users_v1';
+  const SESSION_KEY = 'arko_access_session_v1';
+  const USERS_DOC_PATH = 'shared/accessUsers';
+  const DEFAULT_USERS = {
+    '02142314295': { cpf:'02142314295', senha:'1234', perfil:'gerente', nome:'Gerente' },
+    '02824421207': { cpf:'02824421207', senha:'1234', perfil:'supervisor', nome:'Supervisor' }
+  };
+  const gerenteOnlyIds = ['manageItemsBtn','configureModelsBtn','downloadBackupBtn','resetBtn','usersManagerBtn'];
+  const supervisorHideIds = ['downloadBackupBtn','manageItemsBtn','configureModelsBtn','resetBtn'];
+
+  function onlyDigits(v){ return String(v || '').replace(/\D/g,''); }
+  function clone(o){ return JSON.parse(JSON.stringify(o || {})); }
+  function notify(msg){ if (typeof showToast === 'function') showToast(msg); else alert(msg); }
+  function getUsers(){
+    try {
+      const saved = JSON.parse(localStorage.getItem(USERS_KEY) || '{}');
+      return Object.assign(clone(DEFAULT_USERS), saved || {});
+    } catch(e){ return clone(DEFAULT_USERS); }
+  }
+  function saveUsers(users){ localStorage.setItem(USERS_KEY, JSON.stringify(users || {})); }
+  async function ensureFirestore(){
+    if (!window.firestore && window.firebase) {
+      if (!firebase.apps || !firebase.apps.length) firebase.initializeApp(firebaseConfig);
+      window.firestore = firebase.firestore();
+    }
+    return window.firestore || (typeof firestore !== 'undefined' ? firestore : null);
+  }
+  async function syncUsersToCloud(){
+    try {
+      const db = await ensureFirestore();
+      if (!db) return;
+      await db.doc(USERS_DOC_PATH).set({ users:getUsers(), updatedAt:new Date().toISOString() }, { merge:true });
+    } catch(e){ console.warn('Usuários salvos localmente; sincronização indisponível.', e); }
+  }
+  async function loadUsersFromCloud(){
+    try {
+      const db = await ensureFirestore();
+      if (!db) return;
+      const snap = await db.doc(USERS_DOC_PATH).get();
+      if (snap.exists && snap.data() && snap.data().users) {
+        const merged = Object.assign(clone(DEFAULT_USERS), snap.data().users || {});
+        saveUsers(merged);
+      } else {
+        await syncUsersToCloud();
+      }
+    } catch(e){ console.warn('Não foi possível carregar usuários da nuvem.', e); }
+  }
+  function getSession(){ try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch(e){ return null; } }
+  function setSession(user){ localStorage.setItem(SESSION_KEY, JSON.stringify({ cpf:user.cpf, perfil:user.perfil, nome:user.nome || user.cpf, loginAt:new Date().toISOString() })); }
+  function clearSession(){ localStorage.removeItem(SESSION_KEY); }
+  function isGerente(){ const s=getSession(); return !!s && s.perfil === 'gerente'; }
+  function isSupervisor(){ const s=getSession(); return !!s && s.perfil === 'supervisor'; }
+  function setLoginError(msg){ const el=document.getElementById('loginError'); if (!el) return; el.textContent=msg || ''; el.classList.toggle('show', !!msg); }
+
+  function ensureTopButtons(){
+    const actions = document.querySelector('.top-actions');
+    if (!actions) return;
+    if (!document.getElementById('usersManagerBtn')) {
+      const b=document.createElement('button'); b.id='usersManagerBtn'; b.className='btn secondary'; b.type='button'; b.textContent='Usuários'; actions.appendChild(b);
+    }
+    if (!document.getElementById('logoutBtn')) {
+      const b=document.createElement('button'); b.id='logoutBtn'; b.className='btn secondary'; b.type='button'; b.textContent='Sair'; actions.appendChild(b);
+    }
+    if (!document.getElementById('accessBadge')) {
+      const badge=document.createElement('span'); badge.id='accessBadge'; badge.className='access-badge'; actions.appendChild(badge);
+    }
+  }
+
+  function applyPermissions(){
+    ensureTopButtons();
+    const s=getSession();
+    const overlay=document.getElementById('loginOverlay');
+    if (overlay) overlay.classList.toggle('hidden', !!s);
+    const badge=document.getElementById('accessBadge');
+    if (badge && s) badge.textContent = `${s.nome || s.cpf} • ${s.perfil === 'gerente' ? 'Gerente' : 'Supervisor'}`;
+
+    const usersBtn=document.getElementById('usersManagerBtn');
+    if (usersBtn) usersBtn.style.display = isGerente() ? '' : 'none';
+    const logout=document.getElementById('logoutBtn');
+    if (logout) logout.style.display = s ? '' : 'none';
+
+    if (!s) return;
+    supervisorHideIds.forEach(id => { const el=document.getElementById(id); if (el) el.style.display = isSupervisor() ? 'none' : ''; });
+    if (isGerente()) supervisorHideIds.forEach(id => { const el=document.getElementById(id); if (el) el.style.display = ''; });
+  }
+
+  function doLogin(){
+    const cpf=onlyDigits(document.getElementById('loginCpf')?.value);
+    const senha=String(document.getElementById('loginPassword')?.value || '');
+    const users=getUsers();
+    const user=users[cpf];
+    if (!cpf || !senha) { setLoginError('Informe CPF e senha.'); return; }
+    if (!user || String(user.senha) !== senha) { setLoginError('CPF ou senha inválidos.'); return; }
+    setLoginError(''); setSession(user); applyPermissions(); notify('Acesso liberado.');
+  }
+
+  function renderUsersList(){
+    const box=document.getElementById('usersList'); if (!box) return;
+    const users=getUsers();
+    const current=getSession();
+    const rows=Object.values(users).sort((a,b)=>String(a.nome || a.cpf).localeCompare(String(b.nome || b.cpf))).map(u=>{
+      const canDelete = !(current && current.cpf === u.cpf);
+      return `<div class="user-row" data-cpf="${u.cpf}">
+        <div class="field"><label>Nome</label><input class="edit-user-name" value="${String(u.nome || '').replace(/"/g,'&quot;')}" /></div>
+        <div class="field"><label>CPF</label><input value="${u.cpf}" disabled /></div>
+        <div class="field"><label>Perfil</label><select class="edit-user-role"><option value="supervisor" ${u.perfil === 'supervisor' ? 'selected' : ''}>Supervisor</option><option value="gerente" ${u.perfil === 'gerente' ? 'selected' : ''}>Gerente</option></select></div>
+        <div class="field"><label>Nova senha</label><input class="edit-user-pass" type="text" placeholder="Manter" /></div>
+        <button class="icon-btn save-user" type="button">Salvar</button>
+        <button class="icon-btn danger delete-user" type="button" ${canDelete ? '' : 'disabled'}>${canDelete ? 'Excluir' : 'Usuário atual'}</button>
+      </div>`;
+    }).join('');
+    box.innerHTML = rows || '<div class="manage-empty">Nenhum usuário cadastrado.</div>';
+  }
+  function openUserManager(){ if (!isGerente()) { notify('Acesso restrito ao gerente.'); return; } renderUsersList(); document.getElementById('userManagerModal')?.classList.add('open'); }
+  function closeUserManager(){ document.getElementById('userManagerModal')?.classList.remove('open'); }
+  function addUser(){
+    if (!isGerente()) return;
+    const nome=String(document.getElementById('newUserName')?.value || '').trim();
+    const cpf=onlyDigits(document.getElementById('newUserCpf')?.value);
+    const senha=String(document.getElementById('newUserPass')?.value || '').trim();
+    const perfil=document.getElementById('newUserRole')?.value === 'gerente' ? 'gerente' : 'supervisor';
+    if (!nome) { notify('Informe o nome do usuário.'); return; }
+    if (cpf.length !== 11) { notify('Informe um CPF com 11 números.'); return; }
+    if (!senha) { notify('Informe uma senha inicial.'); return; }
+    const users=getUsers(); users[cpf]={ cpf, senha, perfil, nome };
+    saveUsers(users); syncUsersToCloud(); renderUsersList();
+    document.getElementById('newUserName').value=''; document.getElementById('newUserCpf').value=''; document.getElementById('newUserPass').value='';
+    notify('Usuário salvo.');
+  }
+  function saveUserFromRow(row){
+    if (!isGerente() || !row) return;
+    const cpf=row.dataset.cpf;
+    const users=getUsers(); if (!users[cpf]) return;
+    const nome=String(row.querySelector('.edit-user-name')?.value || '').trim();
+    const perfil=row.querySelector('.edit-user-role')?.value === 'gerente' ? 'gerente' : 'supervisor';
+    const novaSenha=String(row.querySelector('.edit-user-pass')?.value || '').trim();
+    if (!nome) { notify('Informe o nome do usuário.'); return; }
+    users[cpf].nome=nome;
+    users[cpf].perfil=perfil;
+    if (novaSenha) users[cpf].senha=novaSenha;
+    saveUsers(users); syncUsersToCloud();
+    const current=getSession();
+    if (current && current.cpf === cpf) setSession(users[cpf]);
+    renderUsersList(); applyPermissions(); notify('Usuário atualizado.');
+  }
+  function deleteUser(cpf){
+    const current=getSession(); if (current && current.cpf === cpf) { notify('Não é possível excluir o usuário logado.'); return; }
+    if (!confirm('Excluir este usuário?')) return;
+    const users=getUsers(); delete users[cpf]; saveUsers(users); syncUsersToCloud(); renderUsersList(); notify('Usuário excluído.');
+  }
+
+  function createUniqueEvaluationId(){
+    const s=getSession() || {};
+    const model = (window.state && state.form && state.form.modelo) || 'modelo';
+    const store = (window.state && state.form && state.form.nomeLoja) || 'loja';
+    const cleanedStore = String(store).replace(/[^a-zA-Z0-9]+/g,'_').slice(0,30) || 'loja';
+    const cleanedModel = String(model).replace(/[^a-zA-Z0-9]+/g,'_').slice(0,30) || 'modelo';
+    const user = onlyDigits(s.cpf || 'usuario') || 'usuario';
+    const rand = Math.random().toString(36).slice(2,8);
+    return `${Date.now()}_${cleanedModel}_${cleanedStore}_${user}_${rand}`;
+  }
+
+  function patchIndependentHistorySave(){
+    const original = window.saveHistorySnapshot || (typeof saveHistorySnapshot === 'function' ? saveHistorySnapshot : null);
+    window.saveHistorySnapshot = function(){
+      try {
+        if (typeof getSummary !== 'function' || typeof clone !== 'function') return original ? original.apply(this, arguments) : undefined;
+        const summary = getSummary();
+        const s = getSession() || {};
+        const entry = {
+          id: createUniqueEvaluationId(),
+          createdAt: new Date().toISOString(),
+          title: state.form.nomeLoja || 'Loja sem nome',
+          subtitle: `${getModelConfig(state.form.modelo).label} • ${state.form.setor || 'Sem setor'} • ${state.form.visita || 'Sem visita'} • ${formatDateBR(state.form.data)}`,
+          notaFinal: summary.notaFinal,
+          finalized: true,
+          syncStatus: navigator.onLine ? 'pending_cloud_sync' : 'local_offline',
+          createdBy: { cpf:s.cpf || '', nome:s.nome || '', perfil:s.perfil || '' },
+          deviceId: (typeof deviceId !== 'undefined' ? deviceId : ''),
+          data: clone(state)
+        };
+        const list = (typeof getHistory === 'function' ? getHistory() : []);
+        const next = [entry, ...list.filter(x => String(x.id) !== String(entry.id))].slice(0, 200);
+        if (typeof historyCache !== 'undefined') historyCache = next;
+        if (typeof setLocalHistory === 'function') setLocalHistory(next);
+        if (typeof renderHistory === 'function') renderHistory();
+        if (typeof syncHistoryEntryToCloud === 'function') syncHistoryEntryToCloud(entry);
+        return entry;
+      } catch(err) {
+        console.warn('Falha no salvamento independente. Usando salvamento original.', err);
+        return original ? original.apply(this, arguments) : undefined;
+      }
+    };
+  }
+
+  function bindAccessEvents(){
+    document.getElementById('loginBtn')?.addEventListener('click', doLogin);
+    document.getElementById('loginPassword')?.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+    document.getElementById('loginCpf')?.addEventListener('input', e => { e.target.value = onlyDigits(e.target.value).slice(0,11); });
+    document.getElementById('usersManagerBtn')?.addEventListener('click', openUserManager);
+    document.getElementById('closeUserManagerBtn')?.addEventListener('click', closeUserManager);
+    document.getElementById('addUserBtn')?.addEventListener('click', addUser);
+    document.getElementById('logoutBtn')?.addEventListener('click', () => { clearSession(); applyPermissions(); notify('Sessão encerrada.'); });
+    document.addEventListener('click', function(e){
+      const restricted = e.target.closest('#manageItemsBtn, #configureModelsBtn, #downloadBackupBtn, #resetBtn, #usersManagerBtn');
+      if (restricted && restricted.id !== 'usersManagerBtn' && !isGerente()) { e.preventDefault(); e.stopImmediatePropagation(); notify('Acesso restrito ao gerente.'); return false; }
+      const row=e.target.closest('.user-row');
+      if (row && e.target.closest('.save-user')) saveUserFromRow(row);
+      if (row && e.target.closest('.delete-user')) deleteUser(row.dataset.cpf);
+    }, true);
+  }
+
+  async function initAccessControl(){
+    saveUsers(getUsers());
+    await loadUsersFromCloud();
+    ensureTopButtons(); bindAccessEvents(); applyPermissions(); patchIndependentHistorySave();
+    setInterval(applyPermissions, 1200);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initAccessControl); else initAccessControl();
+  window.arkoAccessControl = { getSession, isGerente, isSupervisor, applyPermissions, getUsers };
+})();
+</script>
+
+
+<style id="historyManagerPatchStyle">
+  .history-toolbar.advanced-history-toolbar { gap:12px; }
+  .history-filter-grid { display:grid; gap:10px; grid-template-columns:1.1fr 1.1fr 1fr 1fr auto; align-items:end; }
+  .history-filter-field { display:flex; flex-direction:column; gap:6px; min-width:0; }
+  .history-filter-field label { font-size:12px; color:#475569; font-weight:900; }
+  .history-filter-input { width:100%; padding:10px 12px; border:1px solid var(--border,#dbe2ea); border-radius:12px; background:#fff; color:var(--text,#0f172a); font-size:14px; font-weight:700; }
+  .history-month-group { border:1px solid var(--border,#dbe2ea); border-radius:16px; overflow:hidden; background:#fff; margin-bottom:10px; }
+  .history-month-toggle { width:100%; border:0; background:#f8fafc; color:#0f172a; padding:13px 14px; display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:15px; font-weight:900; cursor:pointer; text-align:left; }
+  .history-month-toggle:hover { filter:brightness(.98); }
+  .history-month-count { color:#64748b; font-size:12px; font-weight:900; white-space:nowrap; }
+  .history-month-content { display:none; padding:10px; }
+  .history-month-group.open .history-month-content { display:block; }
+  .history-user-line { margin-top:4px; font-size:12px; color:#334155; font-weight:800; }
+  .history-user-line span { color:#64748b; font-weight:700; }
+  @media (max-width: 980px) { .history-filter-grid { grid-template-columns:1fr 1fr; } .history-filter-grid .btn { width:100%; } }
+  @media (max-width: 640px) { .history-filter-grid { grid-template-columns:1fr; } }
+</style>
+
+<script id="historyManagerPatch">
+(function(){
+  const HISTORY_FILTERS = { store:'', supervisor:'', from:'', to:'' };
+
+  function safeHtml(value){
+    if (typeof escapeHtml === 'function') return escapeHtml(value == null ? '' : String(value));
+    return String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function getCreatedBy(entry){
+    return (entry && entry.createdBy) || (entry && entry.data && entry.data.createdBy) || {};
+  }
+  function getSupervisorKey(entry){
+    const u = getCreatedBy(entry);
+    return String(u.cpf || u.nome || 'sem_responsavel');
+  }
+  function getSupervisorLabel(entry){
+    const u = getCreatedBy(entry);
+    if (u.nome && u.cpf) return `${u.nome} (${u.cpf})`;
+    if (u.nome) return u.nome;
+    if (u.cpf) return u.cpf;
+    return 'Sem responsável registrado';
+  }
+  function getEntryDateValue(entry){
+    const d = new Date(entry && entry.createdAt ? entry.createdAt : Date.now());
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toISOString().slice(0,10);
+  }
+  function getMonthKey(entry){
+    const d = new Date(entry && entry.createdAt ? entry.createdAt : Date.now());
+    if (Number.isNaN(d.getTime())) return 'Sem data';
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  }
+  function getMonthLabel(key){
+    if (key === 'Sem data') return key;
+    const [year, month] = key.split('-').map(Number);
+    const d = new Date(year, month - 1, 1);
+    const label = d.toLocaleDateString('pt-BR', { month:'long', year:'numeric' });
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  }
+  function roleScopedHistory(list){
+    const session = window.arkoAccessControl && typeof window.arkoAccessControl.getSession === 'function' ? window.arkoAccessControl.getSession() : null;
+    const isManager = session && session.perfil === 'gerente';
+    if (!session || isManager) return list || [];
+    return (list || []).filter(entry => String(getCreatedBy(entry).cpf || '') === String(session.cpf || ''));
+  }
+  function ensureHistoryAdvancedToolbar(list){
+    const toolbar = document.querySelector('.history-toolbar');
+    if (!toolbar) return;
+    if (!toolbar.classList.contains('advanced-history-toolbar')) {
+      toolbar.classList.add('advanced-history-toolbar');
+      toolbar.innerHTML = `
+        <div class="history-filter-grid">
+          <div class="history-filter-field">
+            <label for="historyStoreFilter">Filtrar por loja</label>
+            <select id="historyStoreFilter" class="history-filter-input"></select>
+          </div>
+          <div class="history-filter-field">
+            <label for="historySupervisorFilter">Filtrar por supervisor</label>
+            <select id="historySupervisorFilter" class="history-filter-input"></select>
+          </div>
+          <div class="history-filter-field">
+            <label for="historyDateFromFilter">Data inicial</label>
+            <input id="historyDateFromFilter" class="history-filter-input" type="date" />
+          </div>
+          <div class="history-filter-field">
+            <label for="historyDateToFilter">Data final</label>
+            <input id="historyDateToFilter" class="history-filter-input" type="date" />
+          </div>
+          <button id="clearHistoryStoreFilterBtn" class="btn secondary" type="button">Limpar filtro</button>
+        </div>`;
+    }
+    const base = roleScopedHistory(list || []);
+    const stores = Array.from(new Set(base.map(e => String(e.title || '').trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'pt-BR'));
+    const supervisorsMap = new Map();
+    base.forEach(e => supervisorsMap.set(getSupervisorKey(e), getSupervisorLabel(e)));
+    const supervisors = Array.from(supervisorsMap.entries()).sort((a,b)=>a[1].localeCompare(b[1], 'pt-BR'));
+    const storeSelect = document.getElementById('historyStoreFilter');
+    const supervisorSelect = document.getElementById('historySupervisorFilter');
+    const fromInput = document.getElementById('historyDateFromFilter');
+    const toInput = document.getElementById('historyDateToFilter');
+    const clearBtn = document.getElementById('clearHistoryStoreFilterBtn');
+    if (storeSelect) {
+      storeSelect.innerHTML = '<option value="">Todas as lojas</option>' + stores.map(s => `<option value="${safeHtml(s)}">${safeHtml(s)}</option>`).join('');
+      if (stores.includes(HISTORY_FILTERS.store)) storeSelect.value = HISTORY_FILTERS.store; else HISTORY_FILTERS.store = '';
+      storeSelect.onchange = () => { HISTORY_FILTERS.store = storeSelect.value; renderHistory(); };
+    }
+    if (supervisorSelect) {
+      supervisorSelect.innerHTML = '<option value="">Todos os supervisores</option>' + supervisors.map(([key,label]) => `<option value="${safeHtml(key)}">${safeHtml(label)}</option>`).join('');
+      if (supervisors.some(([key]) => key === HISTORY_FILTERS.supervisor)) supervisorSelect.value = HISTORY_FILTERS.supervisor; else HISTORY_FILTERS.supervisor = '';
+      supervisorSelect.onchange = () => { HISTORY_FILTERS.supervisor = supervisorSelect.value; renderHistory(); };
+    }
+    if (fromInput) { fromInput.value = HISTORY_FILTERS.from; fromInput.onchange = () => { HISTORY_FILTERS.from = fromInput.value; renderHistory(); }; }
+    if (toInput) { toInput.value = HISTORY_FILTERS.to; toInput.onchange = () => { HISTORY_FILTERS.to = toInput.value; renderHistory(); }; }
+    if (clearBtn) clearBtn.onclick = () => {
+      HISTORY_FILTERS.store = ''; HISTORY_FILTERS.supervisor = ''; HISTORY_FILTERS.from = ''; HISTORY_FILTERS.to = '';
+      renderHistory();
+    };
+  }
+
+  window.renderHistory = function(){
+    const target = document.getElementById('historyList');
+    if (!target) return;
+    const all = typeof getHistory === 'function' ? getHistory() : [];
+    ensureHistoryAdvancedToolbar(all);
+    let filtered = roleScopedHistory(all);
+    if (HISTORY_FILTERS.store) filtered = filtered.filter(entry => String(entry.title || '').trim() === HISTORY_FILTERS.store);
+    if (HISTORY_FILTERS.supervisor) filtered = filtered.filter(entry => getSupervisorKey(entry) === HISTORY_FILTERS.supervisor);
+    if (HISTORY_FILTERS.from) filtered = filtered.filter(entry => getEntryDateValue(entry) >= HISTORY_FILTERS.from);
+    if (HISTORY_FILTERS.to) filtered = filtered.filter(entry => getEntryDateValue(entry) <= HISTORY_FILTERS.to);
+
+    if (!filtered.length) {
+      const hasFilter = HISTORY_FILTERS.store || HISTORY_FILTERS.supervisor || HISTORY_FILTERS.from || HISTORY_FILTERS.to;
+      target.innerHTML = hasFilter
+        ? '<div class="history-empty">Nenhuma avaliação encontrada para os filtros selecionados.</div>'
+        : '<div class="history-empty">Nenhuma avaliação salva ainda.</div>';
+      return;
+    }
+
+    const groups = new Map();
+    filtered.forEach(entry => {
+      const key = getMonthKey(entry);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(entry);
+    });
+    const sortedKeys = Array.from(groups.keys()).sort((a,b)=> b.localeCompare(a));
+    target.innerHTML = '';
+    sortedKeys.forEach((key, index) => {
+      const entries = groups.get(key).sort((a,b)=> (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0));
+      const group = document.createElement('div');
+      group.className = 'history-month-group' + (index === 0 ? ' open' : '');
+      group.innerHTML = `
+        <button class="history-month-toggle" type="button">
+          <span>${safeHtml(getMonthLabel(key))}</span>
+          <span class="history-month-count">${entries.length} avaliação${entries.length === 1 ? '' : 'ões'} ${index === 0 ? '−' : '+'}</span>
+        </button>
+        <div class="history-month-content"></div>`;
+      const content = group.querySelector('.history-month-content');
+      entries.forEach(entry => {
+        const div = document.createElement('div');
+        div.className = 'history-item';
+        const when = new Date(entry.createdAt);
+        const dateText = Number.isNaN(when.getTime()) ? 'Sem data' : `${when.toLocaleDateString('pt-BR')} ${when.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}`;
+        const pct = typeof formatPercent === 'function' ? formatPercent(entry.notaFinal) : `${Number(entry.notaFinal || 0).toFixed(1)}%`;
+        div.innerHTML = `
+          <div class="history-title">${safeHtml(entry.title || 'Loja sem nome')}</div>
+          <div class="history-meta">${safeHtml(entry.subtitle || 'Sem detalhes')}<br>Nota: ${safeHtml(pct)} • Salva em ${safeHtml(dateText)}</div>
+          <div class="history-user-line"><span>Supervisor:</span> ${safeHtml(getSupervisorLabel(entry))}</div>
+          <div class="history-actions">
+            <button class="history-btn" data-load="${safeHtml(entry.id)}">Abrir</button>
+            <button class="history-btn" data-delete="${safeHtml(entry.id)}">Excluir</button>
+          </div>`;
+        content.appendChild(div);
+      });
+      group.querySelector('.history-month-toggle').onclick = () => {
+        group.classList.toggle('open');
+        const count = group.querySelector('.history-month-count');
+        count.textContent = `${entries.length} avaliação${entries.length === 1 ? '' : 'ões'} ${group.classList.contains('open') ? '−' : '+'}`;
+      };
+      target.appendChild(group);
+    });
+
+    target.querySelectorAll('[data-load]').forEach(btn => btn.onclick = () => {
+      const entry = all.find(x => String(x.id) === String(btn.dataset.load));
+      if (!entry) return;
+      state = normalizeState(clone(entry.data));
+      persistState();
+      renderApp();
+      if (typeof showToast === 'function') showToast('Avaliação carregada.');
+    });
+    target.querySelectorAll('[data-delete]').forEach(btn => btn.onclick = () => {
+      if (!confirm('Excluir esta avaliação salva?')) return;
+      const next = all.filter(x => String(x.id) !== String(btn.dataset.delete));
+      if (typeof historyCache !== 'undefined') historyCache = next;
+      if (typeof setLocalHistory === 'function') setLocalHistory(next);
+      if (typeof deleteHistoryEntryFromCloud === 'function') deleteHistoryEntryFromCloud(btn.dataset.delete);
+      renderHistory();
+      if (typeof showToast === 'function') showToast('Avaliação removida.');
+    });
+  };
+
+  document.addEventListener('DOMContentLoaded', function(){ setTimeout(() => { if (typeof renderHistory === 'function') renderHistory(); }, 250); });
+})();
+</script>
+
 </body>
 </html>

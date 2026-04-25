@@ -248,12 +248,12 @@ input:not(:placeholder-shown),textarea:not(:placeholder-shown){background:#f8faf
               <div class="pill">Rascunho salvo automaticamente neste aparelho</div>
             </div>
             <div class="actions top-actions">
-              <button id="exportBtn" class="btn" type="button">Exportar PDF</button>
+              <button id="streetCountsBtn" class="btn evaluate-btn" type="button">Avaliar</button>
               <button id="saveEvaluationBtn" class="btn secondary" type="button">Salvar avaliação</button>
+              <button id="exportBtn" class="btn" type="button">Exportar PDF</button>
               <button id="openHistoryBtn" class="btn secondary" type="button">Histórico</button>
               <button id="downloadBackupBtn" class="btn secondary" type="button">Exportar backup</button>
               <button id="manageItemsBtn" class="btn secondary" type="button">Gerenciar itens</button>
-              <button id="streetCountsBtn" class="btn evaluate-btn" type="button">Avaliar</button>
               <button id="resetBtn" class="btn ghost-danger" type="button">Limpar avaliação</button>
             </div>
           </div>
@@ -4454,6 +4454,7 @@ function saveConfigModels(){
 <script id="accessControlPatchScript">
 (function(){
   const USERS_KEY = 'arko_access_users_v1';
+  const USERS_DELETED_KEY = 'arko_access_users_deleted_v1';
   const SESSION_KEY = 'arko_access_session_v1';
   const USERS_DOC_PATH = 'shared/accessUsers';
   const DEFAULT_USERS = {
@@ -4466,11 +4467,24 @@ function saveConfigModels(){
   function onlyDigits(v){ return String(v || '').replace(/\D/g,''); }
   function clone(o){ return JSON.parse(JSON.stringify(o || {})); }
   function notify(msg){ if (typeof showToast === 'function') showToast(msg); else alert(msg); }
+  function getDeletedUsers(){
+    try { return JSON.parse(localStorage.getItem(USERS_DELETED_KEY) || '[]').map(onlyDigits).filter(Boolean); }
+    catch(e){ return []; }
+  }
+  function saveDeletedUsers(list){
+    localStorage.setItem(USERS_DELETED_KEY, JSON.stringify(Array.from(new Set((list || []).map(onlyDigits).filter(Boolean)))));
+  }
   function getUsers(){
     try {
       const saved = JSON.parse(localStorage.getItem(USERS_KEY) || '{}');
-      return Object.assign(clone(DEFAULT_USERS), saved || {});
-    } catch(e){ return clone(DEFAULT_USERS); }
+      const merged = Object.assign(clone(DEFAULT_USERS), saved || {});
+      getDeletedUsers().forEach(cpf => { delete merged[cpf]; });
+      return merged;
+    } catch(e){
+      const merged = clone(DEFAULT_USERS);
+      getDeletedUsers().forEach(cpf => { delete merged[cpf]; });
+      return merged;
+    }
   }
   function saveUsers(users){ localStorage.setItem(USERS_KEY, JSON.stringify(users || {})); }
   async function ensureFirestore(){
@@ -4484,7 +4498,7 @@ function saveConfigModels(){
     try {
       const db = await ensureFirestore();
       if (!db) return;
-      await db.doc(USERS_DOC_PATH).set({ users:getUsers(), updatedAt:new Date().toISOString() }, { merge:true });
+      await db.doc(USERS_DOC_PATH).set({ users:getUsers(), deletedUsers:getDeletedUsers(), updatedAt:new Date().toISOString() });
     } catch(e){ console.warn('Usuários salvos localmente; sincronização indisponível.', e); }
   }
   async function loadUsersFromCloud(){
@@ -4493,7 +4507,10 @@ function saveConfigModels(){
       if (!db) return;
       const snap = await db.doc(USERS_DOC_PATH).get();
       if (snap.exists && snap.data() && snap.data().users) {
+        const remoteDeleted = Array.isArray(snap.data().deletedUsers) ? snap.data().deletedUsers.map(onlyDigits).filter(Boolean) : [];
+        saveDeletedUsers(Array.from(new Set(getDeletedUsers().concat(remoteDeleted))));
         const merged = Object.assign(clone(DEFAULT_USERS), snap.data().users || {});
+        getDeletedUsers().forEach(cpf => { delete merged[cpf]; });
         saveUsers(merged);
       } else {
         await syncUsersToCloud();
@@ -4578,6 +4595,7 @@ function saveConfigModels(){
     if (cpf.length !== 11) { notify('Informe um CPF com 11 números.'); return; }
     if (!senha) { notify('Informe uma senha inicial.'); return; }
     const users=getUsers(); users[cpf]={ cpf, senha, perfil, nome };
+    saveDeletedUsers(getDeletedUsers().filter(x => x !== cpf));
     saveUsers(users); syncUsersToCloud(); renderUsersList();
     document.getElementById('newUserName').value=''; document.getElementById('newUserCpf').value=''; document.getElementById('newUserPass').value='';
     notify('Usuário salvo.');
@@ -4599,9 +4617,19 @@ function saveConfigModels(){
     renderUsersList(); applyPermissions(); notify('Usuário atualizado.');
   }
   function deleteUser(cpf){
+    cpf = onlyDigits(cpf);
     const current=getSession(); if (current && current.cpf === cpf) { notify('Não é possível excluir o usuário logado.'); return; }
+    if (!cpf) return;
     if (!confirm('Excluir este usuário?')) return;
-    const users=getUsers(); delete users[cpf]; saveUsers(users); syncUsersToCloud(); renderUsersList(); notify('Usuário excluído.');
+    const users=getUsers();
+    delete users[cpf];
+    const deleted = getDeletedUsers();
+    deleted.push(cpf);
+    saveDeletedUsers(deleted);
+    saveUsers(users);
+    syncUsersToCloud();
+    renderUsersList();
+    notify('Usuário excluído.');
   }
 
   function createUniqueEvaluationId(){
@@ -5022,5 +5050,263 @@ function saveConfigModels(){
 })();
 </script>
 
-\n<script id="buttonIconsPatch">\n(function(){\n  const SVG_NS = 'http://www.w3.org/2000/svg';\n  const iconPaths = {\n    'clipboard-check': '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/>',\n    'save': '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/>',\n    'file-text': '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',\n    'history': '<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/><path d="M12 7v5l3 2"/>',\n    'bar-chart-3': '<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',\n    'settings': '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.73l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/>',\n    'puzzle': '<path d="M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568a2.404 2.404 0 0 1 0 3.408l-1.568 1.568a1.2 1.2 0 0 0-.289.878l.235 2.076A2.4 2.4 0 0 1 17.29 21H6.71a2.4 2.4 0 0 1-2.384-2.774l.235-2.076a1.2 1.2 0 0 0-.289-.878l-1.568-1.568a2.404 2.404 0 0 1 0-3.408l1.568-1.568c.23-.23.338-.556.289-.878l-.235-2.076A2.4 2.4 0 0 1 6.71 3h10.58a2.4 2.4 0 0 1 2.384 2.774l-.235 2.076Z"/><path d="M9 8a3 3 0 0 1 6 0v1h1a3 3 0 0 1 0 6h-1v1a3 3 0 0 1-6 0v-1H8a3 3 0 0 1 0-6h1Z"/>',\n    'users': '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',\n    'folder-down': '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="M12 10v6"/><path d="m9 13 3 3 3-3"/>',\n    'trash-2': '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/>',\n    'log-out': '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',\n    'x': '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',\n    'plus': '<path d="M5 12h14"/><path d="M12 5v14"/>',\n    'chevron-up': '<path d="m18 15-6-6-6 6"/>',\n    'chevron-down': '<path d="m6 9 6 6 6-6"/>'\n  };\n  const buttonIcons = {\n    exportBtn: 'file-text',\n    saveEvaluationBtn: 'save',\n    streetCountsBtn: 'clipboard-check',\n    openHistoryBtn: 'history',\n    openManagerDashboardBtn: 'bar-chart-3',\n    manageItemsBtn: 'settings',\n    configureModelsBtn: 'puzzle',\n    usersManagerBtn: 'users',\n    downloadBackupBtn: 'folder-down',\n    resetBtn: 'trash-2',\n    logoutBtn: 'log-out',\n    closeManagerDashboardBtn: 'x',\n    clearDashboardFiltersBtn: 'x'\n  };\n  function svgIcon(name){\n    const svg = document.createElementNS(SVG_NS, 'svg');\n    svg.setAttribute('class', 'btn-icon');\n    svg.setAttribute('viewBox', '0 0 24 24');\n    svg.setAttribute('fill', 'none');\n    svg.setAttribute('stroke', 'currentColor');\n    svg.setAttribute('stroke-linecap', 'round');\n    svg.setAttribute('stroke-linejoin', 'round');\n    svg.setAttribute('aria-hidden', 'true');\n    svg.innerHTML = iconPaths[name] || iconPaths['settings'];\n    return svg;\n  }\n  function labelOf(btn){\n    return (btn.textContent || '').replace(/^[-+↑↓]\s*/, '').trim();\n  }\n  function applyIcon(btn, iconName){\n    if(!btn || btn.dataset.iconApplied === iconName) return;\n    const label = labelOf(btn);\n    btn.textContent = '';\n    btn.appendChild(svgIcon(iconName));\n    const span = document.createElement('span');\n    span.className = 'btn-label';\n    span.textContent = label;\n    btn.appendChild(span);\n    btn.dataset.iconApplied = iconName;\n  }\n  function applyAllIcons(){\n    Object.entries(buttonIcons).forEach(([id, icon]) => applyIcon(document.getElementById(id), icon));\n    document.querySelectorAll('.icon-btn, .history-btn').forEach(btn => {\n      const txt = labelOf(btn).toLowerCase();\n      if(txt.includes('excluir') || txt.includes('limpar')) applyIcon(btn, 'trash-2');\n      else if(txt.includes('subir')) applyIcon(btn, 'chevron-up');\n      else if(txt.includes('descer')) applyIcon(btn, 'chevron-down');\n      else if(txt.includes('adicionar') || txt.includes('criar')) applyIcon(btn, 'plus');\n    });\n  }\n  document.addEventListener('DOMContentLoaded', applyAllIcons);\n  setTimeout(applyAllIcons, 300);\n  setTimeout(applyAllIcons, 1200);\n  const obs = new MutationObserver(() => applyAllIcons());\n  obs.observe(document.documentElement, {childList:true, subtree:true});\n})();\n</script>\n</body>
+
+
+
+<style id="visualIconsAndUsersMobileFix">
+  .btn, .icon-btn, .history-btn {
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    white-space:nowrap;
+  }
+  .btn .emoji-icon, .icon-btn .emoji-icon, .history-btn .emoji-icon {
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:20px;
+    min-width:20px;
+    height:20px;
+    font-size:18px;
+    line-height:1;
+  }
+  .btn .btn-label, .icon-btn .btn-label, .history-btn .btn-label {
+    display:inline-flex;
+    align-items:center;
+    min-width:0;
+  }
+  #resetBtn .emoji-icon, .icon-btn.danger .emoji-icon { color:#991b1b; }
+
+  /* Ajuste visual do menu Usuários no mobile: evita sobreposição e melhora leitura */
+  #userManagerModal .manage-panel { overflow:auto; }
+  #userManagerModal .manage-section-title {
+    display:block;
+    line-height:1.25;
+    margin:0 0 14px;
+    position:relative;
+    z-index:1;
+  }
+  #userManagerModal .manage-section-block {
+    overflow:visible;
+  }
+  #userManagerModal .manage-section-block + .manage-section-block {
+    margin-top:22px;
+  }
+  #userManagerModal .sync-note {
+    display:block;
+    margin-top:14px;
+    margin-bottom:4px;
+    line-height:1.55;
+    word-break:normal;
+    overflow-wrap:break-word;
+  }
+  #userManagerModal #usersList {
+    display:grid;
+    gap:12px;
+    clear:both;
+  }
+  #userManagerModal .user-row {
+    min-width:0;
+  }
+  #userManagerModal .user-row .field,
+  #userManagerModal .user-manager-grid .field {
+    min-width:0;
+  }
+  #userManagerModal .user-row input,
+  #userManagerModal .user-row select,
+  #userManagerModal .user-manager-grid input,
+  #userManagerModal .user-manager-grid select {
+    min-width:0;
+    max-width:100%;
+  }
+
+  @media (max-width: 640px) {
+    #userManagerModal {
+      align-items:center;
+      padding:14px;
+    }
+    #userManagerModal .manage-panel {
+      width:100%;
+      max-height:calc(100dvh - 28px);
+      border-radius:24px;
+    }
+    #userManagerModal .manage-header {
+      padding:18px 18px 0;
+      gap:10px;
+      align-items:flex-start;
+    }
+    #userManagerModal .manage-title {
+      font-size:24px;
+      line-height:1.15;
+    }
+    #userManagerModal .manage-help {
+      font-size:13px;
+      line-height:1.45;
+      margin-top:6px;
+    }
+    #userManagerModal .manage-body {
+      padding:16px 18px 20px;
+    }
+    #userManagerModal .manage-section-block {
+      padding:14px;
+      border-radius:18px;
+    }
+    #userManagerModal .user-manager-grid,
+    #userManagerModal .user-row {
+      grid-template-columns:1fr !important;
+      gap:12px;
+      align-items:stretch;
+    }
+    #userManagerModal .user-row {
+      padding:14px;
+      border-radius:18px;
+      margin-bottom:14px;
+    }
+    #userManagerModal .user-row label,
+    #userManagerModal .user-manager-grid label {
+      display:block;
+      font-size:13px;
+      line-height:1.25;
+      margin-bottom:2px;
+    }
+    #userManagerModal .user-row input,
+    #userManagerModal .user-row select,
+    #userManagerModal .user-manager-grid input,
+    #userManagerModal .user-manager-grid select {
+      width:100%;
+      font-size:16px;
+      padding:12px 13px;
+      border-radius:14px;
+    }
+    #userManagerModal .user-row .btn,
+    #userManagerModal .user-manager-grid .btn,
+    #userManagerModal .user-row .icon-btn {
+      width:100%;
+      min-height:46px;
+      margin-top:2px;
+    }
+    #userManagerModal .sync-note {
+      font-size:14px;
+      line-height:1.5;
+      margin:14px 0 2px;
+    }
+    #userManagerModal #usersList {
+      gap:14px;
+    }
+  }
+</style>
+
+<script id="emojiButtonIconsPatch">
+(function(){
+  const iconMap = {
+    exportBtn:'📄',
+    saveEvaluationBtn:'💾',
+    streetCountsBtn:'📋',
+    openHistoryBtn:'🕘',
+    openManagerDashboardBtn:'📊',
+    manageItemsBtn:'⚙️',
+    configureModelsBtn:'🧩',
+    usersManagerBtn:'👥',
+    downloadBackupBtn:'🗂️',
+    resetBtn:'🗑️',
+    logoutBtn:'🚪',
+    closeUserManagerBtn:'🚪',
+    closeHistoryBtn:'🚪',
+    closeManagerDashboardBtn:'🚪',
+    clearDashboardFiltersBtn:'🗑️',
+    addUserBtn:'➕'
+  };
+
+  function cleanLabel(btn){
+    return (btn.textContent || '')
+      .replace(/^[📋💾📄🕘📊⚙️🧩👥🗂️🗑️🚪➕⬆️⬇️✏️]\s*/u, '')
+      .replace(/^[-+↑↓]\s*/, '')
+      .trim();
+  }
+
+  function applyEmoji(btn, emoji){
+    if(!btn || !emoji) return;
+    if(btn.dataset.emojiIconApplied === emoji) return;
+    const label = cleanLabel(btn);
+    btn.textContent = '';
+    const icon = document.createElement('span');
+    icon.className = 'emoji-icon';
+    icon.setAttribute('aria-hidden','true');
+    icon.textContent = emoji;
+    const txt = document.createElement('span');
+    txt.className = 'btn-label';
+    txt.textContent = label;
+    btn.appendChild(icon);
+    btn.appendChild(txt);
+    btn.dataset.emojiIconApplied = emoji;
+  }
+
+  function inferButtonEmoji(btn){
+    const txt = cleanLabel(btn).toLowerCase();
+    if(txt.includes('excluir') || txt.includes('limpar')) return '🗑️';
+    if(txt.includes('salvar')) return '💾';
+    if(txt.includes('adicionar') || txt.includes('criar')) return '➕';
+    if(txt.includes('subir')) return '⬆️';
+    if(txt.includes('descer')) return '⬇️';
+    if(txt.includes('editar') || txt.includes('alterar')) return '✏️';
+    if(txt.includes('fechar') || txt.includes('sair')) return '🚪';
+    if(txt.includes('pdf')) return '📄';
+    return '';
+  }
+
+  function applyAll(){
+    Object.entries(iconMap).forEach(([id, emoji]) => applyEmoji(document.getElementById(id), emoji));
+    document.querySelectorAll('.icon-btn, .history-btn').forEach(btn => {
+      const emoji = inferButtonEmoji(btn);
+      if(emoji) applyEmoji(btn, emoji);
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', applyAll);
+  setTimeout(applyAll, 200);
+  setTimeout(applyAll, 900);
+  setTimeout(applyAll, 1800);
+  const obs = new MutationObserver(() => applyAll());
+  obs.observe(document.documentElement, {childList:true, subtree:true});
+})();
+</script>
+
+
+
+<style id="topButtonsOrderPatchStyle">
+  .top-actions { align-items:center; }
+  .top-actions .btn { white-space:nowrap; }
+  .top-actions .access-badge { order: 99; }
+</style>
+<script id="topButtonsOrderAndUserDeletePatch">
+(function(){
+  const order = [
+    'streetCountsBtn',
+    'saveEvaluationBtn',
+    'exportBtn',
+    'openHistoryBtn',
+    'openManagerDashboardBtn',
+    'manageItemsBtn',
+    'configureModelsBtn',
+    'usersManagerBtn',
+    'downloadBackupBtn',
+    'resetBtn',
+    'logoutBtn',
+    'accessBadge'
+  ];
+  function reorderTopButtons(){
+    const actions = document.querySelector('.top-actions');
+    if(!actions) return;
+    order.forEach(id => { const el = document.getElementById(id); if(el && el.parentElement === actions) actions.appendChild(el); });
+  }
+  document.addEventListener('DOMContentLoaded', reorderTopButtons);
+  setTimeout(reorderTopButtons, 200);
+  setTimeout(reorderTopButtons, 800);
+  setTimeout(reorderTopButtons, 1600);
+  setInterval(reorderTopButtons, 2500);
+})();
+</script>
+
+</body>
 </html>

@@ -227,6 +227,7 @@ input:not(:placeholder-shown),textarea:not(:placeholder-shown){background:#f8faf
             <div class="actions top-actions">
               <button id="exportBtn" class="btn" type="button">Exportar PDF</button>
               <button id="saveEvaluationBtn" class="btn secondary" type="button">Salvar avaliação</button>
+              <button id="openHistoryBtn" class="btn secondary" type="button">Histórico</button>
               <button id="downloadBackupBtn" class="btn secondary" type="button">Exportar backup</button>
               <button id="manageItemsBtn" class="btn secondary" type="button">Gerenciar itens</button>
               <button id="streetCountsBtn" class="btn evaluate-btn" type="button">Avaliar</button>
@@ -293,19 +294,6 @@ input:not(:placeholder-shown),textarea:not(:placeholder-shown){background:#f8faf
           </div>
         </div>
 
-        <div class="card">
-          <div class="card-header"><h2 class="card-title" style="font-size:22px;">Avaliações salvas</h2></div>
-          <div class="card-content">
-            <div class="history-toolbar">
-              <label for="historyStoreFilter">Filtrar por loja</label>
-              <div class="history-toolbar-row">
-                <select id="historyStoreFilter" class="history-filter-select"></select>
-                <button id="clearHistoryStoreFilterBtn" class="btn secondary" type="button">Limpar filtro</button>
-              </div>
-            </div>
-            <div id="historyList" class="history-list"></div>
-          </div>
-        </div>
 
         <div class="card">
           <div class="card-header"><h2 class="card-title" style="font-size:22px;">Resumo por item</h2></div>
@@ -409,6 +397,43 @@ input:not(:placeholder-shown),textarea:not(:placeholder-shown){background:#f8faf
           <button id="addStreetCountRowBtn" class="btn secondary" type="button">+ Adicionar rua</button>
           <button id="saveStreetCountsBtn" class="btn" type="button">Salvar contagem automática</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+
+  <div id="historyModal" class="manage-modal" aria-hidden="true">
+    <div class="manage-panel" style="max-width:1180px;">
+      <div class="manage-header">
+        <div>
+          <div class="manage-title">Histórico de avaliações</div>
+          <div class="manage-help">Consulte as avaliações finalizadas por loja, supervisor e período. Os resultados ficam organizados por mês em blocos expansíveis.</div>
+        </div>
+        <button id="closeHistoryBtn" class="btn secondary" type="button">Fechar</button>
+      </div>
+      <div class="manage-body">
+        <div class="history-toolbar advanced-history-toolbar">
+          <div class="history-filter-grid">
+            <div class="history-filter-field">
+              <label for="historyStoreFilter">Filtrar por loja</label>
+              <select id="historyStoreFilter" class="history-filter-input"></select>
+            </div>
+            <div class="history-filter-field">
+              <label for="historySupervisorFilter">Filtrar por supervisor</label>
+              <select id="historySupervisorFilter" class="history-filter-input"></select>
+            </div>
+            <div class="history-filter-field">
+              <label for="historyDateFromFilter">Data inicial</label>
+              <input id="historyDateFromFilter" class="history-filter-input" type="date" />
+            </div>
+            <div class="history-filter-field">
+              <label for="historyDateToFilter">Data final</label>
+              <input id="historyDateToFilter" class="history-filter-input" type="date" />
+            </div>
+            <button id="clearHistoryStoreFilterBtn" class="btn secondary" type="button">Limpar filtro</button>
+          </div>
+        </div>
+        <div id="historyList" class="history-list"></div>
       </div>
     </div>
   </div>
@@ -4808,6 +4833,49 @@ function saveConfigModels(){
   };
 
   document.addEventListener('DOMContentLoaded', function(){ setTimeout(() => { if (typeof renderHistory === 'function') renderHistory(); }, 250); });
+})();
+</script>
+
+<script id="historyTopMenuPatch">
+(function(){
+  function openHistory(){
+    const modal = document.getElementById('historyModal');
+    if (!modal) return;
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden','false');
+    if (typeof renderHistory === 'function') renderHistory();
+    setTimeout(() => {
+      const panel = modal.querySelector('.manage-panel');
+      if (panel) panel.scrollTop = 0;
+    }, 50);
+  }
+  function closeHistory(){
+    const modal = document.getElementById('historyModal');
+    if (!modal) return;
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden','true');
+  }
+  function bindHistoryButtons(){
+    const openBtn = document.getElementById('openHistoryBtn');
+    const closeBtn = document.getElementById('closeHistoryBtn');
+    const modal = document.getElementById('historyModal');
+    if (openBtn && !openBtn.dataset.boundHistory) {
+      openBtn.dataset.boundHistory = '1';
+      openBtn.addEventListener('click', openHistory);
+    }
+    if (closeBtn && !closeBtn.dataset.boundHistory) {
+      closeBtn.dataset.boundHistory = '1';
+      closeBtn.addEventListener('click', closeHistory);
+    }
+    if (modal && !modal.dataset.boundHistoryBackdrop) {
+      modal.dataset.boundHistoryBackdrop = '1';
+      modal.addEventListener('click', function(event){
+        if (event.target === modal) closeHistory();
+      });
+    }
+  }
+  document.addEventListener('DOMContentLoaded', bindHistoryButtons);
+  setTimeout(bindHistoryButtons, 300);
 })();
 </script>
 

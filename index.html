@@ -4124,5 +4124,129 @@ function saveConfigModels(){
 })();
 </script>
 
+
+
+<script>
+/* === Correção definitiva: persistência permanente dos modelos criados em Configurar avaliação === */
+(function permanentCustomEvaluationPersistence(){
+  const CUSTOM_CONFIG_KEY = 'arko_modelos_avaliacao_personalizados_permanente_v1';
+  const CUSTOM_CONFIG_BACKUP_KEY = 'arko_modelos_avaliacao_personalizados_backup_v1';
+
+  function getPermanentPayload(){
+    return {
+      modelConfigs: migrateConfigurableModels(state?.modelConfigs || buildInitialConfigurableModels()),
+      modelItemTemplates: normalizeModelItemTemplates(state?.modelItemTemplates || {}),
+      savedAt: Date.now(),
+      savedBy: (typeof deviceId !== 'undefined' ? deviceId : 'local')
+    };
+  }
+
+  function savePermanentModelConfigs(){
+    try {
+      const payload = getPermanentPayload();
+      localStorage.setItem(CUSTOM_CONFIG_KEY, JSON.stringify(payload));
+      localStorage.setItem(CUSTOM_CONFIG_BACKUP_KEY, JSON.stringify(payload));
+    } catch (err) {
+      console.warn('Não foi possível gravar modelos personalizados localmente.', err);
+    }
+  }
+
+  function readPermanentModelConfigs(){
+    const keys = [CUSTOM_CONFIG_KEY, CUSTOM_CONFIG_BACKUP_KEY];
+    for (const key of keys) {
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.modelConfigs && Object.keys(parsed.modelConfigs).length) return parsed;
+      } catch (err) {}
+    }
+    return null;
+  }
+
+  function mergePermanentModelConfigs(payload){
+    if (!payload || !payload.modelConfigs) return false;
+    const currentConfigs = migrateConfigurableModels(state?.modelConfigs || buildInitialConfigurableModels());
+    const currentTemplates = normalizeModelItemTemplates(state?.modelItemTemplates || {});
+    const savedConfigs = migrateConfigurableModels(payload.modelConfigs || {});
+    const savedTemplates = normalizeModelItemTemplates(payload.modelItemTemplates || {});
+
+    let changed = false;
+    Object.entries(savedConfigs).forEach(([key, config]) => {
+      if (!currentConfigs[key]) changed = true;
+      currentConfigs[key] = config;
+    });
+    Object.entries(savedTemplates).forEach(([key, template]) => {
+      currentTemplates[key] = template;
+    });
+
+    state.modelConfigs = migrateConfigurableModels(currentConfigs);
+    state.modelItemTemplates = normalizeModelItemTemplates(currentTemplates);
+
+    if (!state.modelConfigs[state.form?.modelo]) {
+      const savedKeys = Object.keys(savedConfigs);
+      state.form.modelo = savedKeys[0] || DEFAULT_MODEL_KEY;
+      state.items = clearEvaluationValuesFromItems(state.modelItemTemplates[state.form.modelo] || buildItemsFromModel(state.form.modelo), state.form.modelo);
+      state.streetCounts = isStreetCountEnabled(state.form.modelo) ? makeDefaultStreetCounts(state.form.modelo) : [];
+      changed = true;
+    }
+    return changed || Object.keys(savedConfigs).length > 0;
+  }
+
+  function hydratePermanentConfigsAtStartup(){
+    const payload = readPermanentModelConfigs();
+    if (!payload) return;
+    if (mergePermanentModelConfigs(payload)) {
+      persistState();
+      renderApp();
+      const select = document.getElementById('modeloAvaliacao');
+      if (select && state?.form?.modelo) select.value = state.form.modelo;
+    }
+  }
+
+  const previousSaveConfigModels = window.saveConfigModels;
+  window.saveConfigModels = function(){
+    if (typeof previousSaveConfigModels === 'function') {
+      previousSaveConfigModels.apply(this, arguments);
+    }
+    savePermanentModelConfigs();
+    persistState();
+    if (typeof syncModelConfigsToCloud === 'function') syncModelConfigsToCloud(true);
+    renderApp();
+    if (typeof showToast === 'function') showToast('Nova avaliação salva de forma permanente neste aparelho.');
+  };
+
+  const previousApplySyncedModelConfigPayload = window.applySyncedModelConfigPayload;
+  window.applySyncedModelConfigPayload = function(payload){
+    const result = typeof previousApplySyncedModelConfigPayload === 'function'
+      ? previousApplySyncedModelConfigPayload.apply(this, arguments)
+      : mergePermanentModelConfigs(payload);
+    savePermanentModelConfigs();
+    return result;
+  };
+
+  const previousPersistState = window.persistState || (typeof persistState === 'function' ? persistState : null);
+  if (typeof previousPersistState === 'function') {
+    window.persistState = function(){
+      previousPersistState.apply(this, arguments);
+      try {
+        const hasCustom = Object.keys(state?.modelConfigs || {}).some(key => !MODEL_CONFIGS[key]);
+        if (hasCustom) savePermanentModelConfigs();
+      } catch (err) {}
+    };
+  }
+
+  document.addEventListener('click', function(event){
+    const btn = event.target.closest('#saveConfigModelsBtn');
+    if (!btn) return;
+    setTimeout(savePermanentModelConfigs, 80);
+  }, true);
+
+  hydratePermanentConfigsAtStartup();
+  window.savePermanentModelConfigs = savePermanentModelConfigs;
+  window.readPermanentModelConfigs = readPermanentModelConfigs;
+})();
+</script>
+
 </body>
 </html>

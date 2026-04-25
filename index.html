@@ -177,6 +177,41 @@
     @media (max-width: 980px) { .counts-table-wrap { overflow:visible; } .count-fields-grid, .photo-fields-grid { grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); } }
     @media (max-width: 640px) { .page { padding:12px; } .card-header { padding:18px 16px 0; } .card-content { padding:0 16px 16px; } .grid-2, .summary-grid { grid-template-columns:1fr; } .item-top { flex-direction:column; } .score-text { width:100%; } .status-score { font-size:38px; } .card-title { font-size:24px; } .sticky-col { position:static; max-height:none; overflow:visible; } .count-row { grid-template-columns:1fr; } .photo-grid { grid-template-columns:1fr; } }
   </style>
+<style>
+/* === Refinamento visual seguro — sem alterar fluxo/UX === */
+:root{--visual-soft-border:#e2e8f0;--visual-focus:#94a3b8;}
+.card,.manage-panel,.manage-section-block,.photo-draft-panel,.count-row,.item-card,.saved-photo-card,.history-item,.summary-tile{border-color:var(--visual-soft-border)!important;}
+.card{border-radius:22px!important;transition:box-shadow .15s ease,transform .15s ease,border-color .15s ease;}
+.manage-panel{border-radius:24px!important;}
+.item-card,.count-row,.manage-item,.definition-card,.photo-card,.saved-photo-card{border-radius:18px!important;}
+.section-title,.manage-title,.manage-section-title,.count-stage-title{font-weight:900!important;letter-spacing:.2px;}
+label{color:#334155!important;font-weight:800!important;}
+input,select,textarea{border-color:#cbd5e1!important;border-radius:15px!important;font-weight:600;transition:border-color .12s ease,box-shadow .12s ease,background-color .12s ease;}
+input:focus,select:focus,textarea:focus{border-color:var(--visual-focus)!important;box-shadow:0 0 0 4px rgba(148,163,184,.16)!important;}
+input:not(:placeholder-shown),textarea:not(:placeholder-shown){background:#f8fafc;}
+.btn,.icon-btn,.history-btn,.option-button{transition:transform .12s ease,filter .12s ease,box-shadow .12s ease,background-color .12s ease,border-color .12s ease;}
+.btn:hover,.icon-btn:hover,.history-btn:hover,.option-button:hover{filter:brightness(.97);}
+.btn:active,.icon-btn:active,.history-btn:active,.option-button:active{transform:scale(.97);}
+.btn.evaluate-btn{background:linear-gradient(180deg,#991b1b,#7f1d1d)!important;color:#fff!important;font-weight:900!important;letter-spacing:.35px;box-shadow:0 12px 26px rgba(127,29,29,.24)!important;}
+.btn.secondary{background:#fff!important;border-color:#cbd5e1!important;}
+.btn.ghost-danger,.icon-btn.danger{background:#fff7f7!important;border-color:#fecaca!important;}
+.pill{border-color:var(--visual-soft-border)!important;font-weight:800!important;}
+.pill.offline{background:#fff1f2!important;border-color:#fecaca!important;color:#991b1b!important;}
+.pill.offline .pill-dot{background:#dc2626!important;}
+.check-chip,.selected-nc-chip,.linked-tag{background:#fff!important;border-color:#e2e8f0!important;border-radius:999px!important;font-size:13px!important;line-height:1.32!important;box-shadow:0 1px 2px rgba(15,23,42,.03);}
+.check-chip{padding:10px 12px!important;align-items:flex-start!important;}
+.check-chip input{flex-shrink:0!important;margin-top:1px!important;accent-color:#0f172a!important;}
+.check-chip span{word-break:normal!important;overflow-wrap:anywhere!important;}
+.check-chip:has(input:checked){border-color:#94a3b8!important;background:#f8fafc!important;}
+.check-chip input:checked + span{font-weight:900!important;color:#0f172a!important;}
+.field{gap:10px!important;}
+.count-row,.manage-item,.photo-card,.photo-draft-panel{padding:18px!important;}
+.saved-photo-meta{font-size:13px!important;line-height:1.5!important;}
+.summary-tile-value,.status-score,.score-text{letter-spacing:-.5px;}
+.toast{border-radius:14px!important;box-shadow:0 12px 30px rgba(15,23,42,.18)!important;}
+@media (max-width:640px){.card,.manage-panel{border-radius:20px!important;}.btn{min-height:46px;}input,select,textarea{font-size:16px!important;}.check-chip{min-height:40px;}}
+</style>
+
 </head>
 <body>
   <div class="page">
@@ -3505,9 +3540,11 @@ function saveConfigModels(){
       btn.id = 'configureModelsBtn'; btn.className = 'btn secondary'; btn.type = 'button'; btn.textContent = 'Configurar avaliação';
       anchor?.parentNode?.insertBefore(btn, anchor.nextSibling);
     }
-    document.getElementById('configModelsModal')?.remove();
+    const existingConfigModal = document.getElementById('configModelsModal');
+    if (existingConfigModal && existingConfigModal.dataset.mode === 'new-evaluation-only') return;
+    existingConfigModal?.remove();
     const modal = document.createElement('div');
-    modal.id = 'configModelsModal'; modal.className = 'manage-modal'; modal.setAttribute('aria-hidden','true');
+    modal.id = 'configModelsModal'; modal.className = 'manage-modal'; modal.dataset.mode = 'new-evaluation-only'; modal.setAttribute('aria-hidden','true');
     modal.innerHTML = `
       <div class="manage-panel" style="max-width:1180px;">
         <div class="manage-header">
@@ -4033,6 +4070,57 @@ function saveConfigModels(){
   }
   rebindFieldButtons();
   document.addEventListener('DOMContentLoaded', rebindFieldButtons);
+})();
+</script>
+
+<script>
+/* === Correção robusta: botões do menu Configurar avaliação === */
+(function fixConfigEvaluationButtons(){
+  function safeCall(fnName){
+    if (typeof window[fnName] === 'function') {
+      window[fnName]();
+      return true;
+    }
+    return false;
+  }
+
+  document.addEventListener('click', function(event){
+    const target = event.target.closest('button');
+    if (!target) return;
+    const modal = document.getElementById('configModelsModal');
+    const insideConfig = modal && target.closest('#configModelsModal');
+
+    if (target.id === 'configureModelsBtn') {
+      event.preventDefault();
+      event.stopPropagation();
+      safeCall('openConfigModal');
+      return;
+    }
+
+    if (!insideConfig) return;
+
+    const actions = {
+      closeConfigModelsBtn: 'closeConfigModal',
+      addConfigAreaBtn: 'addConfigArea',
+      addConfigNcBtn: 'addConfigNc',
+      addConfiguredItemBtn: 'addConfiguredItem',
+      saveConfigModelsBtn: 'saveConfigModels'
+    };
+
+    if (actions[target.id]) {
+      event.preventDefault();
+      event.stopPropagation();
+      safeCall(actions[target.id]);
+      return;
+    }
+
+    if (target.id === 'resetNewConfigBtn') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof window.openConfigModal === 'function') window.openConfigModal();
+      if (typeof showToast === 'function') showToast('Criação limpa.');
+    }
+  }, true);
 })();
 </script>
 

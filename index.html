@@ -4248,5 +4248,71 @@ function saveConfigModels(){
 })();
 </script>
 
+
+<style>
+.delete-model-zone { margin-top: 16px; border: 1px solid #fecaca; background: #fff7f7; border-radius: 18px; padding: 14px; }
+.delete-model-zone .delete-model-title { margin: 0 0 6px; font-size: 16px; font-weight: 900; color: #7f1d1d; }
+.delete-model-zone .delete-model-text { margin: 0 0 12px; color: #64748b; font-size: 13px; line-height: 1.45; }
+.delete-model-zone .delete-model-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.delete-model-current { font-size: 13px; font-weight: 800; color: #0f172a; background: #fff; border: 1px solid #fee2e2; border-radius: 999px; padding: 8px 12px; }
+@media (max-width:640px){ .delete-model-zone .delete-model-actions { align-items: stretch; } .delete-model-current, .delete-model-zone .btn { width: 100%; text-align: center; justify-content: center; } }
+</style>
+
+<script>
+(function enableDeleteEvaluationFromManage(){
+  const CUSTOM_CONFIG_KEY = 'arko_modelos_avaliacao_personalizados_permanente_v1';
+  const CUSTOM_CONFIG_BACKUP_KEY = 'arko_modelos_avaliacao_personalizados_backup_v1';
+  const DELETE_GUARD_KEY = 'arko_modelos_avaliacao_excluidos_v1';
+  function safeClone(value){ try { return typeof clone === 'function' ? clone(value) : JSON.parse(JSON.stringify(value)); } catch (err) { return value; } }
+  function readDeletedKeys(){ try { const raw = localStorage.getItem(DELETE_GUARD_KEY); const parsed = raw ? JSON.parse(raw) : []; return Array.isArray(parsed) ? parsed.filter(Boolean) : []; } catch (err) { return []; } }
+  function saveDeletedKey(key){ const keys = Array.from(new Set([...readDeletedKeys(), key].filter(Boolean))); try { localStorage.setItem(DELETE_GUARD_KEY, JSON.stringify(keys)); } catch (err) {} }
+  function removeDeletedKeysFromState(){ const deleted = readDeletedKeys(); if (!deleted.length || !state) return false; let changed = false; deleted.forEach(key => { if (key === DEFAULT_MODEL_KEY) return; if (state.modelConfigs && state.modelConfigs[key]) { delete state.modelConfigs[key]; changed = true; } if (state.modelItemTemplates && state.modelItemTemplates[key]) { delete state.modelItemTemplates[key]; changed = true; } }); return changed; }
+  function saveCurrentConfigsPermanentlyAfterDelete(){
+    const payload = { modelConfigs: migrateConfigurableModels(state && state.modelConfigs ? state.modelConfigs : buildInitialConfigurableModels()), modelItemTemplates: normalizeModelItemTemplates(state && state.modelItemTemplates ? state.modelItemTemplates : {}), deletedModelKeys: readDeletedKeys(), savedAt: Date.now(), savedBy: (typeof deviceId !== 'undefined' ? deviceId : 'local') };
+    try { localStorage.setItem(CUSTOM_CONFIG_KEY, JSON.stringify(payload)); localStorage.setItem(CUSTOM_CONFIG_BACKUP_KEY, JSON.stringify(payload)); } catch (err) { console.warn('Não foi possível atualizar a persistência dos modelos após exclusão.', err); }
+  }
+  function getModelLabelForDelete(key){ try { return (getModelConfig(key) && getModelConfig(key).label) || key; } catch (err) { return key; } }
+  function ensureDeleteModelSection(){
+    const modal = document.getElementById('manageItemsModal'); const body = modal && modal.querySelector('.manage-body'); if (!body) return;
+    let zone = document.getElementById('deleteEvaluationModelZone');
+    if (!zone) {
+      zone = document.createElement('div'); zone.id = 'deleteEvaluationModelZone'; zone.className = 'delete-model-zone';
+      zone.innerHTML = '<div class="delete-model-title">Excluir avaliação inteira</div><p class="delete-model-text">Remove somente o modelo de avaliação selecionado. Os demais modelos, avaliações salvas e o fluxo de item + área avaliada + NC permanecem intactos.</p><div class="delete-model-actions"><div id="deleteEvaluationModelCurrent" class="delete-model-current"></div><button id="deleteEvaluationModelBtn" class="btn ghost-danger" type="button">Excluir avaliação atual</button></div>';
+      const saveBox = body.querySelector('.manage-section-save'); if (saveBox) body.insertBefore(zone, saveBox); else body.appendChild(zone);
+    }
+    const current = document.getElementById('deleteEvaluationModelCurrent'); const btn = document.getElementById('deleteEvaluationModelBtn'); const key = (state && state.form && state.form.modelo) || DEFAULT_MODEL_KEY; const total = Object.keys(getAllModelConfigs()).length;
+    if (current) current.textContent = 'Selecionada: ' + getModelLabelForDelete(key);
+    if (btn) { const blocked = key === DEFAULT_MODEL_KEY || total <= 1; btn.disabled = blocked; btn.title = blocked ? 'Este modelo não pode ser excluído porque é o modelo base ou o único disponível.' : 'Excluir esta avaliação inteira'; btn.onclick = deleteCurrentEvaluationModel; }
+  }
+  function deleteCurrentEvaluationModel(){
+    const key = (state && state.form && state.form.modelo) || DEFAULT_MODEL_KEY; const all = getAllModelConfigs(); const label = getModelLabelForDelete(key); const keys = Object.keys(all);
+    if (key === DEFAULT_MODEL_KEY) { if (typeof showToast === 'function') showToast('O modelo base não pode ser excluído.'); return; }
+    if (keys.length <= 1) { if (typeof showToast === 'function') showToast('Não é possível excluir o único modelo disponível.'); return; }
+    if (!all[key]) { if (typeof showToast === 'function') showToast('Avaliação não encontrada para exclusão.'); return; }
+    const ok = confirm('Deseja excluir a avaliação "' + label + '"?\n\nEssa ação remove o modelo inteiro deste app, mas não apaga as avaliações salvas no histórico.'); if (!ok) return;
+    const nextConfigs = safeClone(all) || {}; delete nextConfigs[key]; state.modelConfigs = migrateConfigurableModels(nextConfigs);
+    if (state.modelItemTemplates) delete state.modelItemTemplates[key];
+    if (state.storeStreetTemplates) { Object.keys(state.storeStreetTemplates).forEach(templateKey => { if (templateKey.indexOf(key + '::') === 0 || templateKey === key) delete state.storeStreetTemplates[templateKey]; }); }
+    saveDeletedKey(key);
+    const nextKey = Object.keys(state.modelConfigs).find(k => k !== key) || DEFAULT_MODEL_KEY;
+    state.form.modelo = nextKey; state.items = clearEvaluationValuesFromItems((state.modelItemTemplates && state.modelItemTemplates[nextKey]) || buildItemsFromModel(nextKey), nextKey); state.streetCounts = isStreetCountEnabled(nextKey) ? makeDefaultStreetCounts(nextKey) : [];
+    if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state); if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state);
+    saveCurrentConfigsPermanentlyAfterDelete(); if (typeof persistState === 'function') persistState(); if (typeof syncModelConfigsToCloud === 'function') syncModelConfigsToCloud(true); if (typeof renderApp === 'function') renderApp();
+    const modal = document.getElementById('manageItemsModal'); if (modal && modal.classList.contains('open') && typeof closeManageItemsModal === 'function') closeManageItemsModal();
+    if (typeof showToast === 'function') showToast('Avaliação "' + label + '" excluída com sucesso.');
+  }
+  const previousRenderManageItems = window.renderManageItems || (typeof renderManageItems === 'function' ? renderManageItems : null);
+  if (typeof previousRenderManageItems === 'function') { window.renderManageItems = function(){ const result = previousRenderManageItems.apply(this, arguments); ensureDeleteModelSection(); return result; }; }
+  const previousOpenManageItemsModal = window.openManageItemsModal || (typeof openManageItemsModal === 'function' ? openManageItemsModal : null);
+  if (typeof previousOpenManageItemsModal === 'function') { window.openManageItemsModal = function(){ const result = previousOpenManageItemsModal.apply(this, arguments); ensureDeleteModelSection(); return result; }; }
+  const previousApplySyncedPayload = window.applySyncedModelConfigPayload || (typeof applySyncedModelConfigPayload === 'function' ? applySyncedModelConfigPayload : null);
+  if (typeof previousApplySyncedPayload === 'function') { window.applySyncedModelConfigPayload = function(payload){ const result = previousApplySyncedPayload.apply(this, arguments); const deletedFromCloud = Array.isArray(payload && payload.deletedModelKeys) ? payload.deletedModelKeys : []; deletedFromCloud.forEach(saveDeletedKey); if (removeDeletedKeysFromState()) { saveCurrentConfigsPermanentlyAfterDelete(); if (typeof persistState === 'function') persistState(); if (typeof renderApp === 'function') renderApp(); } return result; }; }
+  const previousGetSyncedPayload = window.getSyncedModelConfigPayload || (typeof getSyncedModelConfigPayload === 'function' ? getSyncedModelConfigPayload : null);
+  if (typeof previousGetSyncedPayload === 'function') { window.getSyncedModelConfigPayload = function(){ const payload = previousGetSyncedPayload.apply(this, arguments) || {}; payload.deletedModelKeys = readDeletedKeys(); return payload; }; }
+  document.addEventListener('click', function(event){ if (event.target.closest('#manageItemsBtn')) setTimeout(ensureDeleteModelSection, 120); }, true);
+  setTimeout(function(){ if (removeDeletedKeysFromState()) { saveCurrentConfigsPermanentlyAfterDelete(); if (typeof persistState === 'function') persistState(); if (typeof renderApp === 'function') renderApp(); } }, 250);
+  window.deleteCurrentEvaluationModel = deleteCurrentEvaluationModel;
+})();
+</script>
 </body>
 </html>

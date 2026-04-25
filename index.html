@@ -4899,5 +4899,105 @@ function saveConfigModels(){
 })();
 </script>
 
+
+<style id="managerDashboardPatchStyle">
+  .dashboard-filter-grid{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:end;margin-bottom:16px;}
+  .dashboard-filter-field{display:flex;flex-direction:column;gap:6px;min-width:0;}
+  .dashboard-filter-field label{font-size:12px;color:#475569;font-weight:900;}
+  .dashboard-filter-field select{width:100%;padding:11px 12px;border:1px solid var(--border,#dbe2ea);border-radius:12px;background:#fff;color:var(--text,#0f172a);font-size:14px;font-weight:800;}
+  .dashboard-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:14px 0 18px;}
+  .dashboard-kpi{border:1px solid var(--border,#dbe2ea);border-radius:18px;background:#fff;padding:16px;box-shadow:0 8px 22px rgba(15,23,42,.04);}
+  .dashboard-kpi-label{font-size:12px;font-weight:900;color:#64748b;text-transform:uppercase;letter-spacing:.04em;}
+  .dashboard-kpi-value{font-size:34px;font-weight:950;color:#0f172a;margin-top:8px;line-height:1;}
+  .dashboard-kpi-note{font-size:12px;color:#64748b;margin-top:8px;font-weight:700;}
+  .dashboard-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;}
+  .dashboard-section{border:1px solid var(--border,#dbe2ea);border-radius:18px;background:#f8fafc;padding:14px;}
+  .dashboard-section-title{font-size:16px;font-weight:950;margin:0 0 12px;color:#0f172a;}
+  .dashboard-table{display:grid;gap:8px;}
+  .dashboard-row{display:grid;grid-template-columns:1.3fr .7fr .7fr .7fr;gap:8px;align-items:center;background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:10px 12px;font-size:13px;}
+  .dashboard-row.store{grid-template-columns:1.3fr .9fr .7fr .7fr;}
+  .dashboard-row.header{background:transparent;border:none;color:#64748b;font-weight:950;font-size:12px;padding:0 6px;}
+  .dashboard-main-text{font-weight:950;color:#0f172a;line-height:1.25;}
+  .dashboard-muted{color:#64748b;font-size:12px;font-weight:700;margin-top:2px;}
+  .dashboard-pill{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;padding:6px 9px;font-size:12px;font-weight:950;background:#f1f5f9;color:#0f172a;border:1px solid #e2e8f0;width:max-content;}
+  .dashboard-pill.good{background:#dcfce7;color:#166534;border-color:#bbf7d0;}
+  .dashboard-pill.bad{background:#fee2e2;color:#991b1b;border-color:#fecaca;}
+  .dashboard-empty{border:1px dashed var(--border,#dbe2ea);border-radius:16px;padding:18px;text-align:center;color:#64748b;background:#fff;font-size:14px;font-weight:800;}
+  @media(max-width:980px){.dashboard-filter-grid,.dashboard-kpi-grid,.dashboard-grid{grid-template-columns:1fr 1fr}.dashboard-filter-grid .btn{width:100%;}}
+  @media(max-width:640px){.dashboard-filter-grid,.dashboard-kpi-grid,.dashboard-grid{grid-template-columns:1fr}.dashboard-row,.dashboard-row.store{grid-template-columns:1fr}.dashboard-kpi-value{font-size:30px}}
+</style>
+
+<div id="managerDashboardModal" class="manage-modal" aria-hidden="true">
+  <div class="manage-panel" style="max-width:1180px;">
+    <div class="manage-header">
+      <div>
+        <div class="manage-title">Dashboard Gerencial</div>
+        <div class="manage-help">Visão executiva das avaliações finalizadas. Os dados são lidos do histórico e não alteram o fluxo operacional.</div>
+      </div>
+      <button id="closeManagerDashboardBtn" class="btn secondary" type="button">Fechar</button>
+    </div>
+    <div class="manage-body">
+      <div class="dashboard-filter-grid">
+        <div class="dashboard-filter-field"><label for="dashboardMonthFilter">Mês</label><select id="dashboardMonthFilter"></select></div>
+        <div class="dashboard-filter-field"><label for="dashboardSupervisorFilter">Supervisor</label><select id="dashboardSupervisorFilter"></select></div>
+        <div class="dashboard-filter-field"><label for="dashboardStoreFilter">Loja</label><select id="dashboardStoreFilter"></select></div>
+        <button id="clearDashboardFiltersBtn" class="btn secondary" type="button">Limpar filtros</button>
+      </div>
+      <div id="dashboardKpis" class="dashboard-kpi-grid"></div>
+      <div class="dashboard-grid">
+        <div class="dashboard-section"><h3 class="dashboard-section-title">Ranking por supervisor</h3><div id="dashboardSupervisorRanking" class="dashboard-table"></div></div>
+        <div class="dashboard-section"><h3 class="dashboard-section-title">Resumo por loja</h3><div id="dashboardStoreSummary" class="dashboard-table"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script id="managerDashboardPatch">
+(function(){
+  const DASH_FILTERS = { month:'', supervisor:'', store:'' };
+  function esc(v){ return String(v == null ? '' : v).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
+  function getSession(){ return window.arkoAccessControl && typeof window.arkoAccessControl.getSession === 'function' ? window.arkoAccessControl.getSession() : null; }
+  function isManager(){ const s = getSession(); return !!(s && s.perfil === 'gerente'); }
+  function getAllHistory(){ return typeof getHistory === 'function' ? (getHistory() || []) : []; }
+  function createdBy(entry){ return (entry && entry.createdBy) || (entry && entry.data && entry.data.createdBy) || {}; }
+  function supervisorKey(entry){ const u = createdBy(entry); return String(u.cpf || u.nome || 'sem_responsavel'); }
+  function supervisorLabel(entry){ const u = createdBy(entry); if (u.nome && u.cpf) return `${u.nome} (${u.cpf})`; return u.nome || u.cpf || 'Sem responsável'; }
+  function entryStore(entry){ return String((entry && entry.title) || (entry && entry.data && entry.data.form && entry.data.form.nomeLoja) || '').trim() || 'Loja não informada'; }
+  function entryDate(entry){ const raw = (entry && entry.createdAt) || (entry && entry.data && entry.data.savedAt) || Date.now(); const d = new Date(raw); return Number.isNaN(d.getTime()) ? new Date() : d; }
+  function monthKeyFromDate(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+  function monthLabel(key){ const [y,m]=String(key).split('-').map(Number); if(!y||!m) return 'Sem data'; const d = new Date(y,m-1,1); const t = d.toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); return t.charAt(0).toUpperCase()+t.slice(1); }
+  function nota(entry){ const n = Number(entry && entry.notaFinal != null ? entry.notaFinal : (entry && entry.data && entry.data.notaFinal)); return Number.isFinite(n) ? n : 0; }
+  function fmtPct(n){ return `${Number(n || 0).toFixed(1).replace('.', ',')}%`; }
+  function statusFromNota(n){ return Number(n || 0) >= 84.5 ? 'Aprovada' : 'Reprovada'; }
+  function ensureDashboardButton(){
+    const actions = document.querySelector('.top-actions'); if(!actions) return;
+    let btn = document.getElementById('openManagerDashboardBtn');
+    if(!btn){ btn = document.createElement('button'); btn.id='openManagerDashboardBtn'; btn.className='btn secondary'; btn.type='button'; btn.textContent='Dashboard'; const historyBtn = document.getElementById('openHistoryBtn'); if(historyBtn) actions.insertBefore(btn, historyBtn); else actions.appendChild(btn); }
+    btn.style.display = isManager() ? '' : 'none';
+    if(!btn.dataset.boundDashboard){ btn.dataset.boundDashboard='1'; btn.addEventListener('click', openDashboard); }
+  }
+  function openDashboard(){ if(!isManager()){ if(typeof showToast === 'function') showToast('Dashboard disponível apenas para gerente.'); return; } const modal=document.getElementById('managerDashboardModal'); if(!modal) return; modal.classList.add('open'); modal.setAttribute('aria-hidden','false'); renderDashboard(); setTimeout(()=>{const p=modal.querySelector('.manage-panel'); if(p) p.scrollTop=0;},50); }
+  function closeDashboard(){ const modal=document.getElementById('managerDashboardModal'); if(!modal) return; modal.classList.remove('open'); modal.setAttribute('aria-hidden','true'); }
+  function filteredBase(){ let list = getAllHistory().slice(); if(DASH_FILTERS.month) list = list.filter(e => monthKeyFromDate(entryDate(e)) === DASH_FILTERS.month); if(DASH_FILTERS.supervisor) list = list.filter(e => supervisorKey(e) === DASH_FILTERS.supervisor); if(DASH_FILTERS.store) list = list.filter(e => entryStore(e) === DASH_FILTERS.store); return list; }
+  function populateFilters(all){
+    const monthSelect = document.getElementById('dashboardMonthFilter'); const supSelect = document.getElementById('dashboardSupervisorFilter'); const storeSelect = document.getElementById('dashboardStoreFilter');
+    const months = Array.from(new Set(all.map(e => monthKeyFromDate(entryDate(e))))).sort().reverse();
+    const stores = Array.from(new Set(all.map(entryStore))).sort((a,b)=>a.localeCompare(b,'pt-BR'));
+    const supMap = new Map(); all.forEach(e => supMap.set(supervisorKey(e), supervisorLabel(e))); const sups = Array.from(supMap.entries()).sort((a,b)=>a[1].localeCompare(b[1],'pt-BR'));
+    if(monthSelect){ monthSelect.innerHTML = '<option value="">Todos os meses</option>' + months.map(m=>`<option value="${esc(m)}">${esc(monthLabel(m))}</option>`).join(''); if(months.includes(DASH_FILTERS.month)) monthSelect.value=DASH_FILTERS.month; else DASH_FILTERS.month=''; monthSelect.onchange=()=>{DASH_FILTERS.month=monthSelect.value; renderDashboard();}; }
+    if(supSelect){ supSelect.innerHTML = '<option value="">Todos os supervisores</option>' + sups.map(([k,l])=>`<option value="${esc(k)}">${esc(l)}</option>`).join(''); if(sups.some(([k])=>k===DASH_FILTERS.supervisor)) supSelect.value=DASH_FILTERS.supervisor; else DASH_FILTERS.supervisor=''; supSelect.onchange=()=>{DASH_FILTERS.supervisor=supSelect.value; renderDashboard();}; }
+    if(storeSelect){ storeSelect.innerHTML = '<option value="">Todas as lojas</option>' + stores.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join(''); if(stores.includes(DASH_FILTERS.store)) storeSelect.value=DASH_FILTERS.store; else DASH_FILTERS.store=''; storeSelect.onchange=()=>{DASH_FILTERS.store=storeSelect.value; renderDashboard();}; }
+    const clear = document.getElementById('clearDashboardFiltersBtn'); if(clear) clear.onclick=()=>{DASH_FILTERS.month='';DASH_FILTERS.supervisor='';DASH_FILTERS.store='';renderDashboard();};
+  }
+  function renderKpis(list){ const target=document.getElementById('dashboardKpis'); if(!target) return; const total=list.length; const approved=list.filter(e=>nota(e)>=84.5).length; const rejected=total-approved; const avg=total ? list.reduce((s,e)=>s+nota(e),0)/total : 0; target.innerHTML = `<div class="dashboard-kpi"><div class="dashboard-kpi-label">Total de avaliações</div><div class="dashboard-kpi-value">${total}</div><div class="dashboard-kpi-note">Registros finalizados</div></div><div class="dashboard-kpi"><div class="dashboard-kpi-label">Aprovadas</div><div class="dashboard-kpi-value">${approved}</div><div class="dashboard-kpi-note">Nota ≥ 84,5%</div></div><div class="dashboard-kpi"><div class="dashboard-kpi-label">Reprovadas</div><div class="dashboard-kpi-value">${rejected}</div><div class="dashboard-kpi-note">Nota abaixo da faixa</div></div><div class="dashboard-kpi"><div class="dashboard-kpi-label">Média geral</div><div class="dashboard-kpi-value">${esc(fmtPct(avg))}</div><div class="dashboard-kpi-note">Período filtrado</div></div>`; }
+  function renderSupervisorRanking(list){ const target=document.getElementById('dashboardSupervisorRanking'); if(!target) return; if(!list.length){ target.innerHTML='<div class="dashboard-empty">Sem avaliações para o período selecionado.</div>'; return; } const map=new Map(); list.forEach(e=>{ const k=supervisorKey(e); const v=map.get(k)||{label:supervisorLabel(e),count:0,sum:0,approved:0,rejected:0}; v.count++; v.sum+=nota(e); if(nota(e)>=84.5) v.approved++; else v.rejected++; map.set(k,v); }); const rows=Array.from(map.values()).sort((a,b)=>(b.sum/b.count)-(a.sum/a.count) || b.count-a.count); target.innerHTML='<div class="dashboard-row header"><div>Supervisor</div><div>Avaliações</div><div>Média</div><div>Status</div></div>' + rows.map((r,i)=>{ const avg=r.sum/r.count; return `<div class="dashboard-row"><div><div class="dashboard-main-text">${i+1}º ${esc(r.label)}</div><div class="dashboard-muted">${r.approved} aprov. • ${r.rejected} reprov.</div></div><div>${r.count}</div><div><strong>${esc(fmtPct(avg))}</strong></div><div><span class="dashboard-pill ${avg>=84.5?'good':'bad'}">${avg>=84.5?'OK':'Atenção'}</span></div></div>`; }).join(''); }
+  function renderStoreSummary(list){ const target=document.getElementById('dashboardStoreSummary'); if(!target) return; if(!list.length){ target.innerHTML='<div class="dashboard-empty">Sem lojas para o período selecionado.</div>'; return; } const map=new Map(); list.forEach(e=>{ const store=entryStore(e); const d=entryDate(e); const cur=map.get(store); if(!cur || d>cur.date) map.set(store,{store,date:d,note:nota(e),count:cur ? cur.count+1 : 1}); else cur.count++; }); const rows=Array.from(map.values()).sort((a,b)=>b.date-a.date); target.innerHTML='<div class="dashboard-row store header"><div>Loja</div><div>Última avaliação</div><div>Nota</div><div>Status</div></div>' + rows.map(r=>`<div class="dashboard-row store"><div><div class="dashboard-main-text">${esc(r.store)}</div><div class="dashboard-muted">${r.count} avaliação${r.count===1?'':'ões'} no filtro</div></div><div>${esc(r.date.toLocaleDateString('pt-BR'))}</div><div><strong>${esc(fmtPct(r.note))}</strong></div><div><span class="dashboard-pill ${r.note>=84.5?'good':'bad'}">${statusFromNota(r.note)}</span></div></div>`).join(''); }
+  function renderDashboard(){ const all=getAllHistory(); populateFilters(all); const list=filteredBase(); renderKpis(list); renderSupervisorRanking(list); renderStoreSummary(list); }
+  function bindDashboard(){ ensureDashboardButton(); const close=document.getElementById('closeManagerDashboardBtn'); if(close && !close.dataset.boundDashboard){ close.dataset.boundDashboard='1'; close.addEventListener('click', closeDashboard); } const modal=document.getElementById('managerDashboardModal'); if(modal && !modal.dataset.boundDashboardBackdrop){ modal.dataset.boundDashboardBackdrop='1'; modal.addEventListener('click', e=>{ if(e.target===modal) closeDashboard(); }); } }
+  const prevApply = window.applyAccessVisibility; if(typeof prevApply === 'function') window.applyAccessVisibility = function(){ const r = prevApply.apply(this, arguments); setTimeout(bindDashboard, 0); return r; };
+  document.addEventListener('DOMContentLoaded', bindDashboard); setInterval(ensureDashboardButton, 1200); setTimeout(bindDashboard, 300); window.renderManagerDashboard = renderDashboard;
+})();
+</script>
+
 </body>
 </html>

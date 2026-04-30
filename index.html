@@ -5308,5 +5308,297 @@ function saveConfigModels(){
 })();
 </script>
 
+<script id="arkoCriticalFixes20260430">
+(function(){
+  const MULTI_DRAFT_KEY = 'arko_avaliacao_rascunhos_por_modelo_v1';
+  const MODEL_CONFIG_LOCAL_KEY = 'arko_model_configs_local_permanent_v2';
+  const COMMON_FORM_FIELDS = ['nomeLoja','visita','coordArko','gerenteLoja','gerenteAcompanhou','data','horaVisita'];
+
+  function deepClone(value){ try { return JSON.parse(JSON.stringify(value)); } catch(err){ return value; } }
+  function nowIso(){ return new Date().toISOString(); }
+  function normalizeModelKey(modelKey){
+    const all = (typeof getAllModelConfigs === 'function') ? getAllModelConfigs() : (typeof MODEL_CONFIGS !== 'undefined' ? MODEL_CONFIGS : {});
+    return all && all[modelKey] ? modelKey : (typeof DEFAULT_MODEL_KEY !== 'undefined' ? DEFAULT_MODEL_KEY : modelKey);
+  }
+  function getBundle(){
+    try {
+      const parsed = JSON.parse(localStorage.getItem(MULTI_DRAFT_KEY) || '{}');
+      if (parsed && typeof parsed === 'object') {
+        if (!parsed.drafts || typeof parsed.drafts !== 'object') parsed.drafts = {};
+        if (!parsed.commonForm || typeof parsed.commonForm !== 'object') parsed.commonForm = {};
+        return parsed;
+      }
+    } catch(err) {}
+    return { version:1, activeModel:'', commonForm:{}, drafts:{}, updatedAt:0 };
+  }
+  function setBundle(bundle){
+    try { localStorage.setItem(MULTI_DRAFT_KEY, JSON.stringify(bundle)); } catch(err) { console.warn('Não foi possível salvar os rascunhos por modelo.', err); }
+  }
+  function inferSetorFromModel(modelKey){
+    const label = String((typeof getModelConfig === 'function' ? getModelConfig(modelKey).label : '') || modelKey || '').toLowerCase();
+    if (label.includes('perec')) return 'Perecíveis';
+    if (label.includes('secos') || label.includes('seco')) return 'Secos';
+    return '';
+  }
+  function collectCommonForm(form){
+    const common = {};
+    COMMON_FORM_FIELDS.forEach(field => { common[field] = form && form[field] !== undefined ? form[field] : ''; });
+    return common;
+  }
+  function applyCommonForm(form, common){
+    const next = { ...(form || {}) };
+    COMMON_FORM_FIELDS.forEach(field => {
+      if (common && common[field] !== undefined) next[field] = common[field];
+    });
+    return next;
+  }
+  function saveActiveModelDraft(){
+    if (typeof state === 'undefined' || !state || !state.form) return;
+    const modelKey = normalizeModelKey(state.form.modelo || DEFAULT_MODEL_KEY);
+    const bundle = getBundle();
+    bundle.activeModel = modelKey;
+    bundle.commonForm = { ...bundle.commonForm, ...collectCommonForm(state.form) };
+    bundle.drafts[modelKey] = { savedAt: nowIso(), data: deepClone(state) };
+    bundle.updatedAt = Date.now();
+    setBundle(bundle);
+  }
+  function buildStateForModel(modelKey, commonForm){
+    modelKey = normalizeModelKey(modelKey);
+    const bundle = getBundle();
+    let next = bundle.drafts && bundle.drafts[modelKey] && bundle.drafts[modelKey].data ? deepClone(bundle.drafts[modelKey].data) : null;
+    if (!next || !next.form || !Array.isArray(next.items)) {
+      next = (typeof buildDefaultState === 'function')
+        ? buildDefaultState(state?.storeStreetTemplates || {}, state?.modelItemTemplates || {}, modelKey, state?.modelConfigs || null)
+        : deepClone(state);
+      if (!next.form) next.form = {};
+      next.form.modelo = modelKey;
+      next.form.setor = inferSetorFromModel(modelKey);
+    }
+    if (typeof normalizeState === 'function') next = normalizeState(next);
+    next.form = applyCommonForm(next.form, commonForm || bundle.commonForm || collectCommonForm(state?.form || {}));
+    next.form.modelo = modelKey;
+    if (!String(next.form.setor || '').trim()) next.form.setor = inferSetorFromModel(modelKey);
+    if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(next);
+    if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(next);
+    return next;
+  }
+
+  const previousPersistState = typeof persistState === 'function' ? persistState : null;
+  persistState = function(){
+    saveActiveModelDraft();
+    if (typeof saveFailSafeCheckpoint === 'function') saveFailSafeCheckpoint('autosave-multimodel');
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(err) { console.warn('Não foi possível salvar o rascunho.', err); }
+    if (typeof queueCloudDraftSync === 'function') queueCloudDraftSync();
+  };
+
+  const previousLoadDraft = typeof loadDraft === 'function' ? loadDraft : null;
+  loadDraft = function(){
+    const bundle = getBundle();
+    const targetModel = normalizeModelKey(bundle.activeModel || state?.form?.modelo || DEFAULT_MODEL_KEY);
+    if (bundle.drafts && bundle.drafts[targetModel]) {
+      state = buildStateForModel(targetModel, bundle.commonForm);
+      return;
+    }
+    if (previousLoadDraft) previousLoadDraft();
+    if (state && state.form) saveActiveModelDraft();
+  };
+
+  window.arkoSwitchModelPreservingDrafts = function(nextModel){
+    if (typeof state === 'undefined' || !state?.form) return;
+    const targetModel = normalizeModelKey(nextModel);
+    const currentModel = normalizeModelKey(state.form.modelo || DEFAULT_MODEL_KEY);
+    if (targetModel === currentModel) return;
+    saveActiveModelDraft();
+    const common = collectCommonForm(state.form);
+    state = buildStateForModel(targetModel, common);
+    persistState();
+    if (typeof renderApp === 'function') renderApp();
+    if (typeof scheduleAutosave === 'function') scheduleAutosave();
+  };
+  onModelChange = function(nextModel){ window.arkoSwitchModelPreservingDrafts(nextModel); };
+
+  function saveModelConfigLocally(){
+    try {
+      localStorage.setItem(MODEL_CONFIG_LOCAL_KEY, JSON.stringify({
+        updatedAt: Date.now(),
+        modelConfigs: (typeof getAllModelConfigs === 'function') ? getAllModelConfigs() : state.modelConfigs,
+        modelItemTemplates: (typeof normalizeModelItemTemplates === 'function') ? normalizeModelItemTemplates(state.modelItemTemplates || {}) : (state.modelItemTemplates || {})
+      }));
+    } catch(err) { console.warn('Não foi possível salvar configurações localmente.', err); }
+  }
+  function loadModelConfigLocally(){
+    try {
+      const raw = localStorage.getItem(MODEL_CONFIG_LOCAL_KEY);
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !parsed.modelConfigs) return false;
+      state.modelConfigs = (typeof migrateConfigurableModels === 'function') ? migrateConfigurableModels(parsed.modelConfigs) : parsed.modelConfigs;
+      state.modelItemTemplates = (typeof normalizeModelItemTemplates === 'function') ? normalizeModelItemTemplates(parsed.modelItemTemplates || {}) : (parsed.modelItemTemplates || {});
+      return true;
+    } catch(err) { console.warn('Não foi possível carregar configurações locais.', err); return false; }
+  }
+
+  const previousApplySynced = typeof applySyncedModelConfigPayload === 'function' ? applySyncedModelConfigPayload : null;
+  if (previousApplySynced) {
+    applySyncedModelConfigPayload = function(payload){
+      const changed = previousApplySynced(payload);
+      if (changed) saveModelConfigLocally();
+      return changed;
+    };
+  }
+
+  saveManageItems = function(){
+    if (!Array.isArray(manageDraftItems) || !manageDraftItems.length) manageDraftItems = makeDefaultItems(state.form.modelo);
+    const modelKey = normalizeModelKey(state.form.modelo || DEFAULT_MODEL_KEY);
+    const idMap = {};
+    manageDraftItems.forEach((item, index)=>{ idMap[Number(item.id)||index+1] = index + 1; });
+    if (typeof remapItemIdsInModelConfig === 'function') remapItemIdsInModelConfig(modelKey, idMap);
+    state.items = reindexItems(deepClone(manageDraftItems), modelKey);
+    const all = (typeof getCurrentModelConfigsSnapshot === 'function') ? getCurrentModelConfigsSnapshot() : (state.modelConfigs || {});
+    if (all[modelKey]) all[modelKey].items = state.items.map(item=>({ description:item.description, section:item.section }));
+    state.modelConfigs = all;
+    if (typeof syncItemLinkMetadata === 'function') syncItemLinkMetadata(modelKey);
+    state.modelItemTemplates = normalizeModelItemTemplates({ ...(state.modelItemTemplates || {}), [modelKey]: deepClone(state.items) });
+    if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state);
+    if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state);
+    saveModelConfigLocally();
+    persistState();
+    if (typeof syncModelConfigsToCloud === 'function') syncModelConfigsToCloud(true);
+    if (typeof renderApp === 'function') renderApp();
+    if (typeof closeManageItemsModal === 'function') closeManageItemsModal();
+    if (typeof scheduleAutosave === 'function') scheduleAutosave();
+    if (typeof showToast === 'function') showToast('Itens salvos localmente e enviados para sincronização.');
+  };
+
+  function loadHistoryEntryExact(entry){
+    if (!entry || !entry.data) return;
+    saveActiveModelDraft();
+    const payload = deepClone(entry.data);
+    if (!payload.modelConfigs && entry.modelConfigs) payload.modelConfigs = deepClone(entry.modelConfigs);
+    if (!payload.modelItemTemplates && entry.modelItemTemplates) payload.modelItemTemplates = deepClone(entry.modelItemTemplates);
+    state = (typeof normalizeState === 'function') ? normalizeState(payload) : payload;
+    if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state);
+    if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(err) {}
+    saveActiveModelDraft();
+    if (typeof renderApp === 'function') renderApp();
+    const modal = document.getElementById('historyModal');
+    if (modal) { modal.classList.remove('open'); modal.setAttribute('aria-hidden','true'); }
+    if (typeof showToast === 'function') showToast(`Avaliação carregada com a nota salva: ${formatPercent(entry.notaFinal || getSummary().notaFinal)}.`);
+  }
+
+  const previousSaveHistorySnapshot = typeof saveHistorySnapshot === 'function' ? saveHistorySnapshot : null;
+  saveHistorySnapshot = function(){
+    const summary = getSummary();
+    const snapshot = deepClone(state);
+    const entry = {
+      id: String(Date.now()),
+      createdAt: nowIso(),
+      title: state.form.nomeLoja || 'Loja sem nome',
+      subtitle: `${getModelConfig(state.form.modelo).label} • ${state.form.setor || 'Sem setor'} • ${state.form.visita || 'Sem visita'} • ${formatDateBR(state.form.data)}`,
+      notaFinal: summary.notaFinal,
+      finalized: true,
+      syncStatus: navigator.onLine ? 'pending_cloud_sync' : 'local_offline',
+      modelConfigs: deepClone(state.modelConfigs || {}),
+      modelItemTemplates: deepClone(state.modelItemTemplates || {}),
+      data: snapshot
+    };
+    const list = getHistory();
+    const next = [entry, ...list.filter(x => String(x.id) !== String(entry.id))].slice(0, 50);
+    historyCache = next;
+    setLocalHistory(next);
+    if (typeof renderHistory === 'function') renderHistory();
+    if (typeof syncHistoryEntryToCloud === 'function') syncHistoryEntryToCloud(entry);
+  };
+
+  renderHistory = function(){
+    const target = document.getElementById('historyList');
+    if (!target) return;
+    const list = getHistory();
+    if (typeof populateHistoryStoreFilter === 'function') populateHistoryStoreFilter(list);
+    const filtered = (typeof historyStoreFilter !== 'undefined' && historyStoreFilter)
+      ? list.filter(entry => String(entry.title || '').trim() === historyStoreFilter)
+      : list;
+    if (!filtered.length) {
+      target.innerHTML = '<div class="history-empty">Nenhuma avaliação salva ainda.</div>';
+      return;
+    }
+    target.innerHTML = '';
+    filtered.forEach(entry => {
+      const div = document.createElement('div');
+      div.className = 'history-item';
+      const when = new Date(entry.createdAt);
+      const dateText = Number.isNaN(when.getTime()) ? 'Sem data' : `${when.toLocaleDateString('pt-BR')} ${when.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}`;
+      const pct = typeof formatPercent === 'function' ? formatPercent(entry.notaFinal) : `${Number(entry.notaFinal || 0).toFixed(1)}%`;
+      div.innerHTML = `
+        <div class="history-title">${escapeHtml(entry.title || 'Loja sem nome')}</div>
+        <div class="history-meta">${escapeHtml(entry.subtitle || 'Sem detalhes')}<br>Nota salva: ${escapeHtml(pct)} • Salva em ${escapeHtml(dateText)}</div>
+        <div class="history-actions">
+          <button class="history-btn" data-load-exact="${escapeHtml(entry.id)}">Abrir avaliação salva</button>
+          <button class="history-btn" data-delete="${escapeHtml(entry.id)}">Excluir</button>
+        </div>`;
+      target.appendChild(div);
+    });
+    target.querySelectorAll('[data-load-exact]').forEach(btn => btn.onclick = () => {
+      const entry = list.find(x => String(x.id) === String(btn.dataset.loadExact));
+      loadHistoryEntryExact(entry);
+    });
+    target.querySelectorAll('[data-delete]').forEach(btn => btn.onclick = () => {
+      if (!confirm('Excluir esta avaliação salva?')) return;
+      const next = list.filter(x => String(x.id) !== String(btn.dataset.delete));
+      historyCache = next;
+      setLocalHistory(next);
+      if (typeof deleteHistoryEntryFromCloud === 'function') deleteHistoryEntryFromCloud(btn.dataset.delete);
+      renderHistory();
+      if (typeof showToast === 'function') showToast('Avaliação removida.');
+    });
+  };
+
+  function removePdfLinksAndMetadata(doc){
+    try { doc.setProperties({ title: smartFileName().replace('.pdf',''), subject:'Avaliação de Inventário', author:'Arko Soluções', creator:'Arko Soluções', keywords:'' }); } catch(err) {}
+    try {
+      const pages = doc.internal && doc.internal.pages ? doc.internal.pages : null;
+      if (pages) Object.keys(pages).forEach(k => {
+        if (Array.isArray(pages[k])) pages[k] = pages[k].filter(line => !String(line).includes('/Annots') && !String(line).includes('/URI'));
+      });
+    } catch(err) {}
+  }
+  const previousExportPDF = typeof exportPDF === 'function' ? exportPDF : null;
+  if (previousExportPDF) {
+    exportPDF = function(){
+      const originalSave = window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API && window.jspdf.jsPDF.API.save;
+      if (originalSave) {
+        window.jspdf.jsPDF.API.save = function(){ removePdfLinksAndMetadata(this); return originalSave.apply(this, arguments); };
+      }
+      try { return previousExportPDF.apply(this, arguments); }
+      finally { if (originalSave) window.jspdf.jsPDF.API.save = originalSave; }
+    };
+  }
+
+  function rebindCriticalButtons(){
+    loadModelConfigLocally();
+    if (state && state.form) {
+      const bundle = getBundle();
+      if (bundle.drafts && bundle.activeModel && bundle.drafts[bundle.activeModel]) state = buildStateForModel(bundle.activeModel, bundle.commonForm);
+      if (typeof renderApp === 'function') renderApp();
+    }
+    const modelSelect = document.getElementById('modeloAvaliacao');
+    if (modelSelect) modelSelect.onchange = e => {
+      const nextModel = e.target.value;
+      if (!nextModel || nextModel === (state.form.modelo || DEFAULT_MODEL_KEY)) return;
+      onModelChange(nextModel);
+      if (typeof showToast === 'function') showToast('Modelo alterado sem perder o rascunho anterior.');
+    };
+    const saveManageBtn = document.getElementById('saveManageItemsBtn');
+    if (saveManageBtn) saveManageBtn.onclick = saveManageItems;
+    const exportBtn = document.getElementById('exportBtn');
+    if (exportBtn) exportBtn.onclick = exportPDF;
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', rebindCriticalButtons); else rebindCriticalButtons();
+  setTimeout(rebindCriticalButtons, 300);
+  setTimeout(rebindCriticalButtons, 1200);
+})();
+</script>
+
 </body>
 </html>

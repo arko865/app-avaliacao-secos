@@ -5623,5 +5623,378 @@ function saveConfigModels(){
 })();
 </script>
 
+
+
+<script id="firebasePermanentSafetyPatch">
+/* === BLINDAGEM FIREBASE: permanência sem sobrescrever dados e com backup em partes ===
+   - Mantém layout e fluxos existentes.
+   - Não substitui documentos inteiros sem merge.
+   - Cria backup completo em documentos fatiados dentro de /shared para evitar limite de 1MB do Firestore.
+   - Histórico continua salvo localmente e sincroniza uma versão compacta + backup completo fatiado.
+*/
+(function firebasePermanentSafetyPatch(){
+  const FIREBASE_SAFE_PATCH_VERSION = '2026-05-04.1';
+  const CHUNK_SIZE = 650000;
+  const MIN_BACKUP_INTERVAL_MS = 60000;
+  const LOCAL_LAST_GOOD_KEY = 'arko_ultimo_estado_completo_blindado_v1';
+  const LOCAL_BACKUP_QUEUE_KEY = 'arko_firebase_backups_pendentes_v1';
+  let backupTimer = null;
+  let backupRunning = false;
+  let lastFullBackupAt = 0;
+
+  function logSafe(){ try { console.log.apply(console, arguments); } catch(err) {} }
+  function warnSafe(){ try { console.warn.apply(console, arguments); } catch(err) {} }
+  function safeCloneDeep(value){ try { return JSON.parse(JSON.stringify(value)); } catch(err) { return value; } }
+  function safeDocId(value){ return String(value || 'sem_id').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120); }
+  function nowIsoSafe(){ try { return new Date().toISOString(); } catch(err) { return ''; } }
+  function isCloudReady(){ return !!(typeof firebaseReady !== 'undefined' && firebaseReady && typeof firestore !== 'undefined' && firestore && navigator.onLine); }
+  function localSet(key, value){ try { localStorage.setItem(key, JSON.stringify(value)); } catch(err) { warnSafe('Backup local indisponível.', err); } }
+  function localGet(key, fallback){ try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch(err) { return fallback; } }
+
+  function stripHeavyPhotos(value){
+    const copy = safeCloneDeep(value);
+    const walk = (node) => {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) { node.forEach(walk); return; }
+      Object.keys(node).forEach(key => {
+        if (key === 'dataUrl' && typeof node[key] === 'string' && node[key].startsWith('data:image')) {
+          node[key] = '[foto_preservada_no_backup_completo_fatiado]';
+        } else {
+          walk(node[key]);
+        }
+      });
+    };
+    walk(copy);
+    return copy;
+  }
+
+  function buildCurrentFullPayload(reason){
+    const normalized = (typeof normalizeState === 'function') ? normalizeState(state) : safeCloneDeep(state);
+    return {
+      schema:'arko-full-state-backup',
+      version:FIREBASE_SAFE_PATCH_VERSION,
+      reason:reason || 'autosave',
+      savedAt:Date.now(),
+      savedAtIso:nowIsoSafe(),
+      savedBy:(typeof deviceId !== 'undefined' ? deviceId : 'local'),
+      activeModel: normalized && normalized.form ? normalized.form.modelo : '',
+      state: normalized,
+      modelConfigs: (typeof migrateConfigurableModels === 'function') ? migrateConfigurableModels(state?.modelConfigs || {}) : (state?.modelConfigs || {}),
+      modelItemTemplates: (typeof normalizeModelItemTemplates === 'function') ? normalizeModelItemTemplates(state?.modelItemTemplates || {}) : (state?.modelItemTemplates || {}),
+      deletedModelKeys: (typeof readDeletedKeys === 'function') ? readDeletedKeys() : []
+    };
+  }
+
+  async function writeChunkedJson(baseKey, payload){
+    if (!isCloudReady()) throw new Error('Firebase indisponível ou offline.');
+    const key = safeDocId(baseKey);
+    const json = JSON.stringify(payload || {});
+    const count = Math.max(1, Math.ceil(json.length / CHUNK_SIZE));
+    const manifestRef = firestore.doc('shared/' + key + '_manifest');
+    let previousCount = 0;
+    try {
+      const oldManifest = await manifestRef.get();
+      if (oldManifest.exists) previousCount = Number((oldManifest.data() || {}).chunkCount || 0) || 0;
+    } catch(err) {}
+
+    const batch = firestore.batch();
+    for (let i = 0; i < count; i++) {
+      const chunk = json.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+      batch.set(firestore.doc('shared/' + key + '_chunk_' + i), {
+        key, index:i, chunk, updatedAt:Date.now(), updatedBy:(typeof deviceId !== 'undefined' ? deviceId : 'local')
+      }, { merge:true });
+    }
+    for (let i = count; i < previousCount; i++) {
+      batch.delete(firestore.doc('shared/' + key + '_chunk_' + i));
+    }
+    batch.set(manifestRef, {
+      key,
+      chunkCount:count,
+      size:json.length,
+      updatedAt:Date.now(),
+      updatedAtIso:nowIsoSafe(),
+      updatedBy:(typeof deviceId !== 'undefined' ? deviceId : 'local'),
+      patchVersion:FIREBASE_SAFE_PATCH_VERSION
+    }, { merge:true });
+    await batch.commit();
+    return { key, count, size:json.length };
+  }
+
+  async function readChunkedJson(baseKey){
+    if (!isCloudReady()) return null;
+    const key = safeDocId(baseKey);
+    const manifest = await firestore.doc('shared/' + key + '_manifest').get();
+    if (!manifest.exists) return null;
+    const data = manifest.data() || {};
+    const count = Number(data.chunkCount || 0) || 0;
+    if (!count) return null;
+    const parts = [];
+    for (let i = 0; i < count; i++) {
+      const snap = await firestore.doc('shared/' + key + '_chunk_' + i).get();
+      if (!snap.exists) throw new Error('Chunk ausente: ' + key + ' #' + i);
+      parts.push(String((snap.data() || {}).chunk || ''));
+    }
+    return JSON.parse(parts.join(''));
+  }
+
+  function enqueueBackup(reason){
+    const queue = localGet(LOCAL_BACKUP_QUEUE_KEY, []);
+    const next = [{ reason: reason || 'offline', queuedAt: Date.now() }, ...queue].slice(0, 20);
+    localSet(LOCAL_BACKUP_QUEUE_KEY, next);
+  }
+
+  async function writeFullStateBackup(reason, immediate){
+    if (backupRunning) return;
+    const now = Date.now();
+    if (!immediate && now - lastFullBackupAt < MIN_BACKUP_INTERVAL_MS) return;
+    const payload = buildCurrentFullPayload(reason);
+    localSet(LOCAL_LAST_GOOD_KEY, payload);
+    if (!isCloudReady()) { enqueueBackup(reason || 'offline'); return; }
+    backupRunning = true;
+    try {
+      const dev = safeDocId(typeof deviceId !== 'undefined' ? deviceId : 'local');
+      const result = await writeChunkedJson('full_state_' + dev, payload);
+      await firestore.doc('shared/latestSafeCheckpoint').set({
+        updatedAt:Date.now(),
+        updatedAtIso:nowIsoSafe(),
+        updatedBy:dev,
+        patchVersion:FIREBASE_SAFE_PATCH_VERSION,
+        activeModel: payload.activeModel || '',
+        fullBackupKey: result.key,
+        chunkCount: result.count,
+        size: result.size,
+        compactState: stripHeavyPhotos(payload.state),
+        modelConfigs: payload.modelConfigs,
+        modelItemTemplates: payload.modelItemTemplates,
+        deletedModelKeys: payload.deletedModelKeys || []
+      }, { merge:true });
+      lastFullBackupAt = Date.now();
+      localSet(LOCAL_BACKUP_QUEUE_KEY, []);
+      logSafe('Backup blindado enviado ao Firebase:', reason || 'autosave');
+    } catch(err) {
+      enqueueBackup(reason || 'erro_firebase');
+      warnSafe('Backup blindado mantido localmente. Será reenviado quando possível.', err);
+    } finally {
+      backupRunning = false;
+    }
+  }
+
+  function scheduleFullStateBackup(reason, immediate){
+    clearTimeout(backupTimer);
+    backupTimer = setTimeout(() => writeFullStateBackup(reason, !!immediate), immediate ? 0 : 3500);
+  }
+
+  const previousQueueCloudDraftSync = (typeof queueCloudDraftSync === 'function') ? queueCloudDraftSync : null;
+  queueCloudDraftSync = function(immediate){
+    scheduleFullStateBackup('rascunho_atual', !!immediate);
+    if (typeof previousQueueCloudDraftSync === 'function') {
+      try { previousQueueCloudDraftSync.apply(this, arguments); } catch(err) {}
+    }
+  };
+  window.queueCloudDraftSync = queueCloudDraftSync;
+
+  const previousPersistState = (typeof persistState === 'function') ? persistState : null;
+  persistState = function(){
+    if (typeof previousPersistState === 'function') previousPersistState.apply(this, arguments);
+    else {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(err) {}
+    }
+    scheduleFullStateBackup('persistencia_local', false);
+  };
+  window.persistState = persistState;
+
+  const previousSyncModelConfigsToCloud = (typeof syncModelConfigsToCloud === 'function') ? syncModelConfigsToCloud : null;
+  if (previousSyncModelConfigsToCloud) {
+    syncModelConfigsToCloud = function(immediate){
+      try { previousSyncModelConfigsToCloud.apply(this, arguments); } catch(err) { warnSafe('Falha no sync original de modelos.', err); }
+      scheduleFullStateBackup('configuracoes_modelos', !!immediate);
+    };
+    window.syncModelConfigsToCloud = syncModelConfigsToCloud;
+  }
+
+  const previousSyncHistoryEntryToCloud = (typeof syncHistoryEntryToCloud === 'function') ? syncHistoryEntryToCloud : null;
+  syncHistoryEntryToCloud = async function(entry){
+    if (!entry || !entry.id) return;
+    if (!isCloudReady()) {
+      if (typeof enqueueHistorySync === 'function') enqueueHistorySync(entry);
+      enqueueBackup('historico_offline');
+      return;
+    }
+    const backupKey = 'history_full_' + safeDocId(entry.id);
+    try {
+      await writeChunkedJson(backupKey, entry);
+      const compact = {
+        ...entry,
+        data: stripHeavyPhotos(entry.data || {}),
+        hasFullChunkBackup:true,
+        chunkBackupKey: safeDocId(backupKey),
+        finalized:true,
+        syncedAt:Date.now(),
+        updatedBy:(typeof deviceId !== 'undefined' ? deviceId : 'local'),
+        patchVersion:FIREBASE_SAFE_PATCH_VERSION
+      };
+      await firestore.collection(CLOUD_HISTORY_COLLECTION).doc(String(entry.id)).set(compact, { merge:true });
+    } catch(err) {
+      if (typeof enqueueHistorySync === 'function') enqueueHistorySync(entry);
+      warnSafe('Histórico mantido localmente para sincronizar depois.', err);
+      if (typeof previousSyncHistoryEntryToCloud === 'function') {
+        try { await previousSyncHistoryEntryToCloud(entry); } catch(e) {}
+      }
+    }
+  };
+  window.syncHistoryEntryToCloud = syncHistoryEntryToCloud;
+
+  const previousFlushPendingHistorySync = (typeof flushPendingHistorySync === 'function') ? flushPendingHistorySync : null;
+  flushPendingHistorySync = async function(){
+    const list = (typeof getPendingHistorySync === 'function') ? getPendingHistorySync() : [];
+    if (!list || !list.length) {
+      if (typeof previousFlushPendingHistorySync === 'function') return previousFlushPendingHistorySync.apply(this, arguments);
+      return;
+    }
+    const remaining = [];
+    for (const entry of list) {
+      try { await syncHistoryEntryToCloud(entry); }
+      catch(err) { remaining.push(entry); }
+    }
+    if (typeof setPendingHistorySync === 'function') setPendingHistorySync(remaining);
+    if (!remaining.length && typeof showToast === 'function') showToast('Histórico sincronizado e protegido no Firebase.');
+  };
+  window.flushPendingHistorySync = flushPendingHistorySync;
+
+  deleteHistoryEntryFromCloud = async function(id){
+    // Blindagem contra perda: não apagamos histórico no Firebase automaticamente.
+    // A exclusão no app continua removendo da lista local, mas o backup remoto permanece preservado.
+    try { console.info('Exclusão remota bloqueada para preservar backup do histórico:', id); } catch(err) {}
+  };
+  window.deleteHistoryEntryFromCloud = deleteHistoryEntryFromCloud;
+
+  async function hydrateEntryWithFullBackup(entry){
+    if (!entry) return null;
+    if (entry.data && !String(JSON.stringify(entry.data)).includes('[foto_preservada_no_backup_completo_fatiado]')) return entry;
+    if (!entry.chunkBackupKey) return entry;
+    try {
+      const full = await readChunkedJson(entry.chunkBackupKey);
+      if (full && full.data) return full;
+    } catch(err) { warnSafe('Não foi possível abrir o backup completo da avaliação.', err); }
+    return entry;
+  }
+
+  const previousRenderHistory = (typeof renderHistory === 'function') ? renderHistory : null;
+  renderHistory = function(){
+    const target = document.getElementById('historyList');
+    if (!target || typeof getHistory !== 'function') {
+      if (typeof previousRenderHistory === 'function') return previousRenderHistory.apply(this, arguments);
+      return;
+    }
+    const list = getHistory();
+    if (typeof populateHistoryStoreFilter === 'function') populateHistoryStoreFilter(list);
+    const filtered = (typeof historyStoreFilter !== 'undefined' && historyStoreFilter)
+      ? list.filter(entry => String(entry.title || '').trim() === historyStoreFilter)
+      : list;
+    if (!filtered.length) {
+      target.innerHTML = '<div class="history-empty">Nenhuma avaliação salva ainda.</div>';
+      return;
+    }
+    target.innerHTML = '';
+    filtered.forEach(entry => {
+      const div = document.createElement('div');
+      div.className = 'history-item';
+      const when = new Date(entry.createdAt);
+      const dateText = Number.isNaN(when.getTime()) ? 'Sem data' : `${when.toLocaleDateString('pt-BR')} ${when.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}`;
+      const pct = (typeof formatPercent === 'function') ? formatPercent(entry.notaFinal) : `${Number(entry.notaFinal || 0).toFixed(1)}%`;
+      const protectedText = entry.hasFullChunkBackup ? ' • Backup completo protegido' : '';
+      div.innerHTML = `
+        <div class="history-title">${escapeHtml(entry.title || 'Loja sem nome')}</div>
+        <div class="history-meta">${escapeHtml(entry.subtitle || 'Sem detalhes')}<br>Nota salva: ${escapeHtml(pct)} • Salva em ${escapeHtml(dateText)}${protectedText}</div>
+        <div class="history-actions">
+          <button class="history-btn" data-load-exact="${escapeHtml(entry.id)}">Abrir avaliação salva</button>
+          <button class="history-btn" data-delete="${escapeHtml(entry.id)}">Remover da lista deste aparelho</button>
+        </div>`;
+      target.appendChild(div);
+    });
+    target.querySelectorAll('[data-load-exact]').forEach(btn => btn.onclick = async () => {
+      let entry = list.find(x => String(x.id) === String(btn.dataset.loadExact));
+      entry = await hydrateEntryWithFullBackup(entry);
+      if (!entry || !entry.data) { if (typeof showToast === 'function') showToast('Não foi possível abrir esta avaliação.'); return; }
+      try {
+        const payload = safeCloneDeep(entry.data);
+        if (!payload.modelConfigs && entry.modelConfigs) payload.modelConfigs = safeCloneDeep(entry.modelConfigs);
+        if (!payload.modelItemTemplates && entry.modelItemTemplates) payload.modelItemTemplates = safeCloneDeep(entry.modelItemTemplates);
+        state = (typeof normalizeState === 'function') ? normalizeState(payload) : payload;
+        if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state);
+        if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state);
+        persistState();
+        if (typeof renderApp === 'function') renderApp();
+        const modal = document.getElementById('historyModal');
+        if (modal) { modal.classList.remove('open'); modal.setAttribute('aria-hidden','true'); }
+        if (typeof showToast === 'function') showToast(`Avaliação carregada com a nota salva: ${pct}.`);
+      } catch(err) {
+        warnSafe('Falha ao carregar avaliação protegida.', err);
+        if (typeof showToast === 'function') showToast('Erro ao carregar avaliação salva.');
+      }
+    });
+    target.querySelectorAll('[data-delete]').forEach(btn => btn.onclick = () => {
+      if (!confirm('Remover esta avaliação da lista deste aparelho? O backup no Firebase será preservado.')) return;
+      const next = list.filter(x => String(x.id) !== String(btn.dataset.delete));
+      historyCache = next;
+      if (typeof setLocalHistory === 'function') setLocalHistory(next);
+      renderHistory();
+      if (typeof showToast === 'function') showToast('Avaliação removida da lista local. Backup remoto preservado.');
+    });
+  };
+  window.renderHistory = renderHistory;
+
+  async function restoreLatestCheckpointIfEmpty(){
+    if (!isCloudReady()) return;
+    try {
+      const localRaw = localStorage.getItem(STORAGE_KEY);
+      if (localRaw) return;
+      const manifest = await firestore.doc('shared/latestSafeCheckpoint').get();
+      if (!manifest.exists) return;
+      const data = manifest.data() || {};
+      if (!data.fullBackupKey) return;
+      const full = await readChunkedJson(data.fullBackupKey);
+      if (full && full.state) {
+        state = (typeof normalizeState === 'function') ? normalizeState(full.state) : full.state;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        if (typeof renderApp === 'function') renderApp();
+        if (typeof showToast === 'function') showToast('Backup protegido restaurado do Firebase.');
+      }
+    } catch(err) { warnSafe('Não foi possível restaurar checkpoint remoto.', err); }
+  }
+
+  const previousInitializeFirebaseSync = (typeof initializeFirebaseSync === 'function') ? initializeFirebaseSync : null;
+  initializeFirebaseSync = async function(){
+    if (typeof previousInitializeFirebaseSync === 'function') await previousInitializeFirebaseSync.apply(this, arguments);
+    setTimeout(() => {
+      restoreLatestCheckpointIfEmpty();
+      if (typeof flushPendingHistorySync === 'function') flushPendingHistorySync();
+      scheduleFullStateBackup('inicializacao_firebase', true);
+    }, 1200);
+  };
+  window.initializeFirebaseSync = initializeFirebaseSync;
+
+  window.addEventListener('online', () => {
+    if (typeof flushPendingHistorySync === 'function') flushPendingHistorySync();
+    scheduleFullStateBackup('retorno_online', true);
+  });
+  window.addEventListener('beforeunload', () => {
+    try { localSet(LOCAL_LAST_GOOD_KEY, buildCurrentFullPayload('beforeunload')); } catch(err) {}
+  });
+
+  document.addEventListener('click', function(event){
+    if (event.target.closest('#saveEvaluationBtn')) setTimeout(() => scheduleFullStateBackup('salvar_avaliacao', true), 250);
+    if (event.target.closest('#saveManageItemsBtn')) setTimeout(() => scheduleFullStateBackup('salvar_gerenciar_itens', true), 250);
+    if (event.target.closest('#saveConfigModelsBtn')) setTimeout(() => scheduleFullStateBackup('salvar_configurar_avaliacao', true), 250);
+    if (event.target.closest('#saveStreetCountsBtn')) setTimeout(() => scheduleFullStateBackup('salvar_menu_avaliar', true), 250);
+  }, true);
+
+  // Primeira proteção assim que o patch carrega.
+  setTimeout(() => scheduleFullStateBackup('patch_blindagem_carregado', true), 1800);
+  window.arkoWriteFullStateBackup = writeFullStateBackup;
+  window.arkoReadChunkedBackup = readChunkedJson;
+})();
+</script>
+
 </body>
 </html>

@@ -3951,7 +3951,10 @@ function saveConfigModels(){
       if (Array.isArray(window.manageStreetCounts || manageStreetCounts)) {
         localStorage.setItem(tempKey(), JSON.stringify(window.manageStreetCounts || manageStreetCounts));
       }
-    } catch(e) {}
+    } catch(e) {
+      try { if (typeof showToast === 'function') showToast('Atenção: armazenamento cheio. Salve/exporte backup antes de continuar.'); } catch(_) {}
+      try { console.warn('Falha ao salvar temporário do menu Avaliar.', e); } catch(_) {}
+    }
   }
   function loadFieldModalTemp(){
     try {
@@ -3965,37 +3968,49 @@ function saveConfigModels(){
 
   async function normalizeImageFileToDataUrl(file){
     if (!file) return '';
-    try {
-      if ('createImageBitmap' in window) {
-        const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
-        const canvas = document.createElement('canvas');
-        canvas.width = bmp.width;
-        canvas.height = bmp.height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(bmp, 0, 0);
-        if (bmp.close) bmp.close();
-        return canvas.toDataURL('image/jpeg', 0.88);
-      }
-    } catch(e) {}
-    return await new Promise((resolve) => {
+    const MAX_SIDE = 1280;
+    const JPEG_QUALITY = 0.72;
+    const readFallback = () => new Promise((resolve) => {
       const reader = new FileReader();
-      reader.onload = () => {
-        const img = new Image();
-        img.onload = () => {
-          try {
-            const canvas = document.createElement('canvas');
-            canvas.width = img.naturalWidth || img.width;
-            canvas.height = img.naturalHeight || img.height;
-            canvas.getContext('2d').drawImage(img, 0, 0);
-            resolve(canvas.toDataURL('image/jpeg', 0.88));
-          } catch(e) { resolve(String(reader.result || '')); }
-        };
-        img.onerror = () => resolve(String(reader.result || ''));
-        img.src = String(reader.result || '');
-      };
+      reader.onload = () => resolve(String(reader.result || ''));
       reader.onerror = () => resolve('');
       reader.readAsDataURL(file);
     });
+    try {
+      let source = null;
+      if ('createImageBitmap' in window) {
+        source = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      } else {
+        const raw = await readFallback();
+        source = await new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = raw;
+        });
+      }
+      const originalW = source.width || source.naturalWidth || 0;
+      const originalH = source.height || source.naturalHeight || 0;
+      if (!originalW || !originalH) return await readFallback();
+      const scale = Math.min(1, MAX_SIDE / Math.max(originalW, originalH));
+      const w = Math.max(1, Math.round(originalW * scale));
+      const h = Math.max(1, Math.round(originalH * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d', { alpha:false });
+      ctx.drawImage(source, 0, 0, w, h);
+      if (source.close) source.close();
+      const dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
+      try {
+        const kb = Math.round(dataUrl.length / 1024);
+        if (kb > 900 && typeof showToast === 'function') showToast('Foto otimizada, mas ainda está pesada. Evite muitas fotos nesta avaliação.');
+      } catch(e) {}
+      return dataUrl;
+    } catch(e) {
+      try { if (typeof showToast === 'function') showToast('Não foi possível otimizar a foto; salvando com cuidado.'); } catch(_) {}
+      return await readFallback();
+    }
   }
 
   window.renderStreetCounts = function renderStreetCounts(){
@@ -6059,6 +6074,119 @@ function saveConfigModels(){
   setTimeout(() => scheduleFullStateBackup('patch_blindagem_carregado', true), 1800);
   window.arkoWriteFullStateBackup = writeFullStateBackup;
   window.arkoReadChunkedBackup = readChunkedJson;
+})();
+</script>
+
+
+<script id="fieldEmergencyStoragePatch">
+/* === BLINDAGEM DE CAMPO: proteção contra fechamento/perda por fotos pesadas ===
+   - Força salvamento em pagehide/visibilitychange.
+   - Mostra alerta quando o rascunho fica pesado.
+   - Impede silêncio quando o navegador recusa salvar por limite de armazenamento.
+   - Mantém o fluxo visual e funcional já existente.
+*/
+(function fieldEmergencyStoragePatch(){
+  const PATCH_VERSION = '2026-05-04-campo-storage-1';
+  const WARN_BYTES = 4.2 * 1024 * 1024;
+  const CRITICAL_BYTES = 5.2 * 1024 * 1024;
+  let lastWarnAt = 0;
+
+  function byteSize(str){
+    try { return new Blob([String(str || '')]).size; }
+    catch(e){ return String(str || '').length; }
+  }
+  function stateJson(){
+    try { return JSON.stringify(typeof state !== 'undefined' ? state : {}); }
+    catch(e){ return ''; }
+  }
+  function currentStateBytes(){
+    return byteSize(stateJson());
+  }
+  function toast(msg){
+    try { if (typeof showToast === 'function') showToast(msg); else console.warn(msg); } catch(e){}
+  }
+  function compactPhotoInfo(){
+    try {
+      let photos = 0;
+      let bytes = 0;
+      const rows = Array.isArray(state?.streetCounts) ? state.streetCounts : [];
+      rows.forEach(row => (Array.isArray(row.photos) ? row.photos : []).forEach(photo => {
+        photos++;
+        bytes += byteSize(photo?.dataUrl || '');
+      }));
+      return { photos, bytes };
+    } catch(e){ return { photos:0, bytes:0 }; }
+  }
+  function checkStorageWeight(force){
+    const total = currentStateBytes();
+    const info = compactPhotoInfo();
+    const now = Date.now();
+    if (force || (total > WARN_BYTES && now - lastWarnAt > 30000)) {
+      lastWarnAt = now;
+      if (total > CRITICAL_BYTES) {
+        toast('Atenção: muitas fotos nesta avaliação. Exporte backup e salve antes de continuar.');
+      } else if (info.photos) {
+        toast('Rascunho ficando pesado por fotos. O app está otimizando, mas salve com frequência.');
+      }
+    }
+    return total;
+  }
+
+  const previousPersistState = (typeof persistState === 'function') ? persistState : null;
+  persistState = function(){
+    try {
+      const total = checkStorageWeight(false);
+      if (typeof previousPersistState === 'function') previousPersistState.apply(this, arguments);
+      else localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      if (total > CRITICAL_BYTES && typeof queueCloudDraftSync === 'function') {
+        try { queueCloudDraftSync(true); } catch(e){}
+      }
+    } catch(err) {
+      try { console.error('Falha crítica ao salvar rascunho:', err); } catch(e){}
+      toast('Falha ao salvar: armazenamento do navegador cheio. Exporte backup agora.');
+      try { if (typeof queueCloudDraftSync === 'function') queueCloudDraftSync(true); } catch(e){}
+    }
+  };
+  window.persistState = persistState;
+
+  function emergencySave(reason){
+    try {
+      if (typeof saveFieldModalTemp === 'function') saveFieldModalTemp();
+    } catch(e){}
+    try {
+      if (typeof persistState === 'function') persistState();
+    } catch(e){}
+    try {
+      if (typeof queueCloudDraftSync === 'function') queueCloudDraftSync(true);
+    } catch(e){}
+    try {
+      localStorage.setItem('arko_ultimo_salvamento_emergencial_v1', JSON.stringify({
+        version: PATCH_VERSION,
+        reason,
+        savedAt: new Date().toISOString(),
+        state: typeof normalizeState === 'function' ? normalizeState(state) : state
+      }));
+    } catch(e){}
+  }
+
+  window.addEventListener('pagehide', () => emergencySave('pagehide'));
+  window.addEventListener('beforeunload', () => emergencySave('beforeunload'));
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') emergencySave('visibility_hidden');
+  });
+
+  const previousSaveHistorySnapshot = (typeof saveHistorySnapshot === 'function') ? saveHistorySnapshot : null;
+  if (previousSaveHistorySnapshot) {
+    saveHistorySnapshot = function(){
+      const result = previousSaveHistorySnapshot.apply(this, arguments);
+      emergencySave('history_snapshot');
+      checkStorageWeight(true);
+      return result;
+    };
+    window.saveHistorySnapshot = saveHistorySnapshot;
+  }
+
+  setTimeout(() => checkStorageWeight(true), 1200);
 })();
 </script>
 

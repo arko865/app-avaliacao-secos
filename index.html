@@ -1392,7 +1392,29 @@ function formatLinkedItemTags(itemIds, sourceItems){
   if (!ids.length) return '<div class="muted-note">Nenhum item vinculado.</div>';
   return `<div class="linked-tags">${ids.map(id=>`<span class="linked-tag">Item ${id}${sourceItems[id-1]?.description ? ` · ${escapeHtml(String(sourceItems[id-1].description).slice(0,60))}` : ''}</span>`).join('')}</div>`;
 }
+
+function captureManageItemsScrollPosition(){
+  const modal = document.getElementById('manageItemsModal');
+  const panel = modal ? modal.querySelector('.manage-panel') : null;
+  if (!modal || !panel || !modal.classList.contains('open')) return null;
+  return { top: panel.scrollTop, left: panel.scrollLeft };
+}
+function restoreManageItemsScrollPosition(snapshot){
+  if (!snapshot) return;
+  const modal = document.getElementById('manageItemsModal');
+  const panel = modal ? modal.querySelector('.manage-panel') : null;
+  if (!modal || !panel || !modal.classList.contains('open')) return;
+  requestAnimationFrame(() => {
+    panel.scrollTop = snapshot.top;
+    panel.scrollLeft = snapshot.left || 0;
+    requestAnimationFrame(() => {
+      panel.scrollTop = snapshot.top;
+      panel.scrollLeft = snapshot.left || 0;
+    });
+  });
+}
 function renderManageItems() {
+  const manageItemsScrollSnapshot = captureManageItemsScrollPosition();
   const list = document.getElementById('manageItemsList');
   const areasBox = document.getElementById('manageAreasList');
   const ncBox = document.getElementById('manageNcList');
@@ -1605,6 +1627,7 @@ function renderManageItems() {
     renderManageItems();
   });
   applyManageSectionState();
+  restoreManageItemsScrollPosition(manageItemsScrollSnapshot);
 }
 
 function reindexItems(targetItems = state.items, modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY) {

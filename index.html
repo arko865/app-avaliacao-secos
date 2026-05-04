@@ -1387,6 +1387,52 @@ function getManageDraftModelConfig(){
   if (!all[state.form.modelo]) all[state.form.modelo] = clone(getModelConfig(state.form.modelo));
   return all[state.form.modelo];
 }
+
+function ensureManageDraftStableIds() {
+  if (!Array.isArray(manageDraftItems)) return;
+  manageDraftItems.forEach((item, index) => {
+    if (!item.__manageStableId) {
+      item.__manageStableId = `item-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`;
+    }
+  });
+}
+
+function remapManageDefinitionItemIdsAfterReorder(oldItems, newItems) {
+  const modelDraft = getManageDraftModelConfig();
+  if (!modelDraft) return;
+
+  const stableByOldId = new Map();
+  (Array.isArray(oldItems) ? oldItems : []).forEach((item, index) => {
+    if (item && item.__manageStableId) stableByOldId.set(index + 1, item.__manageStableId);
+  });
+
+  const newIdByStable = new Map();
+  (Array.isArray(newItems) ? newItems : []).forEach((item, index) => {
+    if (item && item.__manageStableId) newIdByStable.set(item.__manageStableId, index + 1);
+  });
+
+  const remapIds = ids => uniqueSortedNumbers(ids)
+    .map(oldId => stableByOldId.get(oldId))
+    .filter(Boolean)
+    .map(stableId => newIdByStable.get(stableId))
+    .filter(Boolean);
+
+  (modelDraft.areaDefinitions || []).forEach(area => {
+    area.itemIds = remapIds(area.itemIds);
+  });
+  (modelDraft.ncDefinitions || []).forEach(nc => {
+    nc.itemIds = remapIds(nc.itemIds);
+  });
+}
+
+function stripManageStableIdsFromItems(items) {
+  return (Array.isArray(items) ? items : []).map(item => {
+    const next = { ...item };
+    delete next.__manageStableId;
+    return next;
+  });
+}
+
 function formatLinkedItemTags(itemIds, sourceItems){
   const ids = uniqueSortedNumbers(itemIds);
   if (!ids.length) return '<div class="muted-note">Nenhum item vinculado.</div>';
@@ -1414,6 +1460,7 @@ function restoreManageItemsScrollPosition(snapshot){
   });
 }
 function renderManageItems() {
+  ensureManageDraftStableIds();
   const manageItemsScrollSnapshot = captureManageItemsScrollPosition();
   const list = document.getElementById('manageItemsList');
   const areasBox = document.getElementById('manageAreasList');
@@ -1538,36 +1585,49 @@ function renderManageItems() {
     if (!Number.isFinite(targetRaw)) { input.value = String(currentIndex + 1); return; }
     const targetIndex = Math.max(0, Math.min(maxIndex - 1, Math.round(targetRaw) - 1));
     if (targetIndex === currentIndex) { input.value = String(currentIndex + 1); return; }
+    ensureManageDraftStableIds();
+    const oldItems = clone(manageDraftItems);
     const [item] = manageDraftItems.splice(currentIndex, 1);
     manageDraftItems.splice(targetIndex, 0, item);
     manageDraftItems = reindexItems(manageDraftItems, state.form.modelo);
+    remapManageDefinitionItemIdsAfterReorder(oldItems, manageDraftItems);
     renderManageItems();
     showToast(`Item movido para a posição ${targetIndex + 1}. Clique em "Salvar alterações" para confirmar.`);
   });
   list.querySelectorAll('[data-delete-item]').forEach(btn => btn.onclick = () => {
     const index = Number(btn.dataset.deleteItem);
     if (!confirm('Deseja excluir este item?')) return;
+    ensureManageDraftStableIds();
+    const oldItems = clone(manageDraftItems);
     manageDraftItems.splice(index, 1);
     if (!manageDraftItems.length) manageDraftItems = makeDefaultItems(state.form.modelo);
+    ensureManageDraftStableIds();
     manageDraftItems = reindexItems(manageDraftItems, state.form.modelo);
+    remapManageDefinitionItemIdsAfterReorder(oldItems, manageDraftItems);
     renderManageItems();
     showToast('Item excluído. Clique em "Salvar alterações" para confirmar.');
   });
   list.querySelectorAll('[data-move-up]').forEach(btn => btn.onclick = () => {
     const index = Number(btn.dataset.moveUp);
     if (index <= 0) return;
+    ensureManageDraftStableIds();
+    const oldItems = clone(manageDraftItems);
     const [item] = manageDraftItems.splice(index, 1);
     manageDraftItems.splice(index - 1, 0, item);
     manageDraftItems = reindexItems(manageDraftItems, state.form.modelo);
+    remapManageDefinitionItemIdsAfterReorder(oldItems, manageDraftItems);
     renderManageItems();
     showToast(`Item movido para a posição ${index}. Clique em "Salvar alterações" para confirmar.`);
   });
   list.querySelectorAll('[data-move-down]').forEach(btn => btn.onclick = () => {
     const index = Number(btn.dataset.moveDown);
     if (index >= manageDraftItems.length - 1) return;
+    ensureManageDraftStableIds();
+    const oldItems = clone(manageDraftItems);
     const [item] = manageDraftItems.splice(index, 1);
     manageDraftItems.splice(index + 1, 0, item);
     manageDraftItems = reindexItems(manageDraftItems, state.form.modelo);
+    remapManageDefinitionItemIdsAfterReorder(oldItems, manageDraftItems);
     renderManageItems();
     showToast(`Item movido para a posição ${index + 2}. Clique em "Salvar alterações" para confirmar.`);
   });
@@ -1631,10 +1691,15 @@ function renderManageItems() {
 }
 
 function reindexItems(targetItems = state.items, modelKey = state?.form?.modelo || DEFAULT_MODEL_KEY) {
-  return targetItems.map((item, index) => normalizeItem({ ...item, id: index + 1 }, index, modelKey));
+  return targetItems.map((item, index) => {
+    const normalized = normalizeItem({ ...item, id: index + 1 }, index, modelKey);
+    if (item && item.__manageStableId) normalized.__manageStableId = item.__manageStableId;
+    return normalized;
+  });
 }
 function openManageItemsModal() {
   manageDraftItems = clone(state.items);
+  ensureManageDraftStableIds();
   state.modelConfigs = getCurrentModelConfigsSnapshot();
   manageSectionState.items = false;
   manageSectionState.areas = false;
@@ -1655,7 +1720,7 @@ function saveManageItems() {
   if (!Array.isArray(manageDraftItems) || !manageDraftItems.length) {
     manageDraftItems = makeDefaultItems(state.form.modelo);
   }
-  state.items = reindexItems(clone(manageDraftItems));
+  state.items = stripManageStableIdsFromItems(reindexItems(clone(manageDraftItems)));
   state.modelItemTemplates = normalizeModelItemTemplates({ ...(state.modelItemTemplates || {}), [state.form.modelo]: clone(state.items) });
   applyAutomaticAreas(state);
   applyAutomaticNonConformities(state);
@@ -1677,6 +1742,7 @@ function addManagedItem(section) {
     observacao:'',
     naoAvaliar:false
   }, nextIndex));
+  ensureManageDraftStableIds();
   manageDraftItems = reindexItems(manageDraftItems);
   renderManageItems();
   showToast('Novo item adicionado. Clique em "Salvar alterações" para confirmar.');

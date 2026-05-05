@@ -6570,5 +6570,306 @@ function saveConfigModels(){
 })();
 </script>
 
+
+
+<script id="modelDraftNoLossPatch20260505">
+/* === RASCUNHO BLINDADO ENTRE MODELOS ===
+   Objetivo: nenhum dado digitado, pontuação, contagem ou foto deve ser perdido
+   quando o usuário alternar entre Nova Era Secos, Nova Era Perecíveis, Pátio Secos
+   e Pátio Perecíveis. Cada modelo mantém um cofre próprio de rascunho em andamento.
+*/
+(function(){
+  const DRAFT_BANK_KEY = 'arko_avaliacao_rascunhos_por_modelo_sem_perda_v3';
+  const LAST_MODEL_KEY = 'arko_avaliacao_ultimo_modelo_ativo_v3';
+  let switchingModel = false;
+  let saveTimer = null;
+
+  function cloneSafe(value){ try { return JSON.parse(JSON.stringify(value)); } catch(e){ return value; } }
+  function getStateModel(){
+    try { return (state && state.form && state.form.modelo) || (typeof DEFAULT_MODEL_KEY !== 'undefined' ? DEFAULT_MODEL_KEY : 'nova_era_secos'); }
+    catch(e){ return 'nova_era_secos'; }
+  }
+  function readBank(){ try { return JSON.parse(localStorage.getItem(DRAFT_BANK_KEY) || '{}') || {}; } catch(e){ return {}; } }
+  function writeBank(bank){ try { localStorage.setItem(DRAFT_BANK_KEY, JSON.stringify(bank || {})); return true; } catch(e){ try { if (typeof showToast === 'function') showToast('Atenção: armazenamento cheio. Reduza fotos ou exporte backup antes de trocar de avaliação.'); } catch(_){} return false; } }
+  function normalizeLoadedState(model){
+    try { if (typeof normalizeState === 'function') state = normalizeState(state); } catch(e){}
+    try { state.form = state.form || {}; state.form.modelo = model; } catch(e){}
+    try { if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state); } catch(e){}
+    try { if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state); } catch(e){}
+  }
+  function currentSnapshot(model){
+    if (typeof state === 'undefined' || !state) return null;
+    const m = model || getStateModel();
+    const snap = cloneSafe(state);
+    snap.form = snap.form || {};
+    snap.form.modelo = m;
+    snap._draftModel = m;
+    snap._draftUpdatedAt = new Date().toISOString();
+    snap._draftPatch = 'no_loss_between_models_2026_05_05';
+    return snap;
+  }
+  function saveDraftForModel(model, reason){
+    if (typeof state === 'undefined' || !state || !state.form) return false;
+    const m = model || getStateModel();
+    const snap = currentSnapshot(m);
+    if (!snap) return false;
+    const bank = readBank();
+    bank[m] = snap;
+    const ok = writeBank(bank);
+    try { localStorage.setItem(LAST_MODEL_KEY, m); } catch(e){}
+    try { if (typeof saveModelWork === 'function') saveModelWork(reason || 'draft_bank_save'); } catch(e){}
+    return ok;
+  }
+  function scheduleDraftSave(reason){
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function(){ saveDraftForModel(getStateModel(), reason || 'debounced_input'); }, 250);
+  }
+  function loadDraftForModel(model){
+    const bank = readBank();
+    return bank && bank[model] ? cloneSafe(bank[model]) : null;
+  }
+  function restoreDraftForModel(model){
+    const draft = loadDraftForModel(model);
+    if (!draft) return false;
+    try {
+      state = draft;
+      state.form = state.form || {};
+      state.form.modelo = model;
+      normalizeLoadedState(model);
+      try { localStorage.setItem(LAST_MODEL_KEY, model); } catch(e){}
+      try { if (typeof persistState === 'function') persistState(); } catch(e){}
+      try { if (typeof renderApp === 'function') renderApp(); } catch(e){}
+      return true;
+    } catch(e){
+      try { console.warn('Falha ao restaurar rascunho isolado por modelo', e); } catch(_){}
+      return false;
+    }
+  }
+
+  const previousOnModelChange = (typeof onModelChange === 'function') ? onModelChange : null;
+  window.onModelChange = onModelChange = function(nextModel){
+    if (!nextModel || switchingModel || typeof state === 'undefined' || !state || !state.form) return;
+    const previousModel = getStateModel();
+    if (nextModel === previousModel) return;
+    switchingModel = true;
+    saveDraftForModel(previousModel, 'before_switch_' + nextModel);
+    let restored = restoreDraftForModel(nextModel);
+    if (!restored && typeof previousOnModelChange === 'function') {
+      try { previousOnModelChange(nextModel); } catch(e){}
+      try { state.form = state.form || {}; state.form.modelo = nextModel; normalizeLoadedState(nextModel); } catch(e){}
+      try { if (typeof persistState === 'function') persistState(); } catch(e){}
+      try { if (typeof renderApp === 'function') renderApp(); } catch(e){}
+    }
+    saveDraftForModel(nextModel, 'after_switch_restored');
+    try { if (typeof showToast === 'function') showToast('Rascunho preservado. Você pode voltar sem perder fotos, pontuações ou contagens.'); } catch(e){}
+    setTimeout(function(){ switchingModel = false; bindModelSelect(); }, 80);
+  };
+
+  function bindModelSelect(){
+    const select = document.getElementById('modeloAvaliacao');
+    if (!select) return;
+    select.onchange = function(e){
+      const next = e.target.value;
+      if (!next || next === getStateModel()) return;
+      window.onModelChange(next);
+    };
+  }
+
+  document.addEventListener('input', function(ev){
+    if (ev && ev.target && ev.target.id === 'modeloAvaliacao') return;
+    scheduleDraftSave('input');
+  }, true);
+  document.addEventListener('change', function(ev){
+    if (ev && ev.target && ev.target.id === 'modeloAvaliacao') return;
+    scheduleDraftSave('change');
+  }, true);
+  document.addEventListener('click', function(ev){
+    const target = ev && ev.target && ev.target.closest ? ev.target.closest('button,[data-save-draft],[data-delete-photo],[data-edit-photo]') : null;
+    if (target) setTimeout(function(){ saveDraftForModel(getStateModel(), 'click_action'); }, 120);
+  }, true);
+  window.addEventListener('pagehide', function(){ saveDraftForModel(getStateModel(), 'pagehide'); });
+  window.addEventListener('beforeunload', function(){ saveDraftForModel(getStateModel(), 'beforeunload'); });
+  document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'hidden') saveDraftForModel(getStateModel(), 'hidden'); });
+  setInterval(function(){ saveDraftForModel(getStateModel(), 'interval'); }, 10000);
+
+  window.saveNoLossModelDraft = saveDraftForModel;
+  window.restoreNoLossModelDraft = restoreDraftForModel;
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ bindModelSelect(); saveDraftForModel(getStateModel(), 'dom_ready'); });
+  else { bindModelSelect(); saveDraftForModel(getStateModel(), 'loaded'); }
+  setTimeout(bindModelSelect, 300);
+  setTimeout(bindModelSelect, 1200);
+})();
+</script>
+
+
+
+<script id="multiUserSimultaneousEvaluationsPatch20260505">
+/* === BLINDAGEM PARA AVALIAÇÕES SIMULTÂNEAS EM VÁRIOS APARELHOS ===
+   Regra: cada avaliação em andamento tem um ID único por loja + modelo + setor + data + usuário + aparelho.
+   Isso impede que 6 lojas/usuários simultâneos sobrescrevam rascunhos, fotos, pontuações ou histórico.
+*/
+(function(){
+  const MULTI_USER_VERSION = '2026-05-05.multiuser.1';
+  const EVAL_SESSION_KEY = 'arko_avaliacoes_simultaneas_ids_v2';
+
+  function cloneSafe(value){ try { return JSON.parse(JSON.stringify(value)); } catch(e){ return value; } }
+  function nowIso(){ return new Date().toISOString(); }
+  function clean(value){
+    return String(value || '')
+      .trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+      .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'sem_info';
+  }
+  function localDevice(){
+    try {
+      if (typeof deviceId !== 'undefined' && deviceId) return String(deviceId);
+      const key = 'arko_avaliacao_device_v1';
+      let id = localStorage.getItem(key);
+      if (!id) { id = 'dev_' + Date.now() + '_' + Math.random().toString(36).slice(2,10); localStorage.setItem(key, id); }
+      return id;
+    } catch(e){ return 'dev_' + Math.random().toString(36).slice(2,10); }
+  }
+  function currentForm(){ return (typeof state !== 'undefined' && state && state.form) ? state.form : {}; }
+  function currentModel(){ return currentForm().modelo || (typeof DEFAULT_MODEL_KEY !== 'undefined' ? DEFAULT_MODEL_KEY : 'nova_era_secos'); }
+  function userName(){
+    const f = currentForm();
+    return f.coordArko || f.supervisor || f.usuario || f.responsavelArko || 'usuario_sem_nome';
+  }
+  function assessmentFingerprint(){
+    const f = currentForm();
+    return [
+      clean(f.nomeLoja),
+      clean(currentModel()),
+      clean(f.setor),
+      clean(f.visita),
+      clean(f.data),
+      clean(userName()),
+      clean(localDevice())
+    ].join('__');
+  }
+  function readMap(){ try { return JSON.parse(localStorage.getItem(EVAL_SESSION_KEY) || '{}') || {}; } catch(e){ return {}; } }
+  function writeMap(map){ try { localStorage.setItem(EVAL_SESSION_KEY, JSON.stringify(map || {})); } catch(e){} }
+  function ensureEvaluationId(){
+    if (typeof state === 'undefined' || !state) return '';
+    const fp = assessmentFingerprint();
+    const current = state.currentEvaluationId || state.form?.currentEvaluationId;
+    const map = readMap();
+    if (current && map[fp] === current) return String(current);
+    if (map[fp]) {
+      state.currentEvaluationId = String(map[fp]);
+      state.form = state.form || {};
+      state.form.currentEvaluationId = String(map[fp]);
+      return String(map[fp]);
+    }
+    const id = 'eval_' + clean(currentModel()) + '_' + Date.now() + '_' + Math.random().toString(36).slice(2,10);
+    map[fp] = id;
+    writeMap(map);
+    state.currentEvaluationId = id;
+    state.form = state.form || {};
+    state.form.currentEvaluationId = id;
+    return id;
+  }
+  function rememberLoadedId(id){
+    if (!id || typeof state === 'undefined' || !state) return;
+    state.currentEvaluationId = String(id);
+    state.form = state.form || {};
+    state.form.currentEvaluationId = String(id);
+    const map = readMap();
+    map[assessmentFingerprint()] = String(id);
+    writeMap(map);
+  }
+  function buildEntry(){
+    if (typeof state === 'undefined' || !state || !state.form) return null;
+    try { if (typeof saveNoLossModelDraft === 'function') saveNoLossModelDraft(currentModel(), 'multi_user_save'); } catch(e){}
+    try { if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state); } catch(e){}
+    try { if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state); } catch(e){}
+    const id = ensureEvaluationId();
+    const list = (typeof getHistory === 'function') ? getHistory() : [];
+    const previous = (list || []).find(x => String(x.id) === String(id));
+    const summary = (typeof getSummary === 'function') ? getSummary() : { notaFinal:0 };
+    const modelLabel = (typeof getModelConfig === 'function') ? getModelConfig(currentModel()).label : currentModel();
+    const dateText = (typeof formatDateBR === 'function') ? formatDateBR(state.form.data) : (state.form.data || '');
+    const snapshot = cloneSafe(state);
+    snapshot.currentEvaluationId = id;
+    snapshot.form = snapshot.form || {};
+    snapshot.form.currentEvaluationId = id;
+    snapshot._multiUserFingerprint = assessmentFingerprint();
+    snapshot._multiUserVersion = MULTI_USER_VERSION;
+    return {
+      ...(previous || {}),
+      id,
+      createdAt: previous?.createdAt || nowIso(),
+      updatedAt: nowIso(),
+      title: state.form.nomeLoja || 'Loja sem nome',
+      subtitle: `${modelLabel} • ${state.form.setor || 'Sem setor'} • ${state.form.visita || 'Sem visita'} • ${dateText} • ${userName()} • Em andamento`,
+      notaFinal: Number(summary.notaFinal || 0),
+      status: 'em_andamento',
+      finalized: false,
+      continuable: true,
+      userName: userName(),
+      supervisor: userName(),
+      storeName: state.form.nomeLoja || '',
+      modelKey: currentModel(),
+      setor: state.form.setor || '',
+      evaluationDate: state.form.data || '',
+      deviceId: localDevice(),
+      fingerprint: assessmentFingerprint(),
+      syncStatus: navigator.onLine ? 'pending_cloud_sync' : 'local_offline',
+      modelConfigs: cloneSafe(state.modelConfigs || {}),
+      modelItemTemplates: cloneSafe(state.modelItemTemplates || {}),
+      data: snapshot,
+      patchVersionMultiUser: MULTI_USER_VERSION
+    };
+  }
+  async function syncEntry(entry){
+    if (!entry || !entry.id) return;
+    try {
+      if (typeof syncHistoryEntryToCloud === 'function') {
+        await syncHistoryEntryToCloud(entry);
+      }
+    } catch(e){ try { console.warn('Sincronização padrão falhou; mantido localmente.', e); } catch(_){} }
+  }
+  function saveSimultaneousEvaluation(){
+    const entry = buildEntry();
+    if (!entry) return;
+    const list = (typeof getHistory === 'function') ? getHistory() : [];
+    const next = [entry, ...(list || []).filter(x => String(x.id) !== String(entry.id))].slice(0, 120);
+    try { historyCache = next; } catch(e){}
+    if (typeof setLocalHistory === 'function') setLocalHistory(next);
+    try { if (typeof persistState === 'function') persistState(); } catch(e){}
+    if (typeof renderHistory === 'function') renderHistory();
+    syncEntry(entry);
+    if (typeof showToast === 'function') showToast('Avaliação salva separadamente para este usuário/loja e enviada ao Histórico Gerencial.');
+  }
+
+  window.saveHistorySnapshot = saveSimultaneousEvaluation;
+  try { saveHistorySnapshot = saveSimultaneousEvaluation; } catch(e){}
+
+  function bindSaveButton(){
+    const btn = document.getElementById('saveEvaluationBtn');
+    if (!btn) return;
+    btn.onclick = function(){ saveSimultaneousEvaluation(); };
+    btn.title = 'Salva esta avaliação com ID único por loja, modelo, data, usuário e aparelho, sem sobrescrever outras avaliações simultâneas.';
+  }
+
+  document.addEventListener('click', function(ev){
+    const loadBtn = ev.target && ev.target.closest ? ev.target.closest('[data-load-exact],[data-load]') : null;
+    if (!loadBtn) return;
+    const id = loadBtn.getAttribute('data-load-exact') || loadBtn.getAttribute('data-load');
+    if (!id) return;
+    setTimeout(function(){ rememberLoadedId(id); try { if (typeof persistState === 'function') persistState(); } catch(e){} }, 900);
+  }, true);
+
+  document.addEventListener('input', function(){ try { ensureEvaluationId(); } catch(e){} }, true);
+  document.addEventListener('change', function(){ try { ensureEvaluationId(); } catch(e){} }, true);
+  window.addEventListener('pagehide', function(){ try { ensureEvaluationId(); if (typeof persistState === 'function') persistState(); } catch(e){} });
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bindSaveButton); else bindSaveButton();
+  setTimeout(bindSaveButton, 300);
+  setTimeout(bindSaveButton, 1200);
+  setTimeout(function(){ try { ensureEvaluationId(); } catch(e){} }, 1500);
+})();
+</script>
+
 </body>
 </html>

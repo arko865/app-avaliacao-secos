@@ -6190,5 +6190,299 @@ function saveConfigModels(){
 })();
 </script>
 
+
+<script id="arkoModelDraftPhotoIsolationPatch">
+/* === CORREÇÃO CRÍTICA: fotos e pontuações isoladas por modelo/setor ===
+   Problema corrigido: ao alternar Nova Era — Secos ⇄ Nova Era — Perecíveis,
+   o rascunho visual do menu Avaliar podia ficar apenas no temporário do modal
+   e não ser aplicado ao estado do modelo antes da troca. Este patch cria um
+   cofre local por modelo/loja, salva antes de trocar e restaura ao retornar.
+*/
+(function arkoModelDraftPhotoIsolationPatch(){
+  const MODEL_WORK_KEY = 'arko_avaliacao_trabalho_por_modelo_fotos_v2';
+  const FIELD_TEMP_PREFIX = 'arko_avaliacao_campo_modal_temp_v1';
+
+  function cloneSafe(value){ try { return JSON.parse(JSON.stringify(value)); } catch(e){ return value; } }
+  function modelKey(){
+    try { return state?.form?.modelo || DEFAULT_MODEL_KEY || 'modelo'; }
+    catch(e){ return 'modelo'; }
+  }
+  function storeKey(){
+    try { return String(state?.form?.nomeLoja || 'sem_loja').trim() || 'sem_loja'; }
+    catch(e){ return 'sem_loja'; }
+  }
+  function workKey(model = modelKey(), store = storeKey()){
+    return `${MODEL_WORK_KEY}:${model}:${store}`;
+  }
+  function tempKey(model = modelKey(), store = storeKey()){
+    return `${FIELD_TEMP_PREFIX}:${model}:${store || ''}`;
+  }
+  function getTempStreetCounts(model = modelKey(), store = storeKey()){
+    try {
+      const raw = localStorage.getItem(tempKey(model, store));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch(e){ return null; }
+  }
+  function getBestStreetCountsForCurrentModel(){
+    try {
+      if (typeof manageStreetCounts !== 'undefined' && Array.isArray(manageStreetCounts)) {
+        return cloneSafe(manageStreetCounts);
+      }
+    } catch(e){}
+    const temp = getTempStreetCounts();
+    if (Array.isArray(temp)) return cloneSafe(temp);
+    try { if (Array.isArray(state?.streetCounts)) return cloneSafe(state.streetCounts); } catch(e){}
+    return [];
+  }
+  function saveModelWork(reason = 'autosave_model_work'){
+    if (typeof state === 'undefined' || !state?.form) return;
+    const model = modelKey();
+    const store = storeKey();
+    const streetCounts = getBestStreetCountsForCurrentModel();
+    const payload = {
+      version: 2,
+      reason,
+      savedAt: new Date().toISOString(),
+      model,
+      store,
+      form: cloneSafe(state.form || {}),
+      items: cloneSafe(state.items || []),
+      streetCounts,
+      modelConfigs: cloneSafe(state.modelConfigs || {}),
+      modelItemTemplates: cloneSafe(state.modelItemTemplates || {}),
+      storeStreetTemplates: cloneSafe(state.storeStreetTemplates || {})
+    };
+    try { localStorage.setItem(workKey(model, store), JSON.stringify(payload)); } catch(e) {
+      try { if (typeof showToast === 'function') showToast('Atenção: armazenamento cheio. Salve/exporte backup antes de trocar de modelo.'); } catch(_){}
+      try { console.warn('Falha ao salvar cofre por modelo.', e); } catch(_){}
+    }
+  }
+  function loadModelWork(model, store = storeKey()){
+    try {
+      const raw = localStorage.getItem(workKey(model, store));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || parsed.model !== model) return null;
+      return parsed;
+    } catch(e){ return null; }
+  }
+  function restoreModelWork(model, commonForm){
+    const saved = loadModelWork(model);
+    if (!saved) return false;
+    try {
+      const previousCommon = commonForm || {};
+      if (saved.modelConfigs && Object.keys(saved.modelConfigs).length) state.modelConfigs = saved.modelConfigs;
+      if (saved.modelItemTemplates && Object.keys(saved.modelItemTemplates).length) state.modelItemTemplates = saved.modelItemTemplates;
+      state.form = { ...(saved.form || {}), ...previousCommon, modelo:model };
+      if (!String(state.form.setor || '').trim()) {
+        const label = String((typeof getModelConfig === 'function' ? getModelConfig(model).label : model) || '').toLowerCase();
+        state.form.setor = label.includes('perec') ? 'Perecíveis' : (label.includes('seco') ? 'Secos' : '');
+      }
+      state.items = Array.isArray(saved.items) ? cloneSafe(saved.items) : (typeof buildItemsFromModel === 'function' ? buildItemsFromModel(model) : []);
+      state.streetCounts = Array.isArray(saved.streetCounts) ? cloneSafe(saved.streetCounts) : [];
+      if (typeof normalizeState === 'function') state = normalizeState(state);
+      state.form = { ...state.form, ...previousCommon, modelo:model };
+      state.streetCounts = Array.isArray(saved.streetCounts) ? cloneSafe(saved.streetCounts) : state.streetCounts;
+      try { localStorage.setItem(tempKey(model, storeKey()), JSON.stringify(state.streetCounts || [])); } catch(e){}
+      if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state);
+      if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state);
+      return true;
+    } catch(e){
+      try { console.warn('Falha ao restaurar cofre por modelo.', e); } catch(_){}
+      return false;
+    }
+  }
+  function collectCommonForm(){
+    try {
+      return {
+        nomeLoja: state.form.nomeLoja || '',
+        visita: state.form.visita || '',
+        coordArko: state.form.coordArko || '',
+        gerenteLoja: state.form.gerenteLoja || '',
+        gerenteAcompanhou: !!state.form.gerenteAcompanhou,
+        data: state.form.data || '',
+        horaVisita: state.form.horaVisita || ''
+      };
+    } catch(e){ return {}; }
+  }
+
+  const previousOnModelChange = typeof onModelChange === 'function' ? onModelChange : null;
+  onModelChange = function(nextModel){
+    if (!nextModel || typeof state === 'undefined' || !state?.form) return;
+    const current = modelKey();
+    if (nextModel === current) return;
+    saveModelWork('before_model_change');
+    const common = collectCommonForm();
+    if (!restoreModelWork(nextModel, common)) {
+      if (typeof previousOnModelChange === 'function') previousOnModelChange(nextModel);
+      if (state?.form) state.form = { ...state.form, ...common, modelo:nextModel };
+    }
+    saveModelWork('after_model_change_restore');
+    try { if (typeof persistState === 'function') persistState(); } catch(e){}
+    try { if (typeof renderApp === 'function') renderApp(); } catch(e){}
+    try { if (typeof showToast === 'function') showToast('Modelo alterado mantendo fotos e pontuações do modelo anterior.'); } catch(e){}
+  };
+  window.onModelChange = onModelChange;
+
+  const previousSaveStreetCounts = typeof saveStreetCounts === 'function' ? saveStreetCounts : null;
+  if (previousSaveStreetCounts) {
+    saveStreetCounts = function(){
+      const result = previousSaveStreetCounts.apply(this, arguments);
+      saveModelWork('save_street_counts');
+      return result;
+    };
+    window.saveStreetCounts = saveStreetCounts;
+  }
+
+  const previousPersistState = typeof persistState === 'function' ? persistState : null;
+  if (previousPersistState) {
+    persistState = function(){
+      saveModelWork('persist_state');
+      return previousPersistState.apply(this, arguments);
+    };
+    window.persistState = persistState;
+  }
+
+  function rebindModelSelect(){
+    const select = document.getElementById('modeloAvaliacao');
+    if (!select) return;
+    select.onchange = function(e){
+      const next = e.target.value;
+      if (!next || next === modelKey()) return;
+      onModelChange(next);
+    };
+  }
+  window.addEventListener('pagehide', () => saveModelWork('pagehide'));
+  window.addEventListener('beforeunload', () => saveModelWork('beforeunload'));
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveModelWork('visibility_hidden'); });
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', rebindModelSelect); else rebindModelSelect();
+  setTimeout(rebindModelSelect, 300);
+  setTimeout(rebindModelSelect, 1200);
+  setInterval(saveModelWork, 15000);
+  saveModelWork('patch_loaded');
+})();
+</script>
+
+
+<script id="saveEvaluationAsContinuableHistoryPatch">
+/* === AJUSTE DO BOTÃO SALVAR AVALIAÇÃO ===
+   O botão passa a salvar/atualizar a avaliação em andamento no Histórico Gerencial,
+   sincronizando no Firebase para abrir em outro dispositivo e continuar do ponto salvo.
+   Não altera layout, fluxos de avaliação, PDF ou gerenciar itens.
+*/
+(function saveEvaluationAsContinuableHistoryPatch(){
+  const CONTINUABLE_VERSION = '2026-05-05.1';
+  const SESSION_KEY = 'arko_avaliacao_sessoes_em_andamento_v1';
+
+  function cloneSafe(value){ try { return JSON.parse(JSON.stringify(value)); } catch(e){ return value; } }
+  function nowIso(){ try { return new Date().toISOString(); } catch(e){ return ''; } }
+  function currentModel(){ try { return state?.form?.modelo || DEFAULT_MODEL_KEY || 'modelo'; } catch(e){ return 'modelo'; } }
+  function clean(value){ return String(value || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'sem_info'; }
+  function sessionFingerprint(){
+    const f = (typeof state !== 'undefined' && state && state.form) ? state.form : {};
+    return [clean(f.nomeLoja), clean(currentModel()), clean(f.setor), clean(f.visita), clean(f.data)].join('__');
+  }
+  function readSessionMap(){ try { return JSON.parse(localStorage.getItem(SESSION_KEY) || '{}'); } catch(e){ return {}; } }
+  function writeSessionMap(map){ try { localStorage.setItem(SESSION_KEY, JSON.stringify(map || {})); } catch(e){} }
+  function getOrCreateEvaluationId(){
+    if (state && state.currentEvaluationId) return String(state.currentEvaluationId);
+    const map = readSessionMap();
+    const fp = sessionFingerprint();
+    if (map[fp]) {
+      state.currentEvaluationId = String(map[fp]);
+      return state.currentEvaluationId;
+    }
+    const id = 'andamento_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
+    map[fp] = id;
+    writeSessionMap(map);
+    state.currentEvaluationId = id;
+    return id;
+  }
+  function rememberEvaluationId(id){
+    if (!id || typeof state === 'undefined' || !state) return;
+    state.currentEvaluationId = String(id);
+    const map = readSessionMap();
+    map[sessionFingerprint()] = String(id);
+    writeSessionMap(map);
+  }
+  function findExistingEntry(list, id){
+    return (list || []).find(x => String(x.id) === String(id));
+  }
+  function saveContinuableEvaluation(){
+    if (typeof state === 'undefined' || !state || !state.form) return;
+    try { if (typeof saveActiveModelDraft === 'function') saveActiveModelDraft(); } catch(e){}
+    try { if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state); } catch(e){}
+    try { if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state); } catch(e){}
+
+    const summary = (typeof getSummary === 'function') ? getSummary() : { notaFinal:0 };
+    const id = getOrCreateEvaluationId();
+    const list = (typeof getHistory === 'function') ? getHistory() : [];
+    const previous = findExistingEntry(list, id);
+    const createdAt = previous?.createdAt || nowIso();
+    const modelLabel = (typeof getModelConfig === 'function') ? getModelConfig(currentModel()).label : currentModel();
+    const dateText = (typeof formatDateBR === 'function') ? formatDateBR(state.form.data) : (state.form.data || '');
+    const snapshot = cloneSafe(state);
+    snapshot.currentEvaluationId = id;
+
+    const entry = {
+      ...(previous || {}),
+      id,
+      createdAt,
+      updatedAt: nowIso(),
+      title: state.form.nomeLoja || 'Loja sem nome',
+      subtitle: `${modelLabel} • ${state.form.setor || 'Sem setor'} • ${state.form.visita || 'Sem visita'} • ${dateText} • Em andamento`,
+      notaFinal: summary.notaFinal || 0,
+      status: 'em_andamento',
+      finalized: false,
+      continuable: true,
+      syncStatus: navigator.onLine ? 'pending_cloud_sync' : 'local_offline',
+      modelConfigs: cloneSafe(state.modelConfigs || {}),
+      modelItemTemplates: cloneSafe(state.modelItemTemplates || {}),
+      data: snapshot,
+      patchVersionContinuable: CONTINUABLE_VERSION
+    };
+
+    const next = [entry, ...(list || []).filter(x => String(x.id) !== String(id))].slice(0, 80);
+    try { historyCache = next; } catch(e){}
+    if (typeof setLocalHistory === 'function') setLocalHistory(next);
+    if (typeof renderHistory === 'function') renderHistory();
+    if (typeof syncHistoryEntryToCloud === 'function') syncHistoryEntryToCloud(entry);
+    try { if (typeof persistState === 'function') persistState(); } catch(e){}
+    if (typeof showToast === 'function') showToast('Avaliação salva no Histórico Gerencial e enviada para sincronização.');
+  }
+
+  window.saveHistorySnapshot = saveContinuableEvaluation;
+  try { saveHistorySnapshot = saveContinuableEvaluation; } catch(e){}
+
+  function rebindSaveEvaluationButton(){
+    const btn = document.getElementById('saveEvaluationBtn');
+    if (!btn) return;
+    btn.onclick = function(){ saveContinuableEvaluation(); };
+    btn.title = 'Salva a avaliação em andamento no Histórico Gerencial para continuar depois em qualquer dispositivo.';
+  }
+
+  document.addEventListener('click', function(ev){
+    const loadBtn = ev.target && ev.target.closest ? ev.target.closest('[data-load-exact],[data-load]') : null;
+    if (!loadBtn) return;
+    const id = loadBtn.getAttribute('data-load-exact') || loadBtn.getAttribute('data-load');
+    if (!id) return;
+    setTimeout(function(){
+      try {
+        if (typeof state !== 'undefined' && state && state.form) {
+          rememberEvaluationId(id);
+          if (typeof persistState === 'function') persistState();
+        }
+      } catch(e){}
+    }, 900);
+  }, true);
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', rebindSaveEvaluationButton); else rebindSaveEvaluationButton();
+  setTimeout(rebindSaveEvaluationButton, 300);
+  setTimeout(rebindSaveEvaluationButton, 1200);
+})();
+</script>
+
 </body>
 </html>

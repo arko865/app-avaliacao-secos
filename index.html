@@ -6484,5 +6484,91 @@ function saveConfigModels(){
 })();
 </script>
 
+
+<script id="fixedModelOrderPatch20260505">
+/* === ORDEM FIXA DO MENU MODELO DE AVALIAÇÃO ===
+   Mantém a lista sempre na mesma sequência, mesmo alternando entre modelos
+   ou restaurando rascunhos/histórico. Não altera fluxo, vínculos, fotos,
+   pontuações ou salvamento. */
+(function(){
+  const FIXED_MODEL_ORDER = [
+    'nova_era_secos',
+    'nova_era_pereciveis',
+    'patio_gourmet_secos',
+    'patio_gourmet_pereciveis'
+  ];
+
+  function getModelSource(){
+    try {
+      if (typeof getAllModelConfigs === 'function') {
+        const all = getAllModelConfigs();
+        if (all && typeof all === 'object') return all;
+      }
+    } catch(e) {}
+    return (typeof MODEL_CONFIGS !== 'undefined' && MODEL_CONFIGS) ? MODEL_CONFIGS : {};
+  }
+
+  function fixedModelList(){
+    const all = getModelSource();
+    return FIXED_MODEL_ORDER
+      .filter(key => all[key])
+      .map(key => all[key]);
+  }
+
+  function escapeHtml(value){
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function applyFixedModelOrder(){
+    const select = document.getElementById('modeloAvaliacao');
+    if (!select) return;
+
+    const all = getModelSource();
+    const currentValue = (typeof state !== 'undefined' && state && state.form && state.form.modelo && all[state.form.modelo])
+      ? state.form.modelo
+      : (select.value && all[select.value] ? select.value : (typeof DEFAULT_MODEL_KEY !== 'undefined' ? DEFAULT_MODEL_KEY : FIXED_MODEL_ORDER[0]));
+
+    const options = fixedModelList();
+    if (!options.length) return;
+
+    select.innerHTML = options.map(config =>
+      `<option value="${escapeHtml(config.key)}">${escapeHtml(config.label)}</option>`
+    ).join('');
+    select.value = all[currentValue] ? currentValue : options[0].key;
+
+    const badge = document.getElementById('currentModelBadge');
+    if (badge) {
+      const selected = all[select.value] || options[0];
+      badge.textContent = selected.label || select.value;
+    }
+  }
+
+  const previousPopulateModelOptions = (typeof populateModelOptions === 'function') ? populateModelOptions : null;
+  window.populateModelOptions = populateModelOptions = function(){
+    if (previousPopulateModelOptions) {
+      try { previousPopulateModelOptions.apply(this, arguments); } catch(e) {}
+    }
+    applyFixedModelOrder();
+  };
+
+  document.addEventListener('change', function(ev){
+    if (ev.target && ev.target.id === 'modeloAvaliacao') {
+      setTimeout(applyFixedModelOrder, 0);
+      setTimeout(applyFixedModelOrder, 250);
+    }
+  }, true);
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', applyFixedModelOrder); else applyFixedModelOrder();
+  setTimeout(applyFixedModelOrder, 300);
+  setTimeout(applyFixedModelOrder, 1200);
+  setInterval(applyFixedModelOrder, 3000);
+})();
+</script>
+
 </body>
 </html>

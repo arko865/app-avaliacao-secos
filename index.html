@@ -250,48 +250,55 @@ input:not(:placeholder-shown),textarea:not(:placeholder-shown){background:#f8faf
 </style>
 
 <style id="areasNcInputSizePatch">
-  /* Amplia o campo de Áreas não conformes no menu Avaliar, mantendo câmera e salvar ao lado */
+  /* Ajuste mobile: campo de Áreas não conformes confortável, sem ultrapassar a borda */
   .photo-save-side-row {
-    grid-template-columns: minmax(190px, 1fr) auto !important;
-    gap: 12px !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    gap: 10px !important;
     align-items: end !important;
+    width: 100% !important;
+    max-width: 100% !important;
   }
   .photo-save-side-row .field {
-    min-width: 190px !important;
+    min-width: 0 !important;
+    width: 100% !important;
   }
   .photo-save-side-row input[data-draft-field="areasNaoConformes"] {
-    min-height: 58px !important;
-    font-size: 22px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: 56px !important;
+    font-size: 20px !important;
     font-weight: 900 !important;
-    padding: 14px 16px !important;
+    padding: 12px 14px !important;
     text-align: left !important;
   }
   .photo-icon-actions {
-    gap: 8px !important;
+    gap: 7px !important;
+    flex-shrink: 0 !important;
   }
   .photo-icon-btn {
-    width: 56px !important;
-    min-width: 56px !important;
-    height: 58px !important;
-    font-size: 24px !important;
+    width: 50px !important;
+    min-width: 50px !important;
+    height: 56px !important;
+    font-size: 22px !important;
   }
   @media (max-width: 430px) {
     .photo-save-side-row {
-      grid-template-columns: minmax(170px, 1fr) auto !important;
+      grid-template-columns: minmax(0, 1fr) auto !important;
       gap: 8px !important;
     }
-    .photo-save-side-row .field {
-      min-width: 170px !important;
-    }
     .photo-save-side-row input[data-draft-field="areasNaoConformes"] {
-      min-height: 56px !important;
-      font-size: 21px !important;
-      padding: 13px 14px !important;
+      min-height: 54px !important;
+      font-size: 19px !important;
+      padding: 11px 12px !important;
+    }
+    .photo-icon-actions {
+      gap: 6px !important;
     }
     .photo-icon-btn {
-      width: 50px !important;
-      min-width: 50px !important;
-      height: 56px !important;
+      width: 46px !important;
+      min-width: 46px !important;
+      height: 54px !important;
+      font-size: 21px !important;
     }
   }
   @media (max-width: 360px) {

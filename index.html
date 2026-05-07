@@ -248,6 +248,62 @@ input:not(:placeholder-shown),textarea:not(:placeholder-shown){background:#f8faf
     .photo-icon-btn { width:50px; min-width:50px; height:48px; }
   }
 </style>
+
+<style id="areasNcInputSizePatch">
+  /* Amplia o campo de Áreas não conformes no menu Avaliar, mantendo câmera e salvar ao lado */
+  .photo-save-side-row {
+    grid-template-columns: minmax(190px, 1fr) auto !important;
+    gap: 12px !important;
+    align-items: end !important;
+  }
+  .photo-save-side-row .field {
+    min-width: 190px !important;
+  }
+  .photo-save-side-row input[data-draft-field="areasNaoConformes"] {
+    min-height: 58px !important;
+    font-size: 22px !important;
+    font-weight: 900 !important;
+    padding: 14px 16px !important;
+    text-align: left !important;
+  }
+  .photo-icon-actions {
+    gap: 8px !important;
+  }
+  .photo-icon-btn {
+    width: 56px !important;
+    min-width: 56px !important;
+    height: 58px !important;
+    font-size: 24px !important;
+  }
+  @media (max-width: 430px) {
+    .photo-save-side-row {
+      grid-template-columns: minmax(170px, 1fr) auto !important;
+      gap: 8px !important;
+    }
+    .photo-save-side-row .field {
+      min-width: 170px !important;
+    }
+    .photo-save-side-row input[data-draft-field="areasNaoConformes"] {
+      min-height: 56px !important;
+      font-size: 21px !important;
+      padding: 13px 14px !important;
+    }
+    .photo-icon-btn {
+      width: 50px !important;
+      min-width: 50px !important;
+      height: 56px !important;
+    }
+  }
+  @media (max-width: 360px) {
+    .photo-save-side-row {
+      grid-template-columns: 1fr !important;
+      align-items: stretch !important;
+    }
+    .photo-icon-actions {
+      justify-content: flex-start !important;
+    }
+  }
+</style>
 </head>
 <body>
   <div class="page">

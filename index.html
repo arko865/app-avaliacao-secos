@@ -243,8 +243,8 @@ input:not(:placeholder-shown),textarea:not(:placeholder-shown){background:#f8faf
   .photo-icon-btn { width:48px; min-width:48px; height:48px; padding:0 !important; border-radius:14px !important; font-size:22px !important; line-height:1 !important; }
   .photo-icon-btn[disabled] { opacity:.45; cursor:not-allowed; filter:grayscale(1); }
   @media (max-width:640px){
-    .photo-save-side-row { grid-template-columns:1fr; align-items:stretch; }
-    .photo-icon-actions { justify-content:flex-start; padding-bottom:0; }
+    .photo-save-side-row { grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:8px; }
+    .photo-icon-actions { justify-content:flex-end; padding-bottom:0; gap:6px; }
     .photo-icon-btn { width:50px; min-width:50px; height:48px; }
   }
 </style>
@@ -4102,7 +4102,7 @@ function saveConfigModels(){
                     <input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-draft-field="areasNaoConformes" value="${escapeHtml(draftPhoto.areasNaoConformes ?? '')}" />
                   </div>
                   <div class="photo-icon-actions" aria-label="Ações da foto">
-                    <button class="btn secondary photo-icon-btn" type="button" data-clear-draft="${index}" title="Limpar e tirar nova foto" aria-label="Limpar e tirar nova foto">🔄</button>
+                    <button class="btn secondary photo-icon-btn" type="button" data-open-camera="${index}" title="Tirar nova foto" aria-label="Tirar nova foto">📷</button>
                     <button class="btn photo-icon-btn" type="button" data-save-draft="${index}" title="${Number.isInteger(draftPhoto.editPhotoIndex) ? 'Atualizar foto' : 'Salvar foto'}" aria-label="${Number.isInteger(draftPhoto.editPhotoIndex) ? 'Atualizar foto' : 'Salvar foto'}" ${draftPhoto.dataUrl ? '' : 'disabled'}>💾</button>
                   </div>
                 </div>

@@ -235,6 +235,19 @@ input:not(:placeholder-shown),textarea:not(:placeholder-shown){background:#f8faf
     display: inline-block;
   }
 </style>
+
+<style id="photoIconButtonsPatchStyle">
+  .photo-draft-top .actions[data-photo-top-actions] { display:none !important; }
+  .photo-save-side-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:end; }
+  .photo-icon-actions { display:flex; align-items:center; justify-content:flex-end; gap:8px; padding-bottom:1px; }
+  .photo-icon-btn { width:48px; min-width:48px; height:48px; padding:0 !important; border-radius:14px !important; font-size:22px !important; line-height:1 !important; }
+  .photo-icon-btn[disabled] { opacity:.45; cursor:not-allowed; filter:grayscale(1); }
+  @media (max-width:640px){
+    .photo-save-side-row { grid-template-columns:1fr; align-items:stretch; }
+    .photo-icon-actions { justify-content:flex-start; padding-bottom:0; }
+    .photo-icon-btn { width:50px; min-width:50px; height:48px; }
+  }
+</style>
 </head>
 <body>
   <div class="page">
@@ -1803,7 +1816,6 @@ function renderStreetCounts() {
             <div class="photo-draft-top">
               <div class="muted-note">Área: <strong>${areaName}</strong> · Fotos registradas: <strong>${(Array.isArray(row.photos) ? row.photos.length : 0)}</strong></div>
               <div class="actions" style="margin-top:0;">
-                <button class="btn secondary" type="button" data-open-camera="${index}">Tirar foto</button>
                 <button class="btn secondary" type="button" data-clear-draft="${index}">Nova foto</button>
                 <button class="btn" type="button" data-save-draft="${index}" ${draftPhoto.dataUrl ? '' : 'disabled'}>Salvar foto</button>
                 <input class="camera-input" type="file" accept="image/*" capture="environment" data-camera-input="${index}" />
@@ -3064,7 +3076,6 @@ function renderStreetCounts() {
             <div class="photo-draft-top">
               <div class="muted-note">Área: <strong>${areaName}</strong> · Fotos registradas: <strong>${(Array.isArray(row.photos) ? row.photos.length : 0)}</strong></div>
               <div class="actions" style="margin-top:0;">
-                <button class="btn secondary" type="button" data-open-camera="${index}">Tirar foto</button>
                 <button class="btn secondary" type="button" data-clear-draft="${index}">Nova foto</button>
                 <button class="btn" type="button" data-save-draft="${index}" ${draftPhoto.dataUrl ? '' : 'disabled'}>${Number.isInteger(draftPhoto.editPhotoIndex) ? 'Atualizar foto' : 'Salvar foto'}</button>
                 <input class="camera-input" type="file" accept="image/*" capture="environment" data-camera-input="${index}" />
@@ -4064,10 +4075,7 @@ function saveConfigModels(){
             <div class="photo-draft-panel" data-photo-work-area="${index}">
               <div class="photo-draft-top">
                 <div class="muted-note">Área: <strong>${areaName}</strong> · Fotos registradas: <strong>${(Array.isArray(row.photos) ? row.photos.length : 0)}</strong></div>
-                <div class="actions" style="margin-top:0;">
-                  <button class="btn secondary" type="button" data-open-camera="${index}">Tirar foto</button>
-                  <button class="btn secondary" type="button" data-clear-draft="${index}">Nova foto</button>
-                  <button class="btn" type="button" data-save-draft="${index}" ${draftPhoto.dataUrl ? '' : 'disabled'}>${Number.isInteger(draftPhoto.editPhotoIndex) ? 'Atualizar foto' : 'Salvar foto'}</button>
+                <div class="actions" style="margin-top:0;" data-photo-top-actions>
                   <input class="camera-input" type="file" accept="image/*" capture="environment" data-camera-input="${index}" />
                 </div>
               </div>
@@ -4088,9 +4096,15 @@ function saveConfigModels(){
                     ${Array.isArray(draftPhoto.nonConformities) && draftPhoto.nonConformities.length ? draftPhoto.nonConformities.map(option => `<span class="selected-nc-chip"><span>${escapeHtml(option)}</span><button type="button" data-remove-draft-nc="${escapeHtml(option)}" data-count-index="${index}">×</button></span>`).join('') : '<span class="muted-note">Nenhuma NC adicionada.</span>'}
                   </div>
                 </div>
-                <div class="field">
-                  <label>Áreas não conformes</label>
-                  <input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-draft-field="areasNaoConformes" value="${escapeHtml(draftPhoto.areasNaoConformes ?? '')}" />
+                <div class="photo-save-side-row">
+                  <div class="field">
+                    <label>Áreas não conformes</label>
+                    <input type="number" inputmode="numeric" min="0" step="1" data-count-index="${index}" data-draft-field="areasNaoConformes" value="${escapeHtml(draftPhoto.areasNaoConformes ?? '')}" />
+                  </div>
+                  <div class="photo-icon-actions" aria-label="Ações da foto">
+                    <button class="btn secondary photo-icon-btn" type="button" data-clear-draft="${index}" title="Limpar e tirar nova foto" aria-label="Limpar e tirar nova foto">🔄</button>
+                    <button class="btn photo-icon-btn" type="button" data-save-draft="${index}" title="${Number.isInteger(draftPhoto.editPhotoIndex) ? 'Atualizar foto' : 'Salvar foto'}" aria-label="${Number.isInteger(draftPhoto.editPhotoIndex) ? 'Atualizar foto' : 'Salvar foto'}" ${draftPhoto.dataUrl ? '' : 'disabled'}>💾</button>
+                  </div>
                 </div>
                 <div class="field" style="grid-column:1 / -1;">
                   <label>Observação complementar</label>
@@ -7979,6 +7993,185 @@ function saveConfigModels(){
   }, true);
 
   try { restoreExpandedIndexes(getExpandedIndexes()); } catch(_) {}
+})();
+</script>
+
+
+<script>
+/* === V4: conexão imediata do menu Avaliar com a página principal + blindagem de armazenamento cheio === */
+(function arkoOperationalV4(){
+  const PHOTO_MAX_SIDE_V4 = 720;
+  const PHOTO_QUALITY_V4 = 0.48;
+  const HARD_TEMP_PREFIXES = [
+    'arko_avaliacao_campo_modal_temp_v1',
+    'arko_avaliacao_fail_safe_v1'
+  ];
+
+  function isQuotaError(err){
+    return !!err && (err.name === 'QuotaExceededError' || err.name === 'NS_ERROR_DOM_QUOTA_REACHED' || String(err.message||'').toLowerCase().includes('quota'));
+  }
+
+  function removeTemporaryKeys(){
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i) || '';
+        if (HARD_TEMP_PREFIXES.some(prefix => key.indexOf(prefix) === 0)) localStorage.removeItem(key);
+      }
+    } catch(e) {}
+  }
+
+  function compactHistory(){
+    try {
+      const list = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+      if (Array.isArray(list)) localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, 12)));
+    } catch(e) {}
+  }
+
+  function stateWithoutHeavyPhotos(source){
+    const copy = clone(source || state);
+    (copy.streetCounts || []).forEach(row => {
+      (row.photos || []).forEach(photo => {
+        if (photo && photo.dataUrl) {
+          photo.photoSaved = true;
+          photo.dataUrl = '';
+          photo.storageNote = 'Foto removida do rascunho local por limite de armazenamento do celular.';
+        }
+      });
+      if (row.draftPhoto && row.draftPhoto.dataUrl) row.draftPhoto.dataUrl = '';
+    });
+    return copy;
+  }
+
+  function robustLocalSave(payload){
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      return true;
+    } catch(err) {
+      if (!isQuotaError(err)) throw err;
+      removeTemporaryKeys();
+      compactHistory();
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+        return true;
+      } catch(err2) {
+        try {
+          const light = stateWithoutHeavyPhotos(payload);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(light));
+          if (typeof showToast === 'function') showToast('Armazenamento cheio: quantidades salvas; reduza fotos ou finalize/exporte backup.');
+          return true;
+        } catch(err3) {
+          console.warn('Falha crítica ao salvar rascunho local.', err3);
+          if (typeof showToast === 'function') showToast('Erro ao salvar local. Exporte backup antes de continuar.');
+          return false;
+        }
+      }
+    }
+  }
+
+  // Substitui persistência principal por uma versão que não deixa as quantidades sumirem quando o celular lota.
+  const oldPersist = (typeof persistState === 'function') ? persistState : window.persistState;
+  window.persistState = persistState = function(){
+    try { if (typeof saveFailSafeCheckpoint === 'function') saveFailSafeCheckpoint('autosave-v4'); } catch(e) {}
+    robustLocalSave(state);
+    try { if (typeof queueCloudDraftSync === 'function') queueCloudDraftSync(); } catch(e) {}
+  };
+
+  async function compressFileV4(file){
+    if (!file) return '';
+    const readFallback = () => new Promise(resolve => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    });
+    try {
+      let img;
+      if ('createImageBitmap' in window) img = await createImageBitmap(file, { imageOrientation:'from-image' });
+      else {
+        const raw = await readFallback();
+        img = await new Promise((resolve, reject) => { const im = new Image(); im.onload=()=>resolve(im); im.onerror=reject; im.src=raw; });
+      }
+      const ow = img.width || img.naturalWidth || 0, oh = img.height || img.naturalHeight || 0;
+      if (!ow || !oh) return await readFallback();
+      const scale = Math.min(1, PHOTO_MAX_SIDE_V4 / Math.max(ow, oh));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(ow * scale));
+      canvas.height = Math.max(1, Math.round(oh * scale));
+      const ctx = canvas.getContext('2d', { alpha:false });
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      if (img.close) img.close();
+      return canvas.toDataURL('image/jpeg', PHOTO_QUALITY_V4);
+    } catch(e) {
+      return await readFallback();
+    }
+  }
+
+  // Garante que novas fotos sejam menores antes de entrar no rascunho.
+  window.normalizeImageFileToDataUrl = normalizeImageFileToDataUrl = compressFileV4;
+
+  function syncAvaliarToPrincipal(showMessage){
+    try {
+      if (!Array.isArray(manageStreetCounts)) return false;
+      state.streetCounts = manageStreetCounts.map((row, index) => normalizeStreetCount(row, index, state.form.modelo));
+      if (typeof saveStreetTemplateForCurrentStore === 'function') saveStreetTemplateForCurrentStore(state.streetCounts);
+      applyAutomaticAreas(state);
+      applyAutomaticNonConformities(state);
+      persistState();
+      renderApp();
+      if (document.getElementById('streetCountsModal')?.classList.contains('open')) {
+        // Mantém o modal aberto e evita perda do que estava sendo preenchido.
+        const btn = document.getElementById('streetCountsBtn');
+        if (btn) btn.onclick = window.openStreetCountsModal || openStreetCountsModal;
+      }
+      if (showMessage && typeof showToast === 'function') showToast('Dados do menu Avaliar aplicados na avaliação principal.');
+      return true;
+    } catch(err) {
+      console.warn('Falha ao aplicar menu Avaliar na página principal.', err);
+      if (typeof showToast === 'function') showToast('Atenção: não foi possível aplicar na página principal.');
+      return false;
+    }
+  }
+
+  // Botão salvar do topo: aplica no principal sem depender de função antiga e sem perder vínculo.
+  window.saveStreetCounts = saveStreetCounts = function(){
+    if (!Array.isArray(manageStreetCounts) || !manageStreetCounts.length) manageStreetCounts = makeDefaultStreetCounts(state.form.modelo);
+    syncAvaliarToPrincipal(true);
+    try { closeStreetCountsModal(); } catch(e) {}
+  };
+
+  function bindV4(){
+    const saveBtn = document.getElementById('saveStreetCountsBtn');
+    if (saveBtn) saveBtn.onclick = window.saveStreetCounts;
+    const addBtn = document.getElementById('addStreetCountRowBtn');
+    if (addBtn && !addBtn.__arkoV4Bound) {
+      addBtn.__arkoV4Bound = true;
+      const old = addBtn.onclick;
+      addBtn.onclick = function(e){
+        if (typeof old === 'function') old.call(this, e); else if (typeof addStreetCountRow === 'function') addStreetCountRow();
+        setTimeout(() => syncAvaliarToPrincipal(false), 80);
+      };
+    }
+  }
+
+  // Autosync em qualquer alteração do menu Avaliar: quantidades/NC/foto passam a conversar com a principal imediatamente.
+  document.addEventListener('input', function(e){
+    if (!e.target.closest || !e.target.closest('#streetCountsModal')) return;
+    clearTimeout(window.__arkoV4SyncTimer);
+    window.__arkoV4SyncTimer = setTimeout(() => syncAvaliarToPrincipal(false), 250);
+  }, true);
+  document.addEventListener('change', function(e){
+    if (!e.target.closest || !e.target.closest('#streetCountsModal')) return;
+    clearTimeout(window.__arkoV4SyncTimer);
+    window.__arkoV4SyncTimer = setTimeout(() => syncAvaliarToPrincipal(false), 350);
+  }, true);
+  document.addEventListener('click', function(e){
+    const t = e.target.closest && e.target.closest('[data-save-draft], [data-remove-photo], [data-remove-count-row], [data-remove-draft-nc], [data-draft-check]');
+    if (!t) return;
+    setTimeout(() => syncAvaliarToPrincipal(false), 120);
+  }, true);
+
+  document.addEventListener('DOMContentLoaded', bindV4);
+  bindV4();
 })();
 </script>
 

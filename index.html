@@ -7891,5 +7891,96 @@ function saveConfigModels(){
 })();
 </script>
 
+
+
+<!-- === PATCH ARKO: Menu Avaliar - minimizar somente ao adicionar área === -->
+<script id="arkoCollapseOnlyOnAddPatch">
+(function(){
+  if (window.__arkoCollapseOnlyOnAddPatchApplied) return;
+  window.__arkoCollapseOnlyOnAddPatchApplied = true;
+
+  function rows(){ return Array.from(document.querySelectorAll('#streetCountsList .count-row')); }
+
+  function getExpandedIndexes(){
+    return rows().map((row, idx) => row.classList.contains('arko-collapsed') ? null : idx).filter(idx => idx !== null);
+  }
+
+  function restoreExpandedIndexes(indexes){
+    const keep = Array.isArray(indexes) && indexes.length ? indexes : [0];
+    rows().forEach((row, idx) => {
+      const expanded = keep.includes(idx);
+      row.classList.toggle('arko-collapsed', !expanded);
+      row.classList.toggle('arko-active-row', expanded && idx === keep[0]);
+      const btn = row.querySelector('.arko-toggle-row');
+      if (btn) btn.textContent = expanded ? 'Minimizar' : 'Expandir';
+    });
+  }
+
+  function collapseOnlyForNewArea(){
+    rows().forEach((row, idx) => {
+      const expanded = idx === 0;
+      row.classList.toggle('arko-collapsed', !expanded);
+      row.classList.toggle('arko-active-row', expanded);
+      const btn = row.querySelector('.arko-toggle-row');
+      if (btn) btn.textContent = expanded ? 'Minimizar' : 'Expandir';
+    });
+  }
+
+  // Renderizações causadas por foto, digitação, seleção de NC ou salvamento NÃO podem minimizar a área.
+  const previousRender = (typeof renderStreetCounts === 'function') ? renderStreetCounts : null;
+  if (previousRender) {
+    window.renderStreetCounts = renderStreetCounts = function(){
+      const shouldCollapse = window.__arkoCollapseBecauseAddArea === true;
+      const expandedBefore = getExpandedIndexes();
+      const result = previousRender.apply(this, arguments);
+      if (shouldCollapse) {
+        collapseOnlyForNewArea();
+        window.__arkoCollapseBecauseAddArea = false;
+      } else {
+        restoreExpandedIndexes(expandedBefore);
+      }
+      return result;
+    };
+  }
+
+  const previousAdd = (typeof addStreetCountRow === 'function') ? addStreetCountRow : null;
+  if (previousAdd) {
+    window.addStreetCountRow = addStreetCountRow = function(){
+      window.__arkoCollapseBecauseAddArea = true;
+      const result = previousAdd.apply(this, arguments);
+      window.__arkoCollapseBecauseAddArea = false;
+      collapseOnlyForNewArea();
+      return result;
+    };
+  }
+
+  // Garante que o botão "usar foto" e o input da câmera mantenham a área atual aberta.
+  document.addEventListener('change', function(e){
+    const input = e.target;
+    if (!input || !input.matches || !input.matches('[data-camera-input]')) return;
+    const expandedBefore = getExpandedIndexes();
+    setTimeout(function(){ restoreExpandedIndexes(expandedBefore); }, 150);
+    setTimeout(function(){ restoreExpandedIndexes(expandedBefore); }, 600);
+  }, true);
+
+  document.addEventListener('click', function(e){
+    const target = e.target;
+    if (!target || !target.closest) return;
+    const cameraArea = target.closest('.count-row');
+    if (!cameraArea) return;
+    if (target.closest('[data-camera-input], .photo-draft-panel, .count-photo-toolbar, .photo-card, .saved-photo-card')) {
+      const currentRows = rows();
+      const idx = currentRows.indexOf(cameraArea);
+      if (idx >= 0) {
+        setTimeout(function(){ restoreExpandedIndexes([idx]); }, 100);
+        setTimeout(function(){ restoreExpandedIndexes([idx]); }, 600);
+      }
+    }
+  }, true);
+
+  try { restoreExpandedIndexes(getExpandedIndexes()); } catch(_) {}
+})();
+</script>
+
 </body>
 </html>

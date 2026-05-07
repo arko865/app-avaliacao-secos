@@ -7154,5 +7154,346 @@ function saveConfigModels(){
 </script>
 
 
+
+<script id="arkoOperationalReadinessPatchV1">
+(function(){
+  'use strict';
+  const PATCH_VERSION = 'operacao-rapida-v1.0.0';
+  const OP_DRAFTS_KEY = 'arko_avaliacao_rascunhos_por_operacao_v1';
+  const OP_INDEX_KEY = 'arko_avaliacao_indice_operacao_v1';
+  const OP_AUDIT_LOG_KEY = 'arko_avaliacao_log_operacional_v1';
+
+  function nowIso(){ return new Date().toISOString(); }
+  function safeText(v){ return String(v == null ? '' : v).trim(); }
+  function safeKey(v){
+    return safeText(v).normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+      .toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') || 'sem-info';
+  }
+  function readJson(key, fallback){
+    try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch(_){ return fallback; }
+  }
+  function writeJson(key, value){
+    try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch(err){ console.warn('[Arko] Falha ao gravar', key, err); return false; }
+  }
+  function addAuditLog(event, detail){
+    try {
+      const log = readJson(OP_AUDIT_LOG_KEY, []);
+      log.push({ at: nowIso(), event, detail: detail || {}, deviceId: (typeof deviceId !== 'undefined' ? deviceId : '') });
+      writeJson(OP_AUDIT_LOG_KEY, log.slice(-120));
+    } catch(_){ }
+  }
+  function getFormSnapshot(){
+    try { return state && state.form ? state.form : {}; } catch(_){ return {}; }
+  }
+  function getOperationalKeyFromForm(form){
+    form = form || getFormSnapshot();
+    return [
+      safeKey(form.modelo || (typeof DEFAULT_MODEL_KEY !== 'undefined' ? DEFAULT_MODEL_KEY : 'modelo')),
+      safeKey(form.nomeLoja || 'loja'),
+      safeKey(form.setor || 'setor'),
+      safeKey(form.data || new Date().toISOString().slice(0,10)),
+      safeKey(form.visita || 'visita'),
+      safeKey(form.coordArko || 'usuario')
+    ].join('__');
+  }
+  function ensureMeta(){
+    try {
+      if (!state || typeof state !== 'object') return {};
+      if (!state.meta || typeof state.meta !== 'object') state.meta = {};
+      const form = getFormSnapshot();
+      const opKey = getOperationalKeyFromForm(form);
+      if (state.meta.operationalKey !== opKey) {
+        state.meta.operationalKey = opKey;
+        if (!state.meta.evaluationId) state.meta.evaluationId = `${opKey}__${Date.now()}__${Math.random().toString(36).slice(2,7)}`;
+      }
+      if (!state.meta.evaluationId) state.meta.evaluationId = `${opKey}__${Date.now()}__${Math.random().toString(36).slice(2,7)}`;
+      state.meta.deviceId = (typeof deviceId !== 'undefined' ? deviceId : state.meta.deviceId || 'device');
+      return state.meta;
+    } catch(_){ return {}; }
+  }
+  function getDraftsMap(){ return readJson(OP_DRAFTS_KEY, {}); }
+  function saveDraftByOperation(reason){
+    try {
+      const meta = ensureMeta();
+      const opKey = meta.operationalKey || getOperationalKeyFromForm();
+      const payload = (typeof normalizeState === 'function') ? normalizeState(state) : JSON.parse(JSON.stringify(state));
+      payload.meta = { ...(payload.meta || {}), ...meta, lastLocalSaveAt: nowIso(), lastSaveReason: reason || 'autosave' };
+      const map = getDraftsMap();
+      map[opKey] = payload;
+      const ok = writeJson(OP_DRAFTS_KEY, map);
+      const index = readJson(OP_INDEX_KEY, []);
+      const row = {
+        operationalKey: opKey,
+        evaluationId: payload.meta.evaluationId,
+        modelo: safeText(payload.form?.modelo),
+        modeloLabel: (typeof getModelConfig === 'function' ? getModelConfig(payload.form?.modelo).label : safeText(payload.form?.modelo)),
+        loja: safeText(payload.form?.nomeLoja),
+        setor: safeText(payload.form?.setor),
+        data: safeText(payload.form?.data),
+        visita: safeText(payload.form?.visita),
+        usuario: safeText(payload.form?.coordArko),
+        updatedAt: payload.meta.lastLocalSaveAt
+      };
+      const nextIndex = [row, ...index.filter(x => x && x.operationalKey !== opKey)].slice(0, 200);
+      writeJson(OP_INDEX_KEY, nextIndex);
+      addAuditLog('draft_saved', { reason, operationalKey: opKey });
+      updateOperationalSyncBadge(ok ? 'local_saved' : 'local_error');
+      return ok;
+    } catch(err){
+      console.warn('[Arko] Erro ao salvar rascunho por operação.', err);
+      updateOperationalSyncBadge('local_error');
+      return false;
+    }
+  }
+  function estimateStateKb(){
+    try { return Math.round((JSON.stringify(state || {}).length / 1024)); } catch(_){ return 0; }
+  }
+  function updateOperationalSyncBadge(status){
+    let badge = document.getElementById('operationalSyncPill');
+    const top = document.querySelector('.top-tools');
+    if (!badge && top) {
+      badge = document.createElement('div');
+      badge.id = 'operationalSyncPill';
+      badge.className = 'pill';
+      badge.innerHTML = '<span class="pill-dot"></span><span id="operationalSyncText">Rascunho local</span>';
+      top.appendChild(badge);
+    }
+    if (!badge) return;
+    const text = document.getElementById('operationalSyncText');
+    const kb = estimateStateKb();
+    let label = 'Rascunho salvo localmente';
+    let cls = '';
+    if (status === 'cloud_synced') label = 'Histórico sincronizado na nuvem';
+    if (status === 'cloud_pending') label = 'Aguardando sincronização';
+    if (status === 'local_error') { label = 'Atenção: erro ao salvar local'; cls = ' offline'; }
+    if (kb > 3500) { label += ` · fotos pesadas (${kb} KB)`; cls = ' offline'; }
+    if (text) text.textContent = label;
+    badge.className = 'pill' + cls;
+  }
+
+  const originalPersistState = (typeof persistState === 'function') ? persistState : null;
+  if (originalPersistState) {
+    persistState = function(){
+      try { originalPersistState(); } catch(err){ console.warn('[Arko] persistState original falhou.', err); }
+      saveDraftByOperation('persistState');
+    };
+  }
+
+  const originalSaveHistorySnapshot = (typeof saveHistorySnapshot === 'function') ? saveHistorySnapshot : null;
+  saveHistorySnapshot = function(){
+    try {
+      if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state);
+      if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state);
+      const summary = (typeof getSummary === 'function') ? getSummary() : { notaFinal:0 };
+      const meta = ensureMeta();
+      const historyId = meta.historyId || `${meta.evaluationId || Date.now()}__final`;
+      meta.historyId = historyId;
+      meta.finalizedAt = meta.finalizedAt || nowIso();
+      meta.lastHistorySaveAt = nowIso();
+      const entry = {
+        id: String(historyId),
+        createdAt: meta.finalizedAt,
+        updatedAt: meta.lastHistorySaveAt,
+        title: state.form.nomeLoja || 'Loja sem nome',
+        subtitle: `${(typeof getModelConfig === 'function' ? getModelConfig(state.form.modelo).label : state.form.modelo)} • ${state.form.setor || 'Sem setor'} • ${state.form.visita || 'Sem visita'} • ${(typeof formatDateBR === 'function' ? formatDateBR(state.form.data) : state.form.data)}`,
+        notaFinal: summary.notaFinal || 0,
+        finalized: true,
+        syncStatus: navigator.onLine ? 'pending_cloud_sync' : 'local_offline',
+        operationalKey: meta.operationalKey,
+        evaluationId: meta.evaluationId,
+        modelo: state.form.modelo || '',
+        storeName: state.form.nomeLoja || '',
+        supervisor: state.form.coordArko || '',
+        setor: state.form.setor || '',
+        evaluationDate: state.form.data || '',
+        data: JSON.parse(JSON.stringify(state))
+      };
+      const list = (typeof getHistory === 'function') ? getHistory() : readJson((typeof HISTORY_KEY !== 'undefined' ? HISTORY_KEY : 'arko_avaliacao_historico_v2'), []);
+      const next = [entry, ...list.filter(x => String(x.id) !== String(entry.id))].slice(0, 80);
+      try { historyCache = next; } catch(_){ }
+      if (typeof setLocalHistory === 'function') setLocalHistory(next); else writeJson('arko_avaliacao_historico_v2', next);
+      saveDraftByOperation('history_saved');
+      if (typeof renderHistory === 'function') renderHistory();
+      if (typeof syncHistoryEntryToCloud === 'function') syncHistoryEntryToCloud(entry);
+      updateOperationalSyncBadge(navigator.onLine ? 'cloud_pending' : 'local_saved');
+      addAuditLog('history_saved', { id: entry.id, operationalKey: entry.operationalKey, notaFinal: entry.notaFinal });
+      if (typeof showToast === 'function') showToast('Avaliação salva/atualizada no histórico sem duplicar.');
+      return entry;
+    } catch(err){
+      console.warn('[Arko] Falha no salvamento operacional do histórico; tentando método original.', err);
+      if (originalSaveHistorySnapshot) return originalSaveHistorySnapshot();
+    }
+  };
+
+  const originalSyncHistoryEntryToCloud = (typeof syncHistoryEntryToCloud === 'function') ? syncHistoryEntryToCloud : null;
+  if (originalSyncHistoryEntryToCloud) {
+    syncHistoryEntryToCloud = async function(entry){
+      updateOperationalSyncBadge(navigator.onLine ? 'cloud_pending' : 'local_saved');
+      const result = await originalSyncHistoryEntryToCloud(entry);
+      updateOperationalSyncBadge(navigator.onLine ? 'cloud_synced' : 'local_saved');
+      return result;
+    };
+  }
+
+  const originalRenderHistory = (typeof renderHistory === 'function') ? renderHistory : null;
+  renderHistory = function(){
+    try {
+      const target = document.getElementById('historyList');
+      if (!target) return originalRenderHistory && originalRenderHistory();
+      const list = (typeof getHistory === 'function' ? getHistory() : []).slice();
+      if (typeof populateHistoryStoreFilter === 'function') populateHistoryStoreFilter(list);
+      const storeFilter = safeText(document.getElementById('historyStoreFilter')?.value || (typeof historyStoreFilter !== 'undefined' ? historyStoreFilter : ''));
+      const supervisorFilter = safeText(document.getElementById('historySupervisorFilter')?.value || '');
+      const dateFrom = safeText(document.getElementById('historyDateFromFilter')?.value || '');
+      const dateTo = safeText(document.getElementById('historyDateToFilter')?.value || '');
+      const supervisors = Array.from(new Set(list.map(e => safeText(e.supervisor || e.data?.form?.coordArko)).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'pt-BR'));
+      const supSelect = document.getElementById('historySupervisorFilter');
+      if (supSelect && !supSelect.dataset.arkoReady) {
+        supSelect.dataset.arkoReady = '1';
+        supSelect.addEventListener('change', renderHistory);
+      }
+      if (supSelect) {
+        const cur = supSelect.value;
+        supSelect.innerHTML = '<option value="">Todos os supervisores</option>' + supervisors.map(s=>`<option value="${s.replace(/"/g,'&quot;')}">${s}</option>`).join('');
+        supSelect.value = supervisors.includes(cur) ? cur : '';
+      }
+      ['historyDateFromFilter','historyDateToFilter'].forEach(id=>{
+        const el = document.getElementById(id);
+        if (el && !el.dataset.arkoReady) { el.dataset.arkoReady='1'; el.addEventListener('change', renderHistory); }
+      });
+      let filtered = list.filter(entry => {
+        const form = entry.data?.form || {};
+        const loja = safeText(entry.storeName || entry.title || form.nomeLoja);
+        const sup = safeText(entry.supervisor || form.coordArko);
+        const dt = safeText(entry.evaluationDate || form.data || (entry.createdAt||'').slice(0,10));
+        if (storeFilter && loja !== storeFilter) return false;
+        if (supervisorFilter && sup !== supervisorFilter) return false;
+        if (dateFrom && dt < dateFrom) return false;
+        if (dateTo && dt > dateTo) return false;
+        return true;
+      });
+      filtered.sort((a,b)=>(Date.parse(b.updatedAt||b.createdAt||'')||0)-(Date.parse(a.updatedAt||a.createdAt||'')||0));
+      if (!filtered.length) { target.innerHTML = '<div class="history-empty">Nenhuma avaliação encontrada para os filtros selecionados.</div>'; return; }
+      const byMonth = new Map();
+      filtered.forEach(entry => {
+        const dt = safeText(entry.evaluationDate || entry.data?.form?.data || (entry.createdAt||'').slice(0,10));
+        const key = /^\d{4}-\d{2}/.test(dt) ? dt.slice(0,7) : 'sem-data';
+        if (!byMonth.has(key)) byMonth.set(key, []);
+        byMonth.get(key).push(entry);
+      });
+      target.innerHTML = '';
+      Array.from(byMonth.entries()).forEach(([month, entries]) => {
+        const block = document.createElement('div');
+        block.className = 'history-item';
+        const label = month === 'sem-data' ? 'Sem data' : month.split('-').reverse().join('/');
+        block.innerHTML = `<div class="history-title">${label} · ${entries.length} avaliação(ões)</div><div class="history-list" style="margin-top:10px;"></div>`;
+        const inner = block.querySelector('.history-list');
+        entries.forEach(entry => {
+          const when = new Date(entry.updatedAt || entry.createdAt || Date.now());
+          const sync = entry.syncStatus === 'local_offline' ? 'local/offline' : (entry.syncedAt ? 'sincronizada' : 'pendente');
+          const div = document.createElement('div');
+          div.className = 'history-item';
+          div.innerHTML = `
+            <div class="history-title">${safeText(entry.title || 'Loja sem nome')}</div>
+            <div class="history-meta">${safeText(entry.subtitle || 'Sem detalhes')}<br>Supervisor: ${safeText(entry.supervisor || entry.data?.form?.coordArko || '-')} • Nota: ${(typeof formatPercent === 'function' ? formatPercent(entry.notaFinal) : entry.notaFinal)} • Status: ${sync}<br>Atualizada em ${when.toLocaleDateString('pt-BR')} ${when.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}</div>
+            <div class="history-actions"><button class="history-btn" data-load="${entry.id}">Abrir</button><button class="history-btn" data-delete="${entry.id}">Excluir</button></div>`;
+          inner.appendChild(div);
+        });
+        target.appendChild(block);
+      });
+      target.querySelectorAll('[data-load]').forEach(btn => btn.onclick = () => {
+        const entry = list.find(x => String(x.id) === String(btn.dataset.load));
+        if (!entry || !entry.data) return;
+        state = (typeof normalizeState === 'function') ? normalizeState(JSON.parse(JSON.stringify(entry.data))) : JSON.parse(JSON.stringify(entry.data));
+        ensureMeta();
+        if (typeof persistState === 'function') persistState();
+        if (typeof renderApp === 'function') renderApp();
+        if (typeof showToast === 'function') showToast('Avaliação carregada com os dados salvos.');
+      });
+      target.querySelectorAll('[data-delete]').forEach(btn => btn.onclick = () => {
+        const next = list.filter(x => String(x.id) !== String(btn.dataset.delete));
+        try { historyCache = next; } catch(_){ }
+        if (typeof setLocalHistory === 'function') setLocalHistory(next);
+        if (typeof deleteHistoryEntryFromCloud === 'function') deleteHistoryEntryFromCloud(btn.dataset.delete);
+        renderHistory();
+        if (typeof showToast === 'function') showToast('Avaliação removida.');
+      });
+    } catch(err){
+      console.warn('[Arko] renderHistory operacional falhou.', err);
+      if (originalRenderHistory) originalRenderHistory();
+    }
+  };
+
+  function insertManualSaveButton(){
+    const footer = document.querySelector('#streetCountsModal .manage-footer');
+    if (!footer || document.getElementById('manualDraftSaveBtn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'manualDraftSaveBtn';
+    btn.className = 'btn secondary';
+    btn.type = 'button';
+    btn.textContent = 'Salvar rascunho agora';
+    btn.onclick = function(){
+      try {
+        if (Array.isArray(manageStreetCounts)) state.streetCounts = JSON.parse(JSON.stringify(manageStreetCounts));
+        if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state);
+        if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state);
+        if (typeof persistState === 'function') persistState();
+        if (typeof renderApp === 'function') renderApp();
+        if (typeof showToast === 'function') showToast('Rascunho salvo agora neste aparelho.');
+      } catch(err){ console.warn('[Arko] Falha no salvamento manual.', err); }
+    };
+    footer.insertBefore(btn, footer.firstChild);
+  }
+
+  const originalRenderApp = (typeof renderApp === 'function') ? renderApp : null;
+  if (originalRenderApp) {
+    renderApp = function(){
+      originalRenderApp();
+      ensureMeta();
+      updateOperationalSyncBadge('local_saved');
+      insertManualSaveButton();
+    };
+  }
+
+  const originalRenderStreetCounts = (typeof renderStreetCounts === 'function') ? renderStreetCounts : null;
+  if (originalRenderStreetCounts) {
+    renderStreetCounts = function(){
+      originalRenderStreetCounts();
+      insertManualSaveButton();
+    };
+  }
+
+  document.addEventListener('input', function(ev){
+    const t = ev.target;
+    if (!t || !t.matches) return;
+    if (t.matches('input, textarea, select')) {
+      window.clearTimeout(document._arkoOpSaveTimer);
+      document._arkoOpSaveTimer = window.setTimeout(()=>saveDraftByOperation('input_guard'), 800);
+    }
+  }, true);
+
+  window.addEventListener('online', function(){ updateOperationalSyncBadge('cloud_pending'); try { if (typeof flushPendingHistorySync === 'function') flushPendingHistorySync(); } catch(_){} });
+  window.addEventListener('offline', function(){ updateOperationalSyncBadge('local_saved'); saveDraftByOperation('offline_event'); });
+  document.addEventListener('visibilitychange', function(){ if (document.hidden) saveDraftByOperation('visibility_hidden'); });
+
+  function addStyles(){
+    if (document.getElementById('arkoOperationalPatchStyle')) return;
+    const style = document.createElement('style');
+    style.id = 'arkoOperationalPatchStyle';
+    style.textContent = `
+      #operationalSyncPill{background:#f8fafc;border-color:#cbd5e1;}
+      #operationalSyncPill .pill-dot{background:#2563eb;}
+      #operationalSyncPill.offline .pill-dot{background:#dc2626;}
+      .advanced-history-toolbar .history-filter-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;align-items:end;}
+      .history-filter-input{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:#fff;color:var(--text);font-size:14px;}
+      #manualDraftSaveBtn{background:#fff;color:#0f172a;border:1px solid #cbd5e1;}
+    `;
+    document.head.appendChild(style);
+  }
+
+  try { addStyles(); ensureMeta(); saveDraftByOperation('patch_loaded'); updateOperationalSyncBadge('local_saved'); insertManualSaveButton(); console.info('[Arko] Patch operacional ativo:', PATCH_VERSION); } catch(err){ console.warn('[Arko] Falha ao iniciar patch operacional.', err); }
+})();
+</script>
+
 </body>
 </html>

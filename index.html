@@ -7495,5 +7495,401 @@ function saveConfigModels(){
 })();
 </script>
 
+
+<script id="arkoMobileFieldPatch">
+(function(){
+  'use strict';
+  const PATCH_NAME = 'mobile-campo-sem-perda-v2';
+  const OP_DRAFTS_KEY = 'arko_avaliacao_rascunhos_por_operacao_v1';
+  const DRAFT_BANK_KEY = 'arko_avaliacao_rascunhos_por_modelo_sem_perda_v3';
+  const MULTI_DRAFT_KEY = 'arko_avaliacao_rascunhos_por_modelo_v1';
+  const STORAGE_KEY_SAFE = (typeof STORAGE_KEY !== 'undefined') ? STORAGE_KEY : 'arko_avaliacao_rascunho_v2';
+
+  function toast(msg){ try { if (typeof showToast === 'function') showToast(msg); } catch(_){} }
+  function clone(v){ try { return JSON.parse(JSON.stringify(v)); } catch(_){ return v; } }
+  function read(key, fallback){ try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch(_){ return fallback; } }
+  function writeRaw(key, value){ try { nativeSetItem.call(localStorage, key, value); return true; } catch(_){ return false; } }
+  function isQuotaError(err){ return err && (err.name === 'QuotaExceededError' || err.name === 'NS_ERROR_DOM_QUOTA_REACHED' || String(err.message||'').toLowerCase().includes('quota')); }
+  function safeKey(v){ return String(v == null ? '' : v).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') || 'sem-info'; }
+  function currentModel(){ try { return state?.form?.modelo || 'nova_era_secos'; } catch(_){ return 'nova_era_secos'; } }
+  function currentOperationalKey(){
+    try {
+      const f = state?.form || {};
+      return [safeKey(f.modelo || currentModel()), safeKey(f.nomeLoja || 'loja'), safeKey(f.setor || 'setor'), safeKey(f.data || new Date().toISOString().slice(0,10)), safeKey(f.visita || 'visita'), safeKey(f.coordArko || 'usuario')].join('__');
+    } catch(_){ return ''; }
+  }
+  function stripHeavyDraftPhoto(row){ if (row && row.draftPhoto && row.draftPhoto.dataUrl) row.draftPhoto.dataUrl = ''; }
+  function compactPhotoObject(photo){
+    if (!photo || typeof photo !== 'object') return photo;
+    const p = { ...photo };
+    if (typeof p.dataUrl === 'string' && p.dataUrl.length > 900000) {
+      p.dataUrl = p.dataUrl; // fotos novas já entram compactadas; manter fotos existentes da avaliação atual.
+    }
+    return p;
+  }
+  function compactStateObject(obj, keepPhotos){
+    const s = clone(obj);
+    try {
+      (s.streetCounts || []).forEach(row => {
+        stripHeavyDraftPhoto(row);
+        if (!keepPhotos && Array.isArray(row.photos)) {
+          row.photos = row.photos.map(photo => ({ ...photo, dataUrl: '' }));
+        } else if (Array.isArray(row.photos)) {
+          row.photos = row.photos.map(compactPhotoObject);
+        }
+      });
+    } catch(_){}
+    return s;
+  }
+  function makeStorageRoom(activeKey){
+    try {
+      // Remove fotos de rascunhos antigos e mantém o rascunho atual completo.
+      const op = read(OP_DRAFTS_KEY, {});
+      if (op && typeof op === 'object') {
+        Object.keys(op).forEach(k => { op[k] = compactStateObject(op[k], k === activeKey); });
+        writeRaw(OP_DRAFTS_KEY, JSON.stringify(op));
+      }
+    } catch(_){}
+    try {
+      const bank = read(DRAFT_BANK_KEY, {});
+      const model = currentModel();
+      if (bank && typeof bank === 'object') {
+        Object.keys(bank).forEach(k => { bank[k] = compactStateObject(bank[k], k === model); });
+        writeRaw(DRAFT_BANK_KEY, JSON.stringify(bank));
+      }
+    } catch(_){}
+    try {
+      const bundle = read(MULTI_DRAFT_KEY, null);
+      if (bundle?.drafts) {
+        const model = currentModel();
+        Object.keys(bundle.drafts).forEach(k => { bundle.drafts[k] = compactStateObject(bundle.drafts[k], k === model); });
+        writeRaw(MULTI_DRAFT_KEY, JSON.stringify(bundle));
+      }
+    } catch(_){}
+    try {
+      const s = compactStateObject(state, true);
+      writeRaw(STORAGE_KEY_SAFE, JSON.stringify(s));
+    } catch(_){}
+  }
+
+  const nativeSetItem = Storage.prototype.setItem;
+  if (!Storage.prototype._arkoQuotaPatch) {
+    Storage.prototype._arkoQuotaPatch = true;
+    Storage.prototype.setItem = function(key, value){
+      try { return nativeSetItem.call(this, key, value); }
+      catch(err){
+        if (this === localStorage && isQuotaError(err)) {
+          makeStorageRoom(currentOperationalKey());
+          try { return nativeSetItem.call(this, key, value); }
+          catch(err2){
+            try { window._arkoLastStorageError = err2; } catch(_){}
+            toast('Atenção: armazenamento do celular estava cheio. Compactei rascunhos antigos; salve novamente.');
+            throw err2;
+          }
+        }
+        throw err;
+      }
+    };
+  }
+
+  function compressImageFile(file, maxSide = 1280, quality = 0.68){
+    return new Promise((resolve, reject) => {
+      try {
+        const reader = new FileReader();
+        reader.onerror = reject;
+        reader.onload = () => {
+          const img = new Image();
+          img.onerror = () => resolve(String(reader.result || ''));
+          img.onload = () => {
+            try {
+              let w = img.naturalWidth || img.width;
+              let h = img.naturalHeight || img.height;
+              const ratio = Math.min(1, maxSide / Math.max(w, h));
+              w = Math.max(1, Math.round(w * ratio)); h = Math.max(1, Math.round(h * ratio));
+              const canvas = document.createElement('canvas');
+              canvas.width = w; canvas.height = h;
+              const ctx = canvas.getContext('2d', { alpha:false });
+              ctx.drawImage(img, 0, 0, w, h);
+              resolve(canvas.toDataURL('image/jpeg', quality));
+            } catch(_) { resolve(String(reader.result || '')); }
+          };
+          img.src = String(reader.result || '');
+        };
+        reader.readAsDataURL(file);
+      } catch(err){ reject(err); }
+    });
+  }
+
+  document.addEventListener('change', async function(e){
+    const input = e.target;
+    if (!input || !input.matches || !input.matches('[data-camera-input]')) return;
+    const file = input.files && input.files[0];
+    if (!file) return;
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    const index = Number(input.dataset.cameraInput);
+    const row = Array.isArray(window.manageStreetCounts) ? window.manageStreetCounts[index] : (typeof manageStreetCounts !== 'undefined' ? manageStreetCounts?.[index] : null);
+    if (!row) return;
+    toast('Compactando foto para evitar perda de dados...');
+    try {
+      const dataUrl = await compressImageFile(file);
+      const draft = (typeof getDraftPhotoForRow === 'function') ? getDraftPhotoForRow(row) : (row.draftPhoto || (row.draftPhoto = {}));
+      draft.dataUrl = dataUrl;
+      try { makeStorageRoom(currentOperationalKey()); } catch(_){}
+      if (typeof renderStreetCounts === 'function') renderStreetCounts();
+      toast('Foto adicionada compactada.');
+    } catch(err){ console.warn('[Arko] Falha ao compactar foto.', err); toast('Não foi possível carregar a foto.'); }
+    input.value = '';
+  }, true);
+
+  function saveCurrentStreetDraft(reason){
+    try {
+      if (typeof manageStreetCounts !== 'undefined' && Array.isArray(manageStreetCounts)) {
+        state.streetCounts = clone(manageStreetCounts);
+      }
+      if (typeof applyAutomaticAreas === 'function') applyAutomaticAreas(state);
+      if (typeof applyAutomaticNonConformities === 'function') applyAutomaticNonConformities(state);
+      if (typeof persistState === 'function') persistState();
+      try { makeStorageRoom(currentOperationalKey()); } catch(_){}
+      return true;
+    } catch(err){ console.warn('[Arko] Falha ao salvar rascunho do menu Avaliar.', reason, err); return false; }
+  }
+
+  function enhanceStreetRows(){
+    const list = document.getElementById('streetCountsList');
+    if (!list) return;
+    const rows = Array.from(list.querySelectorAll('.count-row'));
+    rows.forEach((row, idx) => {
+      if (!row.querySelector('.arko-row-header')) {
+        const title = row.querySelector('.count-stage-title')?.textContent || `Área ${idx + 1}`;
+        const header = document.createElement('div');
+        header.className = 'arko-row-header';
+        header.innerHTML = `<strong>${title.replace(/</g,'&lt;')}</strong><button type="button" class="icon-btn arko-toggle-row">Expandir</button>`;
+        row.insertBefore(header, row.firstChild);
+        header.querySelector('button').onclick = () => {
+          row.classList.toggle('arko-collapsed');
+          header.querySelector('button').textContent = row.classList.contains('arko-collapsed') ? 'Expandir' : 'Minimizar';
+        };
+      }
+      const shouldCollapse = Number(window._arkoActiveStreetRow ?? -1) >= 0 && idx !== Number(window._arkoActiveStreetRow);
+      row.classList.toggle('arko-collapsed', shouldCollapse);
+      const btn = row.querySelector('.arko-toggle-row');
+      if (btn) btn.textContent = row.classList.contains('arko-collapsed') ? 'Expandir' : 'Minimizar';
+    });
+  }
+
+  function ensureTopStreetToolbar(){
+    const body = document.querySelector('#streetCountsModal .manage-body');
+    if (!body || document.getElementById('arkoStreetTopToolbar')) return;
+    const bar = document.createElement('div');
+    bar.id = 'arkoStreetTopToolbar';
+    bar.className = 'arko-street-top-toolbar';
+    bar.innerHTML = `
+      <button id="arkoTopSaveDraft" class="btn secondary" type="button">💾 Salvar rascunho agora</button>
+      <button id="arkoTopSaveApply" class="btn" type="button">✅ Salvar contagem automática</button>
+      <button id="arkoTopAddArea" class="btn secondary" type="button">➕ Adicionar área</button>
+    `;
+    body.insertBefore(bar, body.firstChild);
+    bar.querySelector('#arkoTopSaveDraft').onclick = () => { saveCurrentStreetDraft('top_manual'); toast('Rascunho salvo no topo.'); };
+    bar.querySelector('#arkoTopSaveApply').onclick = () => { if (typeof saveStreetCounts === 'function') saveStreetCounts(); };
+    bar.querySelector('#arkoTopAddArea').onclick = () => { if (typeof addStreetCountRow === 'function') addStreetCountRow(); };
+  }
+
+  const oldAddStreetCountRow = (typeof addStreetCountRow === 'function') ? addStreetCountRow : null;
+  if (oldAddStreetCountRow) {
+    window.addStreetCountRow = addStreetCountRow = function(){
+      saveCurrentStreetDraft('before_add_area');
+      const before = (typeof manageStreetCounts !== 'undefined' && Array.isArray(manageStreetCounts)) ? manageStreetCounts.length : 0;
+      oldAddStreetCountRow();
+      const after = (typeof manageStreetCounts !== 'undefined' && Array.isArray(manageStreetCounts)) ? manageStreetCounts.length : before + 1;
+      window._arkoActiveStreetRow = Math.max(0, after - 1);
+      enhanceStreetRows();
+      const rows = document.querySelectorAll('#streetCountsList .count-row');
+      rows[after - 1]?.scrollIntoView({ behavior:'smooth', block:'start' });
+      saveCurrentStreetDraft('after_add_area');
+    };
+  }
+
+  const oldOpenStreetCountsModal = (typeof openStreetCountsModal === 'function') ? openStreetCountsModal : null;
+  if (oldOpenStreetCountsModal) {
+    window.openStreetCountsModal = openStreetCountsModal = function(){
+      window._arkoActiveStreetRow = -1;
+      oldOpenStreetCountsModal();
+      ensureTopStreetToolbar();
+      enhanceStreetRows();
+    };
+  }
+
+  const oldRenderStreetCounts = (typeof renderStreetCounts === 'function') ? renderStreetCounts : null;
+  if (oldRenderStreetCounts) {
+    window.renderStreetCounts = renderStreetCounts = function(){
+      oldRenderStreetCounts();
+      ensureTopStreetToolbar();
+      enhanceStreetRows();
+    };
+  }
+
+  const oldSaveStreetCounts = (typeof saveStreetCounts === 'function') ? saveStreetCounts : null;
+  if (oldSaveStreetCounts) {
+    window.saveStreetCounts = saveStreetCounts = function(){
+      saveCurrentStreetDraft('before_save_apply');
+      const result = oldSaveStreetCounts();
+      saveCurrentStreetDraft('after_save_apply');
+      return result;
+    };
+  }
+
+  window.addEventListener('beforeunload', function(){ saveCurrentStreetDraft('beforeunload'); });
+  document.addEventListener('visibilitychange', function(){ if (document.hidden) saveCurrentStreetDraft('visibility_hidden_mobile_patch'); });
+
+  function addStyle(){
+    if (document.getElementById('arkoMobileFieldPatchStyle')) return;
+    const st = document.createElement('style');
+    st.id = 'arkoMobileFieldPatchStyle';
+    st.textContent = `
+      #arkoStreetTopToolbar{position:sticky;top:0;z-index:30;background:#fff;border:1px solid var(--border);border-radius:16px;padding:10px;margin:0 0 14px;display:flex;gap:10px;flex-wrap:wrap;box-shadow:0 8px 22px rgba(15,23,42,.08)}
+      #arkoStreetTopToolbar .btn{min-height:44px}
+      .arko-row-header{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--border);background:#f8fafc;border-radius:14px;padding:10px 12px;margin-bottom:12px;position:sticky;top:66px;z-index:5}
+      .count-row.arko-collapsed > :not(.arko-row-header){display:none!important}
+      .count-row.arko-collapsed{padding:10px!important;background:#f8fafc!important}
+      @media(max-width:640px){#arkoStreetTopToolbar{top:0}.arko-row-header{top:76px}.arko-street-top-toolbar .btn,#arkoStreetTopToolbar .btn{width:100%;justify-content:center}}
+    `;
+    document.head.appendChild(st);
+  }
+
+  try {
+    addStyle();
+    makeStorageRoom(currentOperationalKey());
+    if (typeof renderStreetCounts === 'function') { ensureTopStreetToolbar(); enhanceStreetRows(); }
+    console.info('[Arko] Patch ativo:', PATCH_NAME);
+  } catch(err){ console.warn('[Arko] Falha ao iniciar patch mobile.', err); }
+})();
+</script>
+
+
+
+<!-- === PATCH ARKO: Menu Avaliar - áreas antigas no final e botões somente no topo === -->
+<style id="arkoStreetFinalLayoutPatch">
+  /* Remove os botões inferiores do menu Avaliar; ficam apenas os comandos do topo */
+  #streetCountsModal .manage-footer {
+    display: none !important;
+  }
+  #arkoStreetTopToolbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: #fff;
+    padding: 10px 0 14px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  #streetCountsList .count-row.arko-collapsed {
+    opacity: .88;
+  }
+  #streetCountsList .count-row.arko-active-row {
+    border-color: #94a3b8 !important;
+    box-shadow: 0 8px 22px rgba(15,23,42,.08);
+  }
+</style>
+<script id="arkoStreetFinalLayoutPatchScript">
+(function(){
+  if (window.__arkoStreetFinalLayoutPatchApplied) return;
+  window.__arkoStreetFinalLayoutPatchApplied = true;
+
+  function getRowsArray(){
+    try {
+      if (typeof manageStreetCounts !== 'undefined' && Array.isArray(manageStreetCounts)) return manageStreetCounts;
+      if (Array.isArray(window.manageStreetCounts)) return window.manageStreetCounts;
+    } catch(_){}
+    return null;
+  }
+
+  function setRowsArray(rows){
+    try { if (typeof manageStreetCounts !== 'undefined') manageStreetCounts = rows; } catch(_){}
+    try { window.manageStreetCounts = rows; } catch(_){}
+  }
+
+  function moveActiveAreaToTop(activeIndex){
+    const rows = getRowsArray();
+    if (!Array.isArray(rows) || rows.length <= 1) return 0;
+    const idx = Number.isFinite(Number(activeIndex)) ? Number(activeIndex) : rows.length - 1;
+    if (idx <= 0 || idx >= rows.length) return 0;
+    const active = rows.splice(idx, 1)[0];
+    rows.unshift(active);
+    setRowsArray(rows);
+    return 0;
+  }
+
+  function forceOnlyTopButtons(){
+    const footer = document.querySelector('#streetCountsModal .manage-footer');
+    if (footer) footer.remove();
+  }
+
+  function enhanceStreetRowsFinal(){
+    forceOnlyTopButtons();
+    if (typeof enhanceStreetRows === 'function') {
+      try { enhanceStreetRows(); } catch(_){}
+    }
+    const rows = Array.from(document.querySelectorAll('#streetCountsList .count-row'));
+    rows.forEach((row, idx) => {
+      const isActive = idx === Number(window._arkoActiveStreetRow || 0);
+      row.classList.toggle('arko-active-row', isActive);
+      row.classList.toggle('arko-collapsed', !isActive);
+      const btn = row.querySelector('.arko-toggle-row');
+      if (btn) btn.textContent = isActive ? 'Minimizar' : 'Expandir';
+    });
+  }
+
+  const previousRender = (typeof renderStreetCounts === 'function') ? renderStreetCounts : null;
+  if (previousRender) {
+    window.renderStreetCounts = renderStreetCounts = function(){
+      previousRender.apply(this, arguments);
+      forceOnlyTopButtons();
+      enhanceStreetRowsFinal();
+    };
+  }
+
+  const previousOpen = (typeof openStreetCountsModal === 'function') ? openStreetCountsModal : null;
+  if (previousOpen) {
+    window.openStreetCountsModal = openStreetCountsModal = function(){
+      window._arkoActiveStreetRow = 0;
+      previousOpen.apply(this, arguments);
+      forceOnlyTopButtons();
+      enhanceStreetRowsFinal();
+      const list = document.getElementById('streetCountsList');
+      if (list) list.scrollIntoView({ behavior:'instant', block:'start' });
+    };
+  }
+
+  const previousAdd = (typeof addStreetCountRow === 'function') ? addStreetCountRow : null;
+  if (previousAdd) {
+    window.addStreetCountRow = addStreetCountRow = function(){
+      try { if (typeof saveCurrentStreetDraft === 'function') saveCurrentStreetDraft('before_add_area_top'); } catch(_){}
+      const beforeRows = getRowsArray();
+      const beforeLength = Array.isArray(beforeRows) ? beforeRows.length : 0;
+      previousAdd.apply(this, arguments);
+      const afterRows = getRowsArray();
+      const afterLength = Array.isArray(afterRows) ? afterRows.length : beforeLength;
+
+      // O novo registro normalmente nasce no final; movemos para o topo.
+      // Assim, as áreas já avaliadas/minimizadas ficam abaixo, no final da página.
+      window._arkoActiveStreetRow = moveActiveAreaToTop(Math.max(0, afterLength - 1));
+
+      if (typeof renderStreetCounts === 'function') renderStreetCounts();
+      forceOnlyTopButtons();
+      enhanceStreetRowsFinal();
+
+      const list = document.getElementById('streetCountsList');
+      if (list) list.scrollIntoView({ behavior:'smooth', block:'start' });
+      try { if (typeof saveCurrentStreetDraft === 'function') saveCurrentStreetDraft('after_add_area_top'); } catch(_){}
+    };
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    forceOnlyTopButtons();
+    enhanceStreetRowsFinal();
+  });
+})();
+</script>
+
 </body>
 </html>
